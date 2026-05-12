@@ -37,6 +37,11 @@ import type {
   ListMembersRequest,
   ListMembersResult,
   MemberProfile,
+  NotificationNavigationAction,
+  NotificationNavigationPendingResult,
+  NotificationNavigationRequest,
+  NotificationNavigationResult,
+  NotificationUnreadConversation,
   NotificationUnreadSummary,
   NotificationUnreadUpdateRequest,
   NotificationUnreadUpdateResult,
@@ -117,6 +122,13 @@ function renderWorkspaceSelection(api: {
     updateUnreadSummary: (
       request: NotificationUnreadUpdateRequest,
     ) => Promise<NotificationUnreadUpdateResult>;
+    getPendingNavigation: () => Promise<NotificationNavigationPendingResult>;
+    dispatchNavigation: (
+      request: NotificationNavigationRequest,
+    ) => Promise<NotificationNavigationResult>;
+    subscribeNavigation: (
+      handler: (action: NotificationNavigationAction) => void,
+    ) => Promise<() => void>;
   }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
@@ -189,6 +201,10 @@ function renderWorkspaceSelection(api: {
         notificationApi={{
           updateUnreadSummary: (request) =>
             Promise.resolve({ summary: notificationSummary({ request }) }),
+          getPendingNavigation: () => Promise.resolve({ action: null }),
+          dispatchNavigation: (request: NotificationNavigationRequest) =>
+            Promise.resolve({ action: notificationNavigationAction(request) }),
+          subscribeNavigation: () => Promise.resolve(() => undefined),
           ...notificationApi,
         }}
         terminalDispatchApi={{
@@ -284,6 +300,19 @@ function windowContextSnapshot(
   };
 }
 
+function notificationPreviewSnapshot(
+  overrides: Partial<WindowContextSnapshot> = {},
+): WindowContextSnapshot {
+  return windowContextSnapshot({
+    currentWindow: {
+      label: "notification-preview",
+      mode: "notificationPreview",
+    },
+    activeWorkspace: openedWorkspaceResult().workspace,
+    ...overrides,
+  });
+}
+
 function terminalOpenResult(overrides: Partial<TerminalOpenResult> = {}): TerminalOpenResult {
   return {
     window: {
@@ -360,9 +389,19 @@ function notificationSummary({
   overrides = {},
 }: {
   request?: NotificationUnreadUpdateRequest;
-  overrides?: Partial<NotificationUnreadSummary>;
+  overrides?: Partial<Omit<NotificationUnreadSummary, "conversations">> & {
+    conversations?: Array<
+      Omit<NotificationUnreadConversation, "terminalMemberId"> &
+        Partial<Pick<NotificationUnreadConversation, "terminalMemberId">>
+    >;
+  };
 } = {}): NotificationUnreadSummary {
-  const conversations = request?.conversations ?? overrides.conversations ?? [];
+  const conversations = (request?.conversations ?? overrides.conversations ?? []).map(
+    (conversation) => ({
+      terminalMemberId: null,
+      ...conversation,
+    }),
+  );
   const totalUnreadCount =
     overrides.totalUnreadCount ??
     conversations.reduce((total, conversation) => total + conversation.unreadCount, 0);
@@ -380,6 +419,22 @@ function notificationSummary({
     },
     updatedAtMs: overrides.updatedAtMs ?? 1760000005000,
     sourceWindowLabel: request?.sourceWindowLabel ?? overrides.sourceWindowLabel ?? null,
+  };
+}
+
+function notificationNavigationAction(
+  request: NotificationNavigationRequest,
+  overrides: Partial<NotificationNavigationAction> = {},
+): NotificationNavigationAction {
+  return {
+    schemaVersion: 1,
+    kind: request.kind,
+    workspaceId: request.workspaceId,
+    conversationId: request.conversationId,
+    memberId: request.memberId,
+    updatedAtMs: overrides.updatedAtMs ?? 1760000006000,
+    sourceWindowLabel: request.sourceWindowLabel,
+    ...overrides,
   };
 }
 
@@ -1063,6 +1118,7 @@ describe("App workspace entry", () => {
             title: channel.title,
             unreadCount: 4,
             lastMessagePreview: "Latest note",
+            terminalMemberId: null,
             updatedAtMs: channel.updatedAtMs,
           },
           {
@@ -1070,6 +1126,7 @@ describe("App workspace entry", () => {
             title: projectRoom.title,
             unreadCount: 2,
             lastMessagePreview: "Review ready",
+            terminalMemberId: null,
             updatedAtMs: projectRoom.updatedAtMs,
           },
         ],
@@ -1176,13 +1233,15 @@ describe("App workspace entry", () => {
 
     render(
       <NotificationPreviewPage
-        snapshot={windowContextSnapshot({ activeWorkspace: openedWorkspaceResult().workspace })}
+        snapshot={notificationPreviewSnapshot()}
         api={{
           getUnreadSummary: () => Promise.resolve({ summary: initialSummary }),
           subscribeUnreadSummary: async (handler: (summary: NotificationUnreadSummary) => void) => {
             unreadHandler = handler;
             return () => undefined;
           },
+          dispatchNavigation: (request) =>
+            Promise.resolve({ action: notificationNavigationAction(request) }),
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={() => Promise.resolve()}
@@ -1201,6 +1260,259 @@ describe("App workspace entry", () => {
     expect(await screen.findByText("Ops Room")).toBeInTheDocument();
     expect(screen.getByLabelText("通知未读总数")).toHaveTextContent("3");
     expect(screen.getByText("托盘 3")).toBeInTheDocument();
+  });
+
+  it("dispatches view-all unread navigation from notification preview", async () => {
+    const user = userEvent.setup();
+    const summary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: "01K00000000000000000000080",
+            title: "Project Room",
+            unreadCount: 2,
+            lastMessagePreview: "Review ready",
+            updatedAtMs: 1760000003000,
+          },
+        ],
+      },
+    });
+    const dispatchNavigation = vi.fn((request: NotificationNavigationRequest) =>
+      Promise.resolve({ action: notificationNavigationAction(request) }),
+    );
+    const onOpenWindowMode = vi.fn(() => Promise.resolve());
+
+    render(
+      <NotificationPreviewPage
+        snapshot={notificationPreviewSnapshot()}
+        api={{
+          getUnreadSummary: () => Promise.resolve({ summary }),
+          subscribeUnreadSummary: () => Promise.resolve(() => undefined),
+          dispatchNavigation,
+        }}
+        onPreferencesChange={() => Promise.resolve()}
+        onOpenWindowMode={onOpenWindowMode}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "查看全部未读" }));
+
+    expect(onOpenWindowMode).toHaveBeenCalledWith("main");
+    expect(dispatchNavigation).toHaveBeenCalledWith({
+      kind: "allUnread",
+      workspaceId: "01K00000000000000000000000",
+      conversationId: null,
+      memberId: null,
+      sourceWindowLabel: "notification-preview",
+    });
+  });
+
+  it("dispatches conversation navigation from a notification preview row", async () => {
+    const user = userEvent.setup();
+    const summary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: "01K00000000000000000000080",
+            title: "Project Room",
+            unreadCount: 1,
+            lastMessagePreview: "Review ready",
+            updatedAtMs: 1760000003000,
+          },
+        ],
+      },
+    });
+    const dispatchNavigation = vi.fn((request: NotificationNavigationRequest) =>
+      Promise.resolve({ action: notificationNavigationAction(request) }),
+    );
+
+    render(
+      <NotificationPreviewPage
+        snapshot={notificationPreviewSnapshot()}
+        api={{
+          getUnreadSummary: () => Promise.resolve({ summary }),
+          subscribeUnreadSummary: () => Promise.resolve(() => undefined),
+          dispatchNavigation,
+        }}
+        onPreferencesChange={() => Promise.resolve()}
+        onOpenWindowMode={() => Promise.resolve()}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "打开会话 Project Room" }));
+
+    expect(dispatchNavigation).toHaveBeenCalledWith({
+      kind: "conversation",
+      workspaceId: "01K00000000000000000000000",
+      conversationId: "01K00000000000000000000080",
+      memberId: null,
+      sourceWindowLabel: "notification-preview",
+    });
+  });
+
+  it("opens a member terminal from notification preview when a terminal target exists", async () => {
+    const user = userEvent.setup();
+    const summary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: "01K00000000000000000000090",
+            title: "Codex",
+            unreadCount: 1,
+            lastMessagePreview: "Done",
+            terminalMemberId: "01K00000000000000000000021",
+            updatedAtMs: 1760000003000,
+          },
+        ],
+      },
+    });
+    const openTerminal = vi.fn(() => Promise.resolve(terminalOpenResult()));
+
+    render(
+      <NotificationPreviewPage
+        snapshot={notificationPreviewSnapshot()}
+        api={{
+          getUnreadSummary: () => Promise.resolve({ summary }),
+          subscribeUnreadSummary: () => Promise.resolve(() => undefined),
+          dispatchNavigation: (request) =>
+            Promise.resolve({ action: notificationNavigationAction(request) }),
+        }}
+        terminalApi={{ openTerminal }}
+        onPreferencesChange={() => Promise.resolve()}
+        onOpenWindowMode={() => Promise.resolve()}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "打开终端" }));
+
+    expect(openTerminal).toHaveBeenCalledWith({
+      memberId: "01K00000000000000000000021",
+    });
+  });
+
+  it("opens the main workspace unread view from a pending notification navigation action", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel({ unreadCount: 0 });
+    const projectRoom = conversationProfile({
+      conversationId: "01K00000000000000000000080",
+      kind: "group",
+      title: "Project Room",
+      participantKind: null,
+      participantId: null,
+      unreadCount: 2,
+      lastMessagePreview: "Review ready",
+      members: [],
+      updatedAtMs: 1760000003000,
+      lastActivityAtMs: 1760000003000,
+    });
+    const action = notificationNavigationAction({
+      kind: "allUnread",
+      workspaceId: "01K00000000000000000000000",
+      conversationId: null,
+      memberId: null,
+      sourceWindowLabel: "notification-preview",
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel, projectRoom] }),
+        listMessages: ({ conversationId }) =>
+          Promise.resolve({
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: conversationId === projectRoom.conversationId ? projectRoom : channel,
+          }),
+      },
+      notificationApi: {
+        getPendingNavigation: () => Promise.resolve({ action }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByRole("button", { name: "未读 1" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getAllByText("Project Room").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /默认频道/ })).not.toBeInTheDocument();
+  });
+
+  it("selects a conversation in the main workspace from notification navigation events", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel({ unreadCount: 0 });
+    const projectRoom = conversationProfile({
+      conversationId: "01K00000000000000000000080",
+      kind: "group",
+      title: "Project Room",
+      participantKind: null,
+      participantId: null,
+      unreadCount: 1,
+      lastMessagePreview: "Review ready",
+      members: [],
+      updatedAtMs: 1760000003000,
+      lastActivityAtMs: 1760000003000,
+    });
+    let navigationHandler: ((action: NotificationNavigationAction) => void) | null = null;
+    const listMessages = vi.fn(({ conversationId }: ListMessagesRequest) =>
+      Promise.resolve({
+        messages: [],
+        hasMore: false,
+        nextBeforeMessageId: null,
+        readPosition: null,
+        conversation: conversationId === projectRoom.conversationId ? projectRoom : channel,
+      }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel, projectRoom] }),
+        listMessages,
+      },
+      notificationApi: {
+        subscribeNavigation: async (handler) => {
+          navigationHandler = handler;
+          return () => undefined;
+        },
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    expect(await screen.findByRole("button", { name: /默认频道/ })).toBeInTheDocument();
+
+    act(() => {
+      navigationHandler?.(
+        notificationNavigationAction({
+          kind: "conversation",
+          workspaceId: "01K00000000000000000000000",
+          conversationId: projectRoom.conversationId,
+          memberId: null,
+          sourceWindowLabel: "notification-preview",
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(listMessages).toHaveBeenLastCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: projectRoom.conversationId,
+        beforeMessageId: null,
+        limit: 30,
+      }),
+    );
+    expect(screen.getByRole("button", { name: "全部" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("keeps terminal output observable while unread aggregation updates", async () => {

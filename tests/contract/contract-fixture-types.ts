@@ -68,6 +68,12 @@ import type {
   UpdateMemberStatusResult,
 } from "../../src/contracts/generated/member";
 import type {
+  NotificationNavigationAction,
+  NotificationNavigationKind,
+  NotificationNavigationPendingRequest,
+  NotificationNavigationPendingResult,
+  NotificationNavigationRequest,
+  NotificationNavigationResult,
   NotificationUnreadSummary,
   NotificationUnreadSummaryRequest,
   NotificationUnreadSummaryResult,
@@ -190,6 +196,13 @@ import dispatchChatMessageResult from "../../fixtures/contracts/orchestration/di
 import dispatchQueueResumeError from "../../fixtures/contracts/orchestration/dispatch-queue-resume.error.json";
 import dispatchQueueResumeRequest from "../../fixtures/contracts/orchestration/dispatch-queue-resume.request.json";
 import dispatchQueueResumeResult from "../../fixtures/contracts/orchestration/dispatch-queue-resume.result.json";
+import notificationNavigationDispatchError from "../../fixtures/contracts/notification/notification-navigation-dispatch.error.json";
+import notificationNavigationDispatchRequest from "../../fixtures/contracts/notification/notification-navigation-dispatch.request.json";
+import notificationNavigationDispatchResult from "../../fixtures/contracts/notification/notification-navigation-dispatch.result.json";
+import notificationNavigationEvent from "../../fixtures/contracts/notification/notification-navigation.event.json";
+import notificationNavigationPendingError from "../../fixtures/contracts/notification/notification-navigation-pending-get.error.json";
+import notificationNavigationPendingRequest from "../../fixtures/contracts/notification/notification-navigation-pending-get.request.json";
+import notificationNavigationPendingResult from "../../fixtures/contracts/notification/notification-navigation-pending-get.result.json";
 import notificationUnreadGetError from "../../fixtures/contracts/notification/notification-unread-summary-get.error.json";
 import notificationUnreadGetRequest from "../../fixtures/contracts/notification/notification-unread-summary-get.request.json";
 import notificationUnreadGetResult from "../../fixtures/contracts/notification/notification-unread-summary-get.result.json";
@@ -425,6 +438,28 @@ export const notificationUnreadUpdateErrorFixture: AppError = appError(
 );
 export const notificationUnreadEventFixture: NotificationUnreadSummary =
   notificationUnreadSummary(notificationUnreadEvent);
+export const notificationNavigationPendingRequestFixture: NotificationNavigationPendingRequest =
+  notificationNavigationPendingRequest;
+export const notificationNavigationPendingResultFixture: NotificationNavigationPendingResult = {
+  action: notificationNavigationPendingResult.action
+    ? notificationNavigationAction(notificationNavigationPendingResult.action)
+    : null,
+};
+export const notificationNavigationPendingErrorFixture: AppError = appError(
+  notificationNavigationPendingError,
+);
+export const notificationNavigationDispatchRequestFixture: NotificationNavigationRequest = {
+  ...notificationNavigationDispatchRequest,
+  kind: notificationNavigationKind(notificationNavigationDispatchRequest.kind),
+};
+export const notificationNavigationDispatchResultFixture: NotificationNavigationResult = {
+  action: notificationNavigationAction(notificationNavigationDispatchResult.action),
+};
+export const notificationNavigationDispatchErrorFixture: AppError = appError(
+  notificationNavigationDispatchError,
+);
+export const notificationNavigationEventFixture: NotificationNavigationAction =
+  notificationNavigationAction(notificationNavigationEvent);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -575,6 +610,8 @@ type ErrorJson =
   | typeof dispatchQueueResumeError
   | typeof notificationUnreadGetError
   | typeof notificationUnreadUpdateError
+  | typeof notificationNavigationPendingError
+  | typeof notificationNavigationDispatchError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -601,6 +638,33 @@ function notificationUnreadSummary(
     conversations: summary.conversations.map((conversation) => ({ ...conversation })),
     tray: { ...summary.tray },
   };
+}
+
+function notificationNavigationAction(
+  action:
+    | typeof notificationNavigationPendingResult.action
+    | typeof notificationNavigationDispatchResult.action
+    | typeof notificationNavigationEvent,
+): NotificationNavigationAction {
+  if (!action) {
+    throw new Error("Missing notification navigation action");
+  }
+
+  return {
+    ...action,
+    kind: notificationNavigationKind(action.kind),
+  };
+}
+
+function notificationNavigationKind(value: string): NotificationNavigationKind {
+  switch (value) {
+    case "allUnread":
+    case "conversation":
+    case "memberTerminal":
+      return value;
+    default:
+      throw new Error(`Unknown notification navigation kind: ${value}`);
+  }
 }
 
 function appError(error: ErrorJson): AppError {

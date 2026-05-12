@@ -75,6 +75,12 @@ export type {
 } from "./member";
 export type {
   NotificationTrayState,
+  NotificationNavigationAction,
+  NotificationNavigationKind,
+  NotificationNavigationPendingRequest,
+  NotificationNavigationPendingResult,
+  NotificationNavigationRequest,
+  NotificationNavigationResult,
   NotificationUnreadConversation,
   NotificationUnreadSummary,
   NotificationUnreadSummaryRequest,

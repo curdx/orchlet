@@ -10,19 +10,21 @@ use orchlet_lib::contracts::{
     DispatchRequestStatus, DispatchTargetResolutionSource, InviteMemberRequest, InviteMemberResult,
     InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
     ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
-    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, NotificationUnreadSummary,
-    NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
-    NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenWorkspaceRequest,
-    OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
-    SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
-    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
-    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
-    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
-    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
-    TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
-    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
-    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
-    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, NotificationNavigationAction,
+    NotificationNavigationKind, NotificationNavigationPendingRequest,
+    NotificationNavigationPendingResult, NotificationNavigationRequest,
+    NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
+    NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
+    NotificationUnreadUpdateResult, OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest,
+    RemoveMemberResult, SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
+    StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
+    TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
+    TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
+    TerminalInputResult, TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload,
+    TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus, TerminalStatusEventPayload,
+    TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
+    TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
+    TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
     TerminalTabsListResult, UpdateContactRequest, UpdateContactResult,
     UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
@@ -422,10 +424,36 @@ fn notification_contract_fixtures_deserialize_into_rust_dtos() {
     );
     let event: NotificationUnreadSummary =
         read_fixture("../fixtures/contracts/notification/notification-unread.event.json");
+    let _pending_request: NotificationNavigationPendingRequest = read_fixture(
+        "../fixtures/contracts/notification/notification-navigation-pending-get.request.json",
+    );
+    let pending_result: NotificationNavigationPendingResult = read_fixture(
+        "../fixtures/contracts/notification/notification-navigation-pending-get.result.json",
+    );
+    let pending_error: AppError = read_fixture(
+        "../fixtures/contracts/notification/notification-navigation-pending-get.error.json",
+    );
+    let navigation_request: NotificationNavigationRequest = read_fixture(
+        "../fixtures/contracts/notification/notification-navigation-dispatch.request.json",
+    );
+    let navigation_result: NotificationNavigationResult = read_fixture(
+        "../fixtures/contracts/notification/notification-navigation-dispatch.result.json",
+    );
+    let navigation_error: AppError = read_fixture(
+        "../fixtures/contracts/notification/notification-navigation-dispatch.error.json",
+    );
+    let navigation_event: NotificationNavigationAction =
+        read_fixture("../fixtures/contracts/notification/notification-navigation.event.json");
 
     assert_eq!(get_result.summary.total_unread_count, 3);
     assert_eq!(get_result.summary.tray.badge_label.as_deref(), Some("3"));
     assert_eq!(get_result.summary.conversations.len(), 2);
+    assert_eq!(
+        get_result.summary.conversations[1]
+            .terminal_member_id
+            .as_deref(),
+        Some("01K00000000000000000000021")
+    );
     assert_eq!(get_error.code, "notification.unread.summaryUnavailable");
     assert_eq!(
         update_request.workspace_id.as_deref(),
@@ -436,6 +464,31 @@ fn notification_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(update_error.code, "notification.unread.emitFailed");
     assert_eq!(event.total_unread_count, 3);
     assert!(event.tray.has_unread);
+    assert_eq!(
+        pending_result
+            .action
+            .as_ref()
+            .expect("pending navigation action")
+            .kind,
+        NotificationNavigationKind::Conversation
+    );
+    assert_eq!(
+        pending_error.code,
+        "notification.navigation.pendingUnavailable"
+    );
+    assert_eq!(
+        navigation_request.conversation_id.as_deref(),
+        Some("01K00000000000000000000080")
+    );
+    assert_eq!(
+        navigation_result.action.kind,
+        NotificationNavigationKind::Conversation
+    );
+    assert_eq!(navigation_error.code, "notification.navigation.emitFailed");
+    assert_eq!(
+        navigation_event.kind,
+        NotificationNavigationKind::Conversation
+    );
 }
 
 #[test]

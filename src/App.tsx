@@ -5,6 +5,7 @@ import { TerminalPage } from "./pages/terminal";
 import { WorkspaceSelectionPage } from "./pages/workspace-selection";
 import { notificationApi, terminalApi, windowContextApi } from "./shared/api";
 import type { NotificationApi } from "./shared/api/notification-api";
+import type { TerminalApi } from "./shared/api/terminal-api";
 import type {
   AppLanguage,
   AppTheme,
@@ -112,11 +113,16 @@ function App() {
 export function NotificationPreviewPage({
   snapshot,
   api = notificationApi,
+  terminalApi: terminalsApi = terminalApi,
   onPreferencesChange,
   onOpenWindowMode,
 }: {
   snapshot: WindowContextSnapshot | null;
-  api?: Pick<NotificationApi, "getUnreadSummary" | "subscribeUnreadSummary">;
+  api?: Pick<
+    NotificationApi,
+    "getUnreadSummary" | "subscribeUnreadSummary" | "dispatchNavigation"
+  >;
+  terminalApi?: Pick<TerminalApi, "openTerminal">;
   onPreferencesChange: (update: {
     theme?: AppTheme | null;
     language?: AppLanguage | null;
@@ -125,11 +131,14 @@ export function NotificationPreviewPage({
 }) {
   const [summary, setSummary] = useState<NotificationUnreadSummary | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isActionPending, setIsActionPending] = useState(false);
   const workspace = snapshot?.activeWorkspace;
   const workspaceLabel =
     summary?.workspaceName ?? workspace?.metadata.name ?? "未选择工作区";
   const conversations = summary?.conversations ?? [];
   const totalUnreadCount = summary?.totalUnreadCount ?? 0;
+  const navigationWorkspaceId = summary?.workspaceId ?? workspace?.metadata.projectId ?? null;
+  const sourceWindowLabel = snapshot?.currentWindow.label ?? "notification-preview";
 
   useEffect(() => {
     let disposed = false;
@@ -167,6 +176,51 @@ export function NotificationPreviewPage({
       unsubscribe?.();
     };
   }, [api]);
+
+  async function runPreviewAction(action: () => Promise<void>) {
+    setIsActionPending(true);
+
+    try {
+      await action();
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "通知操作失败。");
+    } finally {
+      setIsActionPending(false);
+    }
+  }
+
+  async function handleOpenAllUnread() {
+    await runPreviewAction(async () => {
+      await onOpenWindowMode("main");
+      await api.dispatchNavigation({
+        kind: "allUnread",
+        workspaceId: navigationWorkspaceId,
+        conversationId: null,
+        memberId: null,
+        sourceWindowLabel,
+      });
+    });
+  }
+
+  async function handleOpenConversation(conversationId: string) {
+    await runPreviewAction(async () => {
+      await onOpenWindowMode("main");
+      await api.dispatchNavigation({
+        kind: "conversation",
+        workspaceId: navigationWorkspaceId,
+        conversationId,
+        memberId: null,
+        sourceWindowLabel,
+      });
+    });
+  }
+
+  async function handleOpenMemberTerminal(memberId: string) {
+    await runPreviewAction(async () => {
+      await terminalsApi.openTerminal({ memberId });
+    });
+  }
 
   return (
     <main className="min-h-screen bg-[#f4f7f2] text-[#17211b]">
@@ -244,18 +298,38 @@ export function NotificationPreviewPage({
                   {conversations.map((conversation) => (
                     <li
                       key={conversation.conversationId}
-                      className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-md border border-[#e3eadf] bg-white p-3"
+                      className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 rounded-md border border-[#e3eadf] bg-white p-2"
                     >
-                      <span className="min-w-0">
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenConversation(conversation.conversationId)}
+                        disabled={isActionPending}
+                        aria-label={`打开会话 ${conversation.title}`}
+                        className="min-w-0 rounded-sm p-1 text-left hover:bg-[#f5faf2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:text-[#8c9789]"
+                      >
                         <span className="block truncate text-sm font-semibold text-[#263229]">
                           {conversation.title}
                         </span>
                         <span className="mt-1 block truncate text-xs text-[#6a786c]">
                           {conversation.lastMessagePreview ?? "暂无预览"}
                         </span>
-                      </span>
-                      <span className="inline-flex h-6 min-w-7 items-center justify-center rounded-full bg-[#2f6f55] px-2 text-xs font-semibold text-white">
-                        {unreadBadgeLabel(conversation.unreadCount)}
+                      </button>
+                      <span className="grid justify-items-end gap-1">
+                        <span className="inline-flex h-6 min-w-7 items-center justify-center rounded-full bg-[#2f6f55] px-2 text-xs font-semibold text-white">
+                          {unreadBadgeLabel(conversation.unreadCount)}
+                        </span>
+                        {conversation.terminalMemberId ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void handleOpenMemberTerminal(conversation.terminalMemberId!)
+                            }
+                            disabled={isActionPending}
+                            className="rounded border border-[#cfe0c9] px-2 py-0.5 text-[11px] font-semibold text-[#37533e] hover:bg-[#eef6ea] disabled:text-[#a4aea1]"
+                          >
+                            打开终端
+                          </button>
+                        ) : null}
                       </span>
                     </li>
                   ))}
@@ -268,6 +342,14 @@ export function NotificationPreviewPage({
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleOpenAllUnread()}
+                disabled={isActionPending || totalUnreadCount === 0}
+                className="rounded-md border border-[#b9d0b2] bg-[#eef6ea] px-3 py-1.5 text-xs font-semibold text-[#2f5038] transition hover:bg-[#e4f0df] disabled:border-[#d8e2d4] disabled:bg-white disabled:text-[#a4aea1]"
+              >
+                查看全部未读
+              </button>
               <button
                 type="button"
                 onClick={() => void onPreferencesChange({ theme: "dark" })}

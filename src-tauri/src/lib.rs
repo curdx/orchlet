@@ -35,6 +35,8 @@ pub fn run() {
             gateway::orchestration_commands::orchestration_resume_member_dispatch_queue,
             gateway::notification_commands::notification_unread_summary_get,
             gateway::notification_commands::notification_unread_summary_update,
+            gateway::notification_commands::notification_navigation_pending_get,
+            gateway::notification_commands::notification_navigation_dispatch,
             gateway::terminal_commands::terminal_open,
             gateway::terminal_commands::terminal_attach,
             gateway::terminal_commands::terminal_input,

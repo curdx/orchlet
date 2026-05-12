@@ -9,6 +9,7 @@
       "title": "默认频道",
       "unreadCount": 1,
       "lastMessagePreview": "Ready for review",
+      "terminalMemberId": null,
       "updatedAtMs": 1760000003000
     },
     {
@@ -16,6 +17,7 @@
       "title": "Project Room",
       "unreadCount": 2,
       "lastMessagePreview": "Build finished",
+      "terminalMemberId": "01K00000000000000000000021",
       "updatedAtMs": 1760000004000
     }
   ],

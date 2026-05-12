@@ -81,7 +81,7 @@ development_status:
 
   epic-5: in-progress
   5-1-aggregate-window-workspace-unread-status: done
-  5-2-notification-preview-navigation: backlog
+  5-2-notification-preview-navigation: done
   5-3-ignore-all-unread-notifications: backlog
   epic-5-retrospective: optional
 

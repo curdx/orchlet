@@ -1,0 +1,9 @@
+{
+  "code": "notification.navigation.emitFailed",
+  "message": "无法同步通知跳转。",
+  "userAction": "目标窗口可能未及时收到跳转；请重试或从主窗口手动打开。",
+  "details": "event channel closed",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "warning"
+}

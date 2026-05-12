@@ -25,6 +25,8 @@ const requiredCommands = new Set([
   "orchestration_resume_member_dispatch_queue",
   "notification_unread_summary_get",
   "notification_unread_summary_update",
+  "notification_navigation_pending_get",
+  "notification_navigation_dispatch",
   "contacts_list",
   "contact_create",
   "contact_update",

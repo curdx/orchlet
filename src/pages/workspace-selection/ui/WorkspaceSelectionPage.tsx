@@ -72,6 +72,7 @@ import type {
 import type {
   AppLanguage,
   AppTheme,
+  NotificationNavigationAction,
   OpenWorkspaceResult,
   OpenedWorkspace,
   WindowContextSnapshot,
@@ -99,7 +100,10 @@ type WorkspaceSelectionPageProps = {
   onOpenWindowMode?: (mode: WindowMode) => Promise<void>;
   integrityApi?: Pick<DataIntegrityApi, "validate">;
   memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember" | "updateMemberStatus">;
-  notificationApi?: Pick<NotificationApi, "updateUnreadSummary">;
+  notificationApi?: Pick<
+    NotificationApi,
+    "updateUnreadSummary" | "getPendingNavigation" | "subscribeNavigation"
+  >;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
@@ -126,6 +130,7 @@ type PendingConflict = {
 };
 
 type AttachmentEntry = "image" | "roadmap";
+type ConversationFilter = "all" | "unread";
 type DispatchTargetCandidate = {
   memberId: string;
   memberLabel: string;
@@ -215,6 +220,9 @@ export function WorkspaceSelectionPage({
   const [lastPrivateConversation, setLastPrivateConversation] =
     useState<ConversationProfile | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [conversationFilter, setConversationFilter] = useState<ConversationFilter>("all");
+  const [pendingNotificationNavigation, setPendingNotificationNavigation] =
+    useState<NotificationNavigationAction | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
   const [mentionedMemberIds, setMentionedMemberIds] = useState<string[]>([]);
@@ -242,6 +250,7 @@ export function WorkspaceSelectionPage({
   const conflictTriggerRef = useRef<HTMLElement | null>(null);
   const lastReadUpdateRef = useRef<string | null>(null);
   const lastUnreadPublishKeyRef = useRef<string | null>(null);
+  const lastHandledNavigationKeyRef = useRef<string | null>(null);
   const terminalOutputBufferRef = useRef(new Map<string, TerminalOutputEventPayload[]>());
   const terminalOutputFlushTimerRef = useRef<number | null>(null);
   const membersRef = useRef<MemberProfile[]>([]);
@@ -308,6 +317,10 @@ export function WorkspaceSelectionPage({
           title: conversation.title,
           unreadCount: conversation.unreadCount,
           lastMessagePreview: conversation.lastMessagePreview,
+          terminalMemberId:
+            conversation.kind === "private" && conversation.participantKind === "member"
+              ? conversation.participantId
+              : null,
           updatedAtMs: conversation.updatedAtMs,
         })),
     [conversations],
@@ -316,6 +329,10 @@ export function WorkspaceSelectionPage({
     (total, conversation) => total + conversation.unreadCount,
     0,
   );
+  const visibleConversations =
+    conversationFilter === "unread"
+      ? conversations.filter((conversation) => conversation.unreadCount > 0)
+      : conversations;
   const messageQueryKey = [
     "chat-messages",
     activeWorkspaceId,
@@ -442,6 +459,128 @@ export function WorkspaceSelectionPage({
     showToast,
     unreadConversations,
     windowContext?.currentWindow.label,
+  ]);
+
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe: (() => void) | null = null;
+
+    function queueNavigation(action: NotificationNavigationAction | null) {
+      if (!action) {
+        return;
+      }
+
+      const navigationKey = notificationNavigationKey(action);
+      if (lastHandledNavigationKeyRef.current === navigationKey) {
+        return;
+      }
+
+      setPendingNotificationNavigation(action);
+    }
+
+    async function subscribeNavigation() {
+      try {
+        const pending = await notificationsApi.getPendingNavigation();
+        if (!disposed) {
+          queueNavigation(pending.action);
+        }
+
+        unsubscribe = await notificationsApi.subscribeNavigation((action) => {
+          if (!disposed) {
+            queueNavigation(action);
+          }
+        });
+
+        if (disposed) {
+          unsubscribe();
+        }
+      } catch (error) {
+        if (!disposed) {
+          const appError = normalizeAppError(error);
+          showToast({
+            tone: appError.severity,
+            title: "无法同步通知跳转",
+            message: appError.message,
+            action: appError.userAction ?? undefined,
+          });
+        }
+      }
+    }
+
+    void subscribeNavigation();
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [notificationsApi, showToast]);
+
+  useEffect(() => {
+    if (!pendingNotificationNavigation || !activeWorkspaceId || conversationQuery.isLoading) {
+      return;
+    }
+
+    if (
+      pendingNotificationNavigation.workspaceId &&
+      pendingNotificationNavigation.workspaceId !== activeWorkspaceId
+    ) {
+      lastHandledNavigationKeyRef.current = notificationNavigationKey(
+        pendingNotificationNavigation,
+      );
+      setPendingNotificationNavigation(null);
+      return;
+    }
+
+    const navigationKey = notificationNavigationKey(pendingNotificationNavigation);
+    if (lastHandledNavigationKeyRef.current === navigationKey) {
+      setPendingNotificationNavigation(null);
+      return;
+    }
+
+    if (pendingNotificationNavigation.kind === "allUnread") {
+      setConversationFilter("unread");
+      const firstUnreadConversation = conversations.find(
+        (conversation) => conversation.unreadCount > 0,
+      );
+      if (firstUnreadConversation) {
+        setSelectedConversationId(firstUnreadConversation.conversationId);
+      }
+      lastHandledNavigationKeyRef.current = navigationKey;
+      setPendingNotificationNavigation(null);
+      return;
+    }
+
+    if (pendingNotificationNavigation.kind === "conversation") {
+      const targetConversation = conversations.find(
+        (conversation) =>
+          conversation.conversationId === pendingNotificationNavigation.conversationId,
+      );
+
+      if (!targetConversation) {
+        showToast({
+          tone: "warning",
+          title: "未找到通知会话",
+          message: "该通知引用的会话不在当前工作区会话列表中。",
+          action: "请查看全部未读",
+        });
+      } else {
+        setConversationFilter("all");
+        setSelectedConversationId(targetConversation.conversationId);
+      }
+
+      lastHandledNavigationKeyRef.current = navigationKey;
+      setPendingNotificationNavigation(null);
+      return;
+    }
+
+    lastHandledNavigationKeyRef.current = navigationKey;
+    setPendingNotificationNavigation(null);
+  }, [
+    activeWorkspaceId,
+    conversationQuery.isLoading,
+    conversations,
+    pendingNotificationNavigation,
+    showToast,
   ]);
 
   useEffect(() => {
@@ -1997,12 +2136,14 @@ export function WorkspaceSelectionPage({
 
             {activeWorkspace ? (
               <ConversationPanel
-                conversations={conversations}
+                conversations={visibleConversations}
                 selectedConversation={selectedConversation}
                 messages={messages}
                 dispatchStates={messageDispatchStates}
                 terminalStreams={terminalChatStreamEntries}
                 members={members}
+                conversationFilter={conversationFilter}
+                unreadConversationCount={unreadConversations.length}
                 isLoading={conversationQuery.isLoading}
                 isLoadingMessages={messageQuery.isLoading}
                 isLoadingOlderMessages={isLoadingOlderMessages}
@@ -2021,6 +2162,7 @@ export function WorkspaceSelectionPage({
                 groupMemberIds={groupMemberIds}
                 selectedGroupMemberIds={selectedGroupMemberIds}
                 onSelectConversation={setSelectedConversationId}
+                onConversationFilterChange={setConversationFilter}
                 onRenameDraftChange={setRenameDraft}
                 onRenameConversation={() => void handleRenameConversation()}
                 onTogglePinned={(isPinned) =>
@@ -2230,6 +2372,8 @@ function ConversationPanel({
   dispatchStates,
   terminalStreams,
   members,
+  conversationFilter,
+  unreadConversationCount,
   isLoading,
   isLoadingMessages,
   isLoadingOlderMessages,
@@ -2248,6 +2392,7 @@ function ConversationPanel({
   groupMemberIds,
   selectedGroupMemberIds,
   onSelectConversation,
+  onConversationFilterChange,
   onRenameDraftChange,
   onRenameConversation,
   onTogglePinned,
@@ -2274,6 +2419,8 @@ function ConversationPanel({
   dispatchStates: Record<string, MessageDispatchState>;
   terminalStreams: TerminalChatStreamEntry[];
   members: MemberProfile[];
+  conversationFilter: ConversationFilter;
+  unreadConversationCount: number;
   isLoading: boolean;
   isLoadingMessages: boolean;
   isLoadingOlderMessages: boolean;
@@ -2292,6 +2439,7 @@ function ConversationPanel({
   groupMemberIds: string[];
   selectedGroupMemberIds: string[];
   onSelectConversation: (conversationId: string) => void;
+  onConversationFilterChange: (filter: ConversationFilter) => void;
   onRenameDraftChange: (value: string) => void;
   onRenameConversation: () => void;
   onTogglePinned: (isPinned: boolean) => void;
@@ -2374,10 +2522,42 @@ function ConversationPanel({
             会话列表
           </h2>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-md border border-[#cfe0c9] bg-white px-2.5 py-1 text-xs font-medium text-[#37533e]">
-          <MessageSquare aria-hidden="true" size={14} strokeWidth={2} />
-          {isLoading ? "加载中" : `${conversations.length} 个会话`}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-[#cfe0c9] bg-white px-2.5 py-1 text-xs font-medium text-[#37533e]">
+            <MessageSquare aria-hidden="true" size={14} strokeWidth={2} />
+            {isLoading ? "加载中" : `${conversations.length} 个会话`}
+          </span>
+          <div
+            aria-label="会话筛选"
+            className="inline-flex rounded-md border border-[#d6e3d1] bg-white p-0.5 text-xs"
+          >
+            <button
+              type="button"
+              aria-pressed={conversationFilter === "all"}
+              onClick={() => onConversationFilterChange("all")}
+              className={
+                conversationFilter === "all"
+                  ? "rounded bg-[#eef6ea] px-2 py-1 font-semibold text-[#2f5038]"
+                  : "rounded px-2 py-1 font-medium text-[#6a786c] hover:text-[#2f5038]"
+              }
+            >
+              全部
+            </button>
+            <button
+              type="button"
+              aria-pressed={conversationFilter === "unread"}
+              onClick={() => onConversationFilterChange("unread")}
+              disabled={unreadConversationCount === 0}
+              className={
+                conversationFilter === "unread"
+                  ? "rounded bg-[#eef6ea] px-2 py-1 font-semibold text-[#2f5038]"
+                  : "rounded px-2 py-1 font-medium text-[#6a786c] hover:text-[#2f5038] disabled:text-[#a4aea1]"
+              }
+            >
+              未读 {unreadBadgeLabel(unreadConversationCount)}
+            </button>
+          </div>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.15fr)]">
@@ -2447,7 +2627,11 @@ function ConversationPanel({
             ))
           ) : (
             <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
-              {isLoading ? "正在初始化默认频道" : "暂无会话"}
+              {isLoading
+                ? "正在初始化默认频道"
+                : conversationFilter === "unread"
+                  ? "暂无未读会话"
+                  : "暂无会话"}
             </p>
           )}
         </div>
@@ -3377,6 +3561,16 @@ function shortId(value: string) {
 
 function unreadBadgeLabel(count: number) {
   return count > 99 ? "99+" : String(count);
+}
+
+function notificationNavigationKey(action: NotificationNavigationAction) {
+  return [
+    action.kind,
+    action.workspaceId ?? "",
+    action.conversationId ?? "",
+    action.memberId ?? "",
+    action.updatedAtMs,
+  ].join(":");
 }
 
 function mergeMessagePages(

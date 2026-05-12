@@ -1,0 +1,9 @@
+{
+  "code": "notification.navigation.pendingUnavailable",
+  "message": "无法读取通知跳转。",
+  "userAction": "请重新从通知预览打开目标。",
+  "details": "runtime state unavailable",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "warning"
+}

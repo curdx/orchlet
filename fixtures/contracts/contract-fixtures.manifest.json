@@ -239,6 +239,30 @@
       "requirements": ["FR52", "NFR6", "NFR35", "NFR36"]
     },
     {
+      "domain": "notification",
+      "command": "notification_navigation_pending_get",
+      "requestFixture": "fixtures/contracts/notification/notification-navigation-pending-get.request.json",
+      "successResultFixture": "fixtures/contracts/notification/notification-navigation-pending-get.result.json",
+      "errorFixture": "fixtures/contracts/notification/notification-navigation-pending-get.error.json",
+      "rustRequestDto": "NotificationNavigationPendingRequest",
+      "rustSuccessDto": "NotificationNavigationPendingResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR53", "NFR6", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "notification",
+      "command": "notification_navigation_dispatch",
+      "requestFixture": "fixtures/contracts/notification/notification-navigation-dispatch.request.json",
+      "successResultFixture": "fixtures/contracts/notification/notification-navigation-dispatch.result.json",
+      "errorFixture": "fixtures/contracts/notification/notification-navigation-dispatch.error.json",
+      "rustRequestDto": "NotificationNavigationRequest",
+      "rustSuccessDto": "NotificationNavigationResult",
+      "rustErrorDto": "AppError",
+      "eventFixture": "fixtures/contracts/notification/notification-navigation.event.json",
+      "rustEventDto": "NotificationNavigationAction",
+      "requirements": ["FR53", "NFR6", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",
