@@ -6,10 +6,13 @@ pub mod member;
 pub mod workspace;
 
 pub use chat::{
-    ConversationKind, ConversationMemberSummary, ConversationParticipantKind, ConversationProfile,
+    ChatMessageProfile, ChatMessageStatus, ConversationKind, ConversationMemberSummary,
+    ConversationParticipantKind, ConversationProfile, ConversationReadPositionProfile,
     CreateGroupConversationRequest, CreateGroupConversationResult, ListConversationsRequest,
-    ListConversationsResult, StartPrivateConversationRequest, StartPrivateConversationResult,
+    ListConversationsResult, ListMessagesRequest, ListMessagesResult, SendMessageRequest,
+    SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
+    UpdateReadPositionRequest, UpdateReadPositionResult,
 };
 pub use common::{AppError, AppErrorSeverity};
 pub use contact::{

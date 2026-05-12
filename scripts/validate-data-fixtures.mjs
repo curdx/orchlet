@@ -11,6 +11,7 @@ validateSqliteScaffold("fixtures/schema/sqlite-workspace-v1/schema-manifest.json
 validateMemberProfiles("fixtures/schema/members-v1/member-profiles.json");
 validateContactProfiles("fixtures/schema/contacts-v1/contact-profiles.json");
 validateConversationList("fixtures/schema/conversations-v1/conversation-list.json");
+validateMessageHistory("fixtures/schema/messages-v1/message-history.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/passed-report.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/failed-registry-report.json");
 validateTerminalStreams("fixtures/terminal-streams");
@@ -71,10 +72,12 @@ function validateSqliteScaffold(path) {
       schema.tables.includes("schema_migrations") &&
       schema.tables.includes("members") &&
       schema.tables.includes("conversations") &&
-      schema.tables.includes("conversation_members"),
-    `${path} must include current member and conversation schema tables`,
+      schema.tables.includes("conversation_members") &&
+      schema.tables.includes("messages") &&
+      schema.tables.includes("conversation_read_positions"),
+    `${path} must include current member, conversation and message schema tables`,
   );
-  assert(schema.tables.length === 4, `${path} must not include future chat/message tables`);
+  assert(schema.tables.length === 6, `${path} must include only current workspace tables`);
   assert(!schema.tables.includes("terminal_sessions"), `${path} must not include future terminal tables`);
   assert(Array.isArray(schema.migrationFiles), `${path}.migrationFiles must be an array`);
   assert(
@@ -94,7 +97,11 @@ function validateSqliteScaffold(path) {
     `${path} must include the conversation list and group membership migration file`,
   );
   assert(
-    Array.isArray(schema.ownedByFutureStories) && schema.ownedByFutureStories.includes("messages"),
+    schema.migrationFiles.includes("202605121430__messages_read_positions.sql"),
+    `${path} must include the messages and read positions migration file`,
+  );
+  assert(
+    Array.isArray(schema.ownedByFutureStories) && schema.ownedByFutureStories.includes("notification"),
     `${path} must identify future story ownership`,
   );
 }
@@ -192,6 +199,34 @@ function validateConversationList(path) {
     assert(membership.workspaceId === fixture.workspaceId, `${path}.conversationMembers[].workspaceId must match`);
     assertValidUlid(membership.memberId, `${path}.conversationMembers[].memberId`);
     assertPositiveTimestamp(membership.createdAtMs, `${path}.conversationMembers[].createdAtMs`);
+  }
+}
+
+function validateMessageHistory(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assertValidUlid(fixture.workspaceId, `${path}.workspaceId`);
+  assertValidUlid(fixture.conversationId, `${path}.conversationId`);
+  assert(Array.isArray(fixture.messages) && fixture.messages.length >= 2, `${path}.messages must include paged history`);
+
+  for (const message of fixture.messages) {
+    assertValidUlid(message.messageId, `${path}.messages[].messageId`);
+    assert(message.workspaceId === fixture.workspaceId, `${path}.messages[].workspaceId must match`);
+    assert(message.conversationId === fixture.conversationId, `${path}.messages[].conversationId must match`);
+    assertValidUlid(message.authorMemberId, `${path}.messages[].authorMemberId`);
+    assertNonEmptyString(message.body, `${path}.messages[].body`);
+    assert(["sending", "sent", "failed"].includes(message.status), `${path}.messages[].status invalid`);
+    assertPositiveTimestamp(message.createdAtMs, `${path}.messages[].createdAtMs`);
+    assert(message.updatedAtMs >= message.createdAtMs, `${path}.messages[].updatedAtMs must be >= createdAtMs`);
+  }
+
+  assert(Array.isArray(fixture.readPositions) && fixture.readPositions.length >= 1, `${path}.readPositions must include a read cursor`);
+  for (const readPosition of fixture.readPositions) {
+    assert(readPosition.workspaceId === fixture.workspaceId, `${path}.readPositions[].workspaceId must match`);
+    assert(readPosition.conversationId === fixture.conversationId, `${path}.readPositions[].conversationId must match`);
+    assertValidUlid(readPosition.lastReadMessageId, `${path}.readPositions[].lastReadMessageId`);
+    assertPositiveTimestamp(readPosition.lastReadAtMs, `${path}.readPositions[].lastReadAtMs`);
+    assert(readPosition.updatedAtMs >= readPosition.lastReadAtMs, `${path}.readPositions[].updatedAtMs must be >= lastReadAtMs`);
   }
 }
 

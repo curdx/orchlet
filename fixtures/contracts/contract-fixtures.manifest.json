@@ -124,6 +124,39 @@
     },
     {
       "domain": "chat",
+      "command": "chat_message_send",
+      "requestFixture": "fixtures/contracts/chat/chat-message-send.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-message-send.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-message-send.error.json",
+      "rustRequestDto": "SendMessageRequest",
+      "rustSuccessDto": "SendMessageResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR23", "FR26", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_messages_page",
+      "requestFixture": "fixtures/contracts/chat/chat-messages-page.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-messages-page.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-messages-page.error.json",
+      "rustRequestDto": "ListMessagesRequest",
+      "rustSuccessDto": "ListMessagesResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR24", "FR26", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_read_position_update",
+      "requestFixture": "fixtures/contracts/chat/chat-read-position-update.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-read-position-update.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-read-position-update.error.json",
+      "rustRequestDto": "UpdateReadPositionRequest",
+      "rustSuccessDto": "UpdateReadPositionResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR26", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
       "command": "chat_group_conversation_members_update",
       "requestFixture": "fixtures/contracts/chat/chat-group-conversation-members-update.request.json",
       "successResultFixture": "fixtures/contracts/chat/chat-group-conversation-members-update.result.json",

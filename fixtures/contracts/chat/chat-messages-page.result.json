@@ -1,0 +1,49 @@
+{
+  "messages": [
+    {
+      "messageId": "01K00000000000000000000070",
+      "workspaceId": "01K00000000000000000000000",
+      "conversationId": "01K00000000000000000000050",
+      "authorMemberId": "01K00000000000000000000030",
+      "body": "Earlier context",
+      "status": "sent",
+      "createdAtMs": 1760000010000,
+      "updatedAtMs": 1760000010000
+    },
+    {
+      "messageId": "01K00000000000000000000071",
+      "workspaceId": "01K00000000000000000000000",
+      "conversationId": "01K00000000000000000000050",
+      "authorMemberId": "01K00000000000000000000030",
+      "body": "Latest note",
+      "status": "sent",
+      "createdAtMs": 1760000011000,
+      "updatedAtMs": 1760000011000
+    }
+  ],
+  "hasMore": true,
+  "nextBeforeMessageId": "01K00000000000000000000070",
+  "readPosition": {
+    "workspaceId": "01K00000000000000000000000",
+    "conversationId": "01K00000000000000000000050",
+    "lastReadMessageId": "01K00000000000000000000070",
+    "lastReadAtMs": 1760000010000,
+    "updatedAtMs": 1760000010000
+  },
+  "conversation": {
+    "conversationId": "01K00000000000000000000050",
+    "workspaceId": "01K00000000000000000000000",
+    "kind": "channel",
+    "title": "默认频道",
+    "isDefault": true,
+    "isPinned": true,
+    "unreadCount": 1,
+    "lastMessagePreview": "Latest note",
+    "participantKind": null,
+    "participantId": null,
+    "members": [],
+    "createdAtMs": 1760000007000,
+    "updatedAtMs": 1760000011000,
+    "lastActivityAtMs": 1760000011000
+  }
+}

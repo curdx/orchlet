@@ -1,13 +1,15 @@
 use crate::{
     app::chat::{
-        create_workspace_group_conversation, list_workspace_conversations,
-        start_workspace_private_conversation, update_workspace_group_conversation_members,
+        create_workspace_group_conversation, list_workspace_conversations, list_workspace_messages,
+        send_workspace_message, start_workspace_private_conversation,
+        update_workspace_group_conversation_members, update_workspace_read_position,
     },
     contracts::{
         AppError, CreateGroupConversationRequest, CreateGroupConversationResult,
-        ListConversationsRequest, ListConversationsResult, StartPrivateConversationRequest,
+        ListConversationsRequest, ListConversationsResult, ListMessagesRequest, ListMessagesResult,
+        SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
         StartPrivateConversationResult, UpdateGroupConversationMembersRequest,
-        UpdateGroupConversationMembersResult,
+        UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
     },
 };
 use tauri::{AppHandle, Manager};
@@ -26,6 +28,30 @@ pub fn chat_group_conversation_create(
     request: CreateGroupConversationRequest,
 ) -> Result<CreateGroupConversationResult, AppError> {
     create_workspace_group_conversation(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_message_send(
+    app: AppHandle,
+    request: SendMessageRequest,
+) -> Result<SendMessageResult, AppError> {
+    send_workspace_message(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_messages_page(
+    app: AppHandle,
+    request: ListMessagesRequest,
+) -> Result<ListMessagesResult, AppError> {
+    list_workspace_messages(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_read_position_update(
+    app: AppHandle,
+    request: UpdateReadPositionRequest,
+) -> Result<UpdateReadPositionResult, AppError> {
+    update_workspace_read_position(app_data_dir(&app)?, request)
 }
 
 #[tauri::command]

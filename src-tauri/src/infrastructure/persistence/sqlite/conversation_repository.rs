@@ -5,14 +5,20 @@ use ulid::Ulid;
 
 use crate::{
     contracts::{
-        AppError, ConversationKind, ConversationMemberSummary, ConversationParticipantKind,
-        ConversationProfile, CreateGroupConversationRequest, CreateGroupConversationResult,
-        ListConversationsRequest, ListConversationsResult, MemberProfile,
-        StartPrivateConversationRequest, StartPrivateConversationResult,
+        AppError, ChatMessageProfile, ChatMessageStatus, ConversationKind,
+        ConversationMemberSummary, ConversationParticipantKind, ConversationProfile,
+        ConversationReadPositionProfile, CreateGroupConversationRequest,
+        CreateGroupConversationResult, ListConversationsRequest, ListConversationsResult,
+        ListMessagesRequest, ListMessagesResult, MemberProfile, MemberRole, SendMessageRequest,
+        SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
         UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
+        UpdateReadPositionRequest, UpdateReadPositionResult,
     },
     domain::{
-        chat::{normalize_conversation_title, validate_conversation_id},
+        chat::{
+            message_preview, normalize_conversation_title, normalize_message_body,
+            normalize_message_page_limit, validate_conversation_id, validate_message_id,
+        },
         contact::validate_contact_id,
         member::{validate_member_id, validate_workspace_id},
     },
@@ -30,6 +36,8 @@ const PRIVATE_CONVERSATION_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/workspace/202605121210__private_conversations.sql");
 const CONVERSATION_LIST_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/workspace/202605121300__conversation_list_groups.sql");
+const MESSAGES_READ_POSITIONS_MIGRATION_SQL: &str =
+    include_str!("../../../../migrations/workspace/202605121430__messages_read_positions.sql");
 const DEFAULT_CHANNEL_TITLE: &str = "默认频道";
 
 pub fn list_conversations(
@@ -39,6 +47,178 @@ pub fn list_conversations(
     let connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
     ensure_default_channel(&connection, &request.workspace_id)?;
     list_conversations_from_connection(&connection, &request.workspace_id)
+}
+
+pub fn send_message(
+    app_data_dir: &Path,
+    request: SendMessageRequest,
+) -> Result<SendMessageResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    validate_conversation_id(&request.conversation_id)?;
+    let body = normalize_message_body(&request.body)?;
+    let owner_member_id = local_owner_member_id(app_data_dir, &request.workspace_id)?;
+    let connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    ensure_default_channel(&connection, &request.workspace_id)?;
+    conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+
+    let timestamp = now_ms();
+    let message = ChatMessageProfile {
+        message_id: Ulid::new().to_string(),
+        workspace_id: request.workspace_id.clone(),
+        conversation_id: request.conversation_id.clone(),
+        author_member_id: owner_member_id,
+        body,
+        status: ChatMessageStatus::Sent,
+        created_at_ms: timestamp,
+        updated_at_ms: timestamp,
+    };
+
+    insert_message(&connection, &message)?;
+    touch_conversation_after_message(&connection, &message)?;
+    upsert_read_position(
+        &connection,
+        &message.workspace_id,
+        &message.conversation_id,
+        &message.message_id,
+        message.created_at_ms,
+        timestamp,
+    )?;
+    recalculate_unread_count_after(
+        &connection,
+        &message.workspace_id,
+        &message.conversation_id,
+        message.created_at_ms,
+        &message.message_id,
+    )?;
+
+    let conversation = conversation_by_id_from_connection(
+        &connection,
+        &message.workspace_id,
+        &message.conversation_id,
+    )?;
+    let read_position = read_position_from_connection(
+        &connection,
+        &message.workspace_id,
+        &message.conversation_id,
+    )?
+    .expect("send_message upserts read position");
+
+    Ok(SendMessageResult {
+        message,
+        conversation,
+        read_position,
+    })
+}
+
+pub fn list_messages(
+    app_data_dir: &Path,
+    request: ListMessagesRequest,
+) -> Result<ListMessagesResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    validate_conversation_id(&request.conversation_id)?;
+    let limit = normalize_message_page_limit(request.limit)?;
+    if let Some(message_id) = request.before_message_id.as_deref() {
+        validate_message_id(message_id)?;
+    }
+
+    let connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    ensure_default_channel(&connection, &request.workspace_id)?;
+    let conversation = conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+    let cursor = match request.before_message_id.as_deref() {
+        Some(message_id) => Some(message_by_id_from_connection(
+            &connection,
+            &request.workspace_id,
+            &request.conversation_id,
+            message_id,
+            "message.cursor.notFound",
+        )?),
+        None => None,
+    };
+    let (messages, has_more, next_before_message_id) = page_messages_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+        cursor.as_ref(),
+        limit,
+    )?;
+    let read_position = read_position_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+
+    Ok(ListMessagesResult {
+        messages,
+        has_more,
+        next_before_message_id,
+        read_position,
+        conversation,
+    })
+}
+
+pub fn update_read_position(
+    app_data_dir: &Path,
+    request: UpdateReadPositionRequest,
+) -> Result<UpdateReadPositionResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    validate_conversation_id(&request.conversation_id)?;
+    validate_message_id(&request.message_id)?;
+
+    let connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    ensure_default_channel(&connection, &request.workspace_id)?;
+    conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+    let message = message_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+        &request.message_id,
+        "readPosition.message.notFound",
+    )?;
+    let timestamp = now_ms();
+    upsert_read_position(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+        &request.message_id,
+        message.created_at_ms,
+        timestamp,
+    )?;
+    recalculate_unread_count_after(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+        message.created_at_ms,
+        &request.message_id,
+    )?;
+
+    let conversation = conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+    let read_position = read_position_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?
+    .expect("update_read_position upserts read position");
+
+    Ok(UpdateReadPositionResult {
+        read_position,
+        conversation,
+    })
 }
 
 pub fn create_group_conversation(
@@ -297,6 +477,97 @@ pub fn validate_conversation_member_store(
         .map_err(sqlite_error("conversation.members.validateFailed"))
 }
 
+pub fn validate_message_store(app_data_dir: &Path, workspace_id: &str) -> Result<(), AppError> {
+    validate_workspace_id(workspace_id)?;
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+
+    if !database_path.exists() {
+        return Ok(());
+    }
+
+    let connection = Connection::open_with_flags(&database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| {
+            AppError::recoverable_error(
+                "message.database.readOnlyOpenFailed",
+                "无法读取工作区消息数据库。",
+                "请检查应用数据目录权限；如果问题持续，请运行数据验证。",
+                Some(format!("{}: {}", database_path.display(), error)),
+            )
+        })?;
+
+    if !table_exists(&connection, "messages")? {
+        if !table_exists(&connection, "conversations")? {
+            return Ok(());
+        }
+
+        return Err(AppError::recoverable_error(
+            "message.tableMissing",
+            "消息表缺失。",
+            "请重新打开工作区以运行消息迁移；如果问题持续，请备份并修复工作区数据库。",
+            Some(format!("workspaceId={}", workspace_id)),
+        ));
+    }
+
+    connection
+        .prepare(
+            "SELECT id, workspace_id, conversation_id, author_member_id, body,
+                    send_status, created_at_ms, updated_at_ms
+             FROM messages
+             WHERE workspace_id = ?1
+             LIMIT 1",
+        )
+        .and_then(|mut statement| statement.exists(params![workspace_id]))
+        .map(|_| ())
+        .map_err(sqlite_error("message.validateFailed"))
+}
+
+pub fn validate_read_position_store(
+    app_data_dir: &Path,
+    workspace_id: &str,
+) -> Result<(), AppError> {
+    validate_workspace_id(workspace_id)?;
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+
+    if !database_path.exists() {
+        return Ok(());
+    }
+
+    let connection = Connection::open_with_flags(&database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| {
+            AppError::recoverable_error(
+                "readPosition.database.readOnlyOpenFailed",
+                "无法读取工作区已读位置数据库。",
+                "请检查应用数据目录权限；如果问题持续，请运行数据验证。",
+                Some(format!("{}: {}", database_path.display(), error)),
+            )
+        })?;
+
+    if !table_exists(&connection, "conversation_read_positions")? {
+        if !table_exists(&connection, "conversations")? {
+            return Ok(());
+        }
+
+        return Err(AppError::recoverable_error(
+            "readPosition.tableMissing",
+            "会话已读位置表缺失。",
+            "请重新打开工作区以运行消息迁移；如果问题持续，请备份并修复工作区数据库。",
+            Some(format!("workspaceId={}", workspace_id)),
+        ));
+    }
+
+    connection
+        .prepare(
+            "SELECT workspace_id, conversation_id, last_read_message_id,
+                    last_read_at_ms, updated_at_ms
+             FROM conversation_read_positions
+             WHERE workspace_id = ?1
+             LIMIT 1",
+        )
+        .and_then(|mut statement| statement.exists(params![workspace_id]))
+        .map(|_| ())
+        .map_err(sqlite_error("readPosition.validateFailed"))
+}
+
 pub fn validate_private_conversation_store(
     app_data_dir: &Path,
     workspace_id: &str,
@@ -319,7 +590,8 @@ fn apply_conversation_migrations(connection: &Connection) -> Result<(), AppError
     connection
         .execute_batch(PRIVATE_CONVERSATION_MIGRATION_SQL)
         .map_err(sqlite_error("conversation.migration.failed"))?;
-    apply_conversation_list_migration(connection)
+    apply_conversation_list_migration(connection)?;
+    apply_messages_read_positions_migration(connection)
 }
 
 fn apply_conversation_list_migration(connection: &Connection) -> Result<(), AppError> {
@@ -329,6 +601,18 @@ fn apply_conversation_list_migration(connection: &Connection) -> Result<(), AppE
             .map_err(sqlite_error("conversation.listMigration.failed"))?;
     } else {
         record_migration(connection, "202605121300__conversation_list_groups")?;
+    }
+
+    Ok(())
+}
+
+fn apply_messages_read_positions_migration(connection: &Connection) -> Result<(), AppError> {
+    if !table_exists(connection, "messages")? {
+        connection
+            .execute_batch(MESSAGES_READ_POSITIONS_MIGRATION_SQL)
+            .map_err(sqlite_error("message.migration.failed"))?;
+    } else {
+        record_migration(connection, "202605121430__messages_read_positions")?;
     }
 
     Ok(())
@@ -517,6 +801,260 @@ fn insert_conversation(
         .map_err(sqlite_error("conversation.insert.failed"))
 }
 
+fn insert_message(connection: &Connection, message: &ChatMessageProfile) -> Result<(), AppError> {
+    connection
+        .execute(
+            "INSERT INTO messages (
+                id, workspace_id, conversation_id, author_member_id, body,
+                send_status, created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                message.message_id,
+                message.workspace_id,
+                message.conversation_id,
+                message.author_member_id,
+                message.body,
+                message_status_to_str(&message.status),
+                message.created_at_ms as i64,
+                message.updated_at_ms as i64,
+            ],
+        )
+        .map(|_| ())
+        .map_err(sqlite_error("message.insert.failed"))
+}
+
+fn touch_conversation_after_message(
+    connection: &Connection,
+    message: &ChatMessageProfile,
+) -> Result<(), AppError> {
+    connection
+        .execute(
+            "UPDATE conversations
+             SET last_message_preview = ?1,
+                 last_activity_at_ms = ?2,
+                 updated_at_ms = ?2
+             WHERE workspace_id = ?3 AND id = ?4",
+            params![
+                message_preview(&message.body),
+                message.created_at_ms as i64,
+                message.workspace_id,
+                message.conversation_id,
+            ],
+        )
+        .map(|_| ())
+        .map_err(sqlite_error("message.conversation.touchFailed"))
+}
+
+fn page_messages_from_connection(
+    connection: &Connection,
+    workspace_id: &str,
+    conversation_id: &str,
+    cursor: Option<&ChatMessageProfile>,
+    limit: u32,
+) -> Result<(Vec<ChatMessageProfile>, bool, Option<String>), AppError> {
+    let fetch_limit = limit as i64 + 1;
+    let mut messages = match cursor {
+        Some(cursor) => {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, workspace_id, conversation_id, author_member_id, body,
+                            send_status, created_at_ms, updated_at_ms
+                     FROM messages
+                     WHERE workspace_id = ?1
+                       AND conversation_id = ?2
+                       AND (
+                         created_at_ms < ?3
+                         OR (created_at_ms = ?3 AND id < ?4)
+                       )
+                     ORDER BY created_at_ms DESC, id DESC
+                     LIMIT ?5",
+                )
+                .map_err(sqlite_error("message.page.prepareFailed"))?;
+            let rows = statement
+                .query_map(
+                    params![
+                        workspace_id,
+                        conversation_id,
+                        cursor.created_at_ms as i64,
+                        cursor.message_id,
+                        fetch_limit,
+                    ],
+                    message_from_row,
+                )
+                .map_err(sqlite_error("message.page.queryFailed"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sqlite_error("message.page.decodeFailed"))?;
+            rows
+        }
+        None => {
+            let mut statement = connection
+                .prepare(
+                    "SELECT id, workspace_id, conversation_id, author_member_id, body,
+                            send_status, created_at_ms, updated_at_ms
+                     FROM messages
+                     WHERE workspace_id = ?1 AND conversation_id = ?2
+                     ORDER BY created_at_ms DESC, id DESC
+                     LIMIT ?3",
+                )
+                .map_err(sqlite_error("message.page.prepareFailed"))?;
+            let rows = statement
+                .query_map(
+                    params![workspace_id, conversation_id, fetch_limit],
+                    message_from_row,
+                )
+                .map_err(sqlite_error("message.page.queryFailed"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(sqlite_error("message.page.decodeFailed"))?;
+            rows
+        }
+    };
+
+    let has_more = messages.len() > limit as usize;
+    if has_more {
+        messages.truncate(limit as usize);
+    }
+    let next_before_message_id = if has_more {
+        messages.last().map(|message| message.message_id.clone())
+    } else {
+        None
+    };
+    messages.reverse();
+
+    Ok((messages, has_more, next_before_message_id))
+}
+
+fn message_by_id_from_connection(
+    connection: &Connection,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    not_found_code: &str,
+) -> Result<ChatMessageProfile, AppError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, workspace_id, conversation_id, author_member_id, body,
+                    send_status, created_at_ms, updated_at_ms
+             FROM messages
+             WHERE workspace_id = ?1 AND conversation_id = ?2 AND id = ?3",
+        )
+        .map_err(sqlite_error("message.getById.prepareFailed"))?;
+
+    statement
+        .query_row(
+            params![workspace_id, conversation_id, message_id],
+            message_from_row,
+        )
+        .map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => AppError::recoverable_error(
+                not_found_code,
+                "未找到消息。",
+                "请刷新消息列表后重试。",
+                Some(format!(
+                    "workspaceId={} conversationId={} messageId={}",
+                    workspace_id, conversation_id, message_id
+                )),
+            ),
+            _ => sqlite_error("message.getById.queryFailed")(error),
+        })
+}
+
+fn upsert_read_position(
+    connection: &Connection,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    last_read_at_ms: u64,
+    updated_at_ms: u64,
+) -> Result<(), AppError> {
+    connection
+        .execute(
+            "INSERT INTO conversation_read_positions (
+                workspace_id, conversation_id, last_read_message_id, last_read_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(workspace_id, conversation_id) DO UPDATE SET
+                last_read_message_id = excluded.last_read_message_id,
+                last_read_at_ms = excluded.last_read_at_ms,
+                updated_at_ms = excluded.updated_at_ms",
+            params![
+                workspace_id,
+                conversation_id,
+                message_id,
+                last_read_at_ms as i64,
+                updated_at_ms as i64,
+            ],
+        )
+        .map(|_| ())
+        .map_err(sqlite_error("readPosition.upsertFailed"))
+}
+
+fn read_position_from_connection(
+    connection: &Connection,
+    workspace_id: &str,
+    conversation_id: &str,
+) -> Result<Option<ConversationReadPositionProfile>, AppError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT workspace_id, conversation_id, last_read_message_id,
+                    last_read_at_ms, updated_at_ms
+             FROM conversation_read_positions
+             WHERE workspace_id = ?1 AND conversation_id = ?2",
+        )
+        .map_err(sqlite_error("readPosition.get.prepareFailed"))?;
+    let result = statement.query_row(params![workspace_id, conversation_id], |row| {
+        Ok(ConversationReadPositionProfile {
+            workspace_id: row.get(0)?,
+            conversation_id: row.get(1)?,
+            last_read_message_id: row.get(2)?,
+            last_read_at_ms: row.get::<_, i64>(3)? as u64,
+            updated_at_ms: row.get::<_, i64>(4)? as u64,
+        })
+    });
+
+    match result {
+        Ok(read_position) => Ok(Some(read_position)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(sqlite_error("readPosition.get.queryFailed")(error)),
+    }
+}
+
+fn recalculate_unread_count_after(
+    connection: &Connection,
+    workspace_id: &str,
+    conversation_id: &str,
+    last_read_at_ms: u64,
+    last_read_message_id: &str,
+) -> Result<(), AppError> {
+    let unread_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM messages
+             WHERE workspace_id = ?1
+               AND conversation_id = ?2
+               AND (
+                 created_at_ms > ?3
+                 OR (created_at_ms = ?3 AND id > ?4)
+               )",
+            params![
+                workspace_id,
+                conversation_id,
+                last_read_at_ms as i64,
+                last_read_message_id,
+            ],
+            |row| row.get(0),
+        )
+        .map_err(sqlite_error("readPosition.unreadCount.queryFailed"))?;
+
+    connection
+        .execute(
+            "UPDATE conversations
+             SET unread_count = ?1, updated_at_ms = ?2
+             WHERE workspace_id = ?3 AND id = ?4",
+            params![unread_count, now_ms() as i64, workspace_id, conversation_id],
+        )
+        .map(|_| ())
+        .map_err(sqlite_error("readPosition.unreadCount.updateFailed"))
+}
+
 fn replace_group_members(
     connection: &Connection,
     workspace_id: &str,
@@ -628,6 +1166,22 @@ fn normalize_group_member_ids(member_ids: Vec<String>) -> Result<Vec<String>, Ap
     Ok(normalized)
 }
 
+fn local_owner_member_id(app_data_dir: &Path, workspace_id: &str) -> Result<String, AppError> {
+    initialize_member_store(app_data_dir, workspace_id)?
+        .members
+        .into_iter()
+        .find(|member| member.role == MemberRole::Owner)
+        .map(|member| member.member_id)
+        .ok_or_else(|| {
+            AppError::recoverable_error(
+                "message.owner.missing",
+                "未找到本地 owner 成员。",
+                "请重新打开工作区以初始化 owner 后重试。",
+                Some(format!("workspaceId={}", workspace_id)),
+            )
+        })
+}
+
 fn load_participant(
     app_data_dir: &Path,
     request: &StartPrivateConversationRequest,
@@ -663,6 +1217,19 @@ fn load_participant(
             })
         }
     }
+}
+
+fn message_from_row(row: &rusqlite::Row<'_>) -> Result<ChatMessageProfile, rusqlite::Error> {
+    Ok(ChatMessageProfile {
+        message_id: row.get(0)?,
+        workspace_id: row.get(1)?,
+        conversation_id: row.get(2)?,
+        author_member_id: row.get(3)?,
+        body: row.get(4)?,
+        status: message_status_from_str(row.get::<_, String>(5)?.as_str()),
+        created_at_ms: row.get::<_, i64>(6)? as u64,
+        updated_at_ms: row.get::<_, i64>(7)? as u64,
+    })
 }
 
 fn conversation_from_row(row: &rusqlite::Row<'_>) -> Result<ConversationProfile, rusqlite::Error> {
@@ -764,6 +1331,22 @@ fn participant_kind_from_str(value: &str) -> Option<ConversationParticipantKind>
         "contact" => Some(ConversationParticipantKind::Contact),
         "member" => Some(ConversationParticipantKind::Member),
         _ => None,
+    }
+}
+
+fn message_status_to_str(status: &ChatMessageStatus) -> &'static str {
+    match status {
+        ChatMessageStatus::Sending => "sending",
+        ChatMessageStatus::Sent => "sent",
+        ChatMessageStatus::Failed => "failed",
+    }
+}
+
+fn message_status_from_str(value: &str) -> ChatMessageStatus {
+    match value {
+        "sending" => ChatMessageStatus::Sending,
+        "failed" => ChatMessageStatus::Failed,
+        _ => ChatMessageStatus::Sent,
     }
 }
 

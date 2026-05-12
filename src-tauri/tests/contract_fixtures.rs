@@ -1,16 +1,18 @@
 use std::{fs, path::Path};
 
 use orchlet_lib::contracts::{
-    AppError, ContactKind, ConversationKind, ConversationParticipantKind, CreateContactRequest,
-    CreateContactResult, CreateGroupConversationRequest, CreateGroupConversationResult,
-    DataIntegrityValidateRequest, DataIntegrityValidateResult, DeleteContactRequest,
-    DeleteContactResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
-    ListContactsRequest, ListContactsResult, ListConversationsRequest, ListConversationsResult,
-    ListMembersRequest, ListMembersResult, MemberRole, MemberRuntimeKind, MemberStatus,
-    OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult,
-    StartPrivateConversationRequest, StartPrivateConversationResult, UpdateContactRequest,
-    UpdateContactResult, UpdateGroupConversationMembersRequest,
-    UpdateGroupConversationMembersResult, WorkspaceOpenStatus,
+    AppError, ChatMessageStatus, ContactKind, ConversationKind, ConversationParticipantKind,
+    CreateContactRequest, CreateContactResult, CreateGroupConversationRequest,
+    CreateGroupConversationResult, DataIntegrityValidateRequest, DataIntegrityValidateResult,
+    DeleteContactRequest, DeleteContactResult, InviteMemberRequest, InviteMemberResult,
+    InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
+    ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
+    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest,
+    OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
+    SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
+    UpdateContactRequest, UpdateContactResult, UpdateGroupConversationMembersRequest,
+    UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
+    WorkspaceOpenStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -165,6 +167,24 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/chat/chat-group-conversation-create.result.json");
     let create_group_error: AppError =
         read_fixture("../fixtures/contracts/chat/chat-group-conversation-create.error.json");
+    let send_message_request: SendMessageRequest =
+        read_fixture("../fixtures/contracts/chat/chat-message-send.request.json");
+    let send_message_result: SendMessageResult =
+        read_fixture("../fixtures/contracts/chat/chat-message-send.result.json");
+    let send_message_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-message-send.error.json");
+    let list_messages_request: ListMessagesRequest =
+        read_fixture("../fixtures/contracts/chat/chat-messages-page.request.json");
+    let list_messages_result: ListMessagesResult =
+        read_fixture("../fixtures/contracts/chat/chat-messages-page.result.json");
+    let list_messages_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-messages-page.error.json");
+    let update_read_position_request: UpdateReadPositionRequest =
+        read_fixture("../fixtures/contracts/chat/chat-read-position-update.request.json");
+    let update_read_position_result: UpdateReadPositionResult =
+        read_fixture("../fixtures/contracts/chat/chat-read-position-update.result.json");
+    let update_read_position_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-read-position-update.error.json");
     let update_group_request: UpdateGroupConversationMembersRequest = read_fixture(
         "../fixtures/contracts/chat/chat-group-conversation-members-update.request.json",
     );
@@ -197,6 +217,30 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
     );
     assert_eq!(create_group_result.conversation.members.len(), 2);
     assert_eq!(create_group_error.code, "conversation.title.empty");
+    assert_eq!(send_message_request.body, "Ship it");
+    assert_eq!(send_message_result.message.status, ChatMessageStatus::Sent);
+    assert_eq!(
+        send_message_result.read_position.last_read_message_id,
+        send_message_result.message.message_id
+    );
+    assert_eq!(send_message_error.code, "message.body.empty");
+    assert_eq!(list_messages_request.limit, Some(30));
+    assert_eq!(list_messages_result.messages.len(), 2);
+    assert!(list_messages_result.has_more);
+    assert_eq!(
+        list_messages_result.messages[1].status,
+        ChatMessageStatus::Sent
+    );
+    assert_eq!(list_messages_error.code, "message.cursor.notFound");
+    assert_eq!(
+        update_read_position_request.message_id,
+        "01K00000000000000000000071"
+    );
+    assert_eq!(update_read_position_result.conversation.unread_count, 0);
+    assert_eq!(
+        update_read_position_error.code,
+        "readPosition.message.notFound"
+    );
     assert_eq!(
         update_group_request.conversation_id,
         create_group_result.conversation.conversation_id

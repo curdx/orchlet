@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=7"
+      "details": "entries=9"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -83,10 +83,30 @@
       "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
       "userAction": null,
       "details": null
+    },
+    {
+      "checkId": "message.records.schema_validate",
+      "category": "messageRecords",
+      "status": "passed",
+      "severity": "info",
+      "message": "Message record store is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "conversation.read_positions.schema_validate",
+      "category": "conversationReadPositions",
+      "status": "passed",
+      "severity": "info",
+      "message": "Conversation read-position store is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
+      "userAction": null,
+      "details": null
     }
   ],
-  "totalChecks": 8,
-  "passedChecks": 8,
+  "totalChecks": 10,
+  "passedChecks": 10,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,

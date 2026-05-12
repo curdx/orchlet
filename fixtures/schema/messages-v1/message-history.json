@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "workspaceId": "01K00000000000000000000000",
+  "conversationId": "01K00000000000000000000050",
+  "messages": [
+    {
+      "messageId": "01K00000000000000000000070",
+      "workspaceId": "01K00000000000000000000000",
+      "conversationId": "01K00000000000000000000050",
+      "authorMemberId": "01K00000000000000000000030",
+      "body": "Earlier context",
+      "status": "sent",
+      "createdAtMs": 1760000010000,
+      "updatedAtMs": 1760000010000
+    },
+    {
+      "messageId": "01K00000000000000000000071",
+      "workspaceId": "01K00000000000000000000000",
+      "conversationId": "01K00000000000000000000050",
+      "authorMemberId": "01K00000000000000000000030",
+      "body": "Latest note",
+      "status": "sent",
+      "createdAtMs": 1760000011000,
+      "updatedAtMs": 1760000011000
+    },
+    {
+      "messageId": "01K00000000000000000000072",
+      "workspaceId": "01K00000000000000000000000",
+      "conversationId": "01K00000000000000000000050",
+      "authorMemberId": "01K00000000000000000000030",
+      "body": "Local draft could not be stored",
+      "status": "failed",
+      "createdAtMs": 1760000012000,
+      "updatedAtMs": 1760000012000
+    }
+  ],
+  "readPositions": [
+    {
+      "workspaceId": "01K00000000000000000000000",
+      "conversationId": "01K00000000000000000000050",
+      "lastReadMessageId": "01K00000000000000000000070",
+      "lastReadAtMs": 1760000010000,
+      "updatedAtMs": 1760000010000
+    }
+  ],
+  "paginationRule": "newest page first, beforeMessageId loads older messages, display order is chronological",
+  "excludedFutureTables": [
+    "notifications",
+    "terminal_dispatches",
+    "attachments",
+    "emoji_reactions",
+    "message_mentions"
+  ]
+}

@@ -67,8 +67,6 @@
   ],
   "orderingRule": "pinned desc, unread desc, lastActivityAtMs desc, updatedAtMs desc, title/id stable tie-breakers",
   "excludedFutureTables": [
-    "messages",
-    "read_positions",
     "notifications",
     "terminal_dispatches",
     "attachments",

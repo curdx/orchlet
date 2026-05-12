@@ -3,13 +3,14 @@ use std::path::Path;
 use crate::{
     contracts::{
         AppError, CreateGroupConversationRequest, CreateGroupConversationResult,
-        ListConversationsRequest, ListConversationsResult, StartPrivateConversationRequest,
+        ListConversationsRequest, ListConversationsResult, ListMessagesRequest, ListMessagesResult,
+        SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
         StartPrivateConversationResult, UpdateGroupConversationMembersRequest,
-        UpdateGroupConversationMembersResult,
+        UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
     },
     infrastructure::persistence::sqlite::conversation_repository::{
-        create_group_conversation, list_conversations, start_private_conversation,
-        update_group_conversation_members,
+        create_group_conversation, list_conversations, list_messages, send_message,
+        start_private_conversation, update_group_conversation_members, update_read_position,
     },
 };
 
@@ -25,6 +26,27 @@ pub fn create_workspace_group_conversation(
     request: CreateGroupConversationRequest,
 ) -> Result<CreateGroupConversationResult, AppError> {
     create_group_conversation(app_data_dir.as_ref(), request)
+}
+
+pub fn send_workspace_message(
+    app_data_dir: impl AsRef<Path>,
+    request: SendMessageRequest,
+) -> Result<SendMessageResult, AppError> {
+    send_message(app_data_dir.as_ref(), request)
+}
+
+pub fn list_workspace_messages(
+    app_data_dir: impl AsRef<Path>,
+    request: ListMessagesRequest,
+) -> Result<ListMessagesResult, AppError> {
+    list_messages(app_data_dir.as_ref(), request)
+}
+
+pub fn update_workspace_read_position(
+    app_data_dir: impl AsRef<Path>,
+    request: UpdateReadPositionRequest,
+) -> Result<UpdateReadPositionResult, AppError> {
+    update_read_position(app_data_dir.as_ref(), request)
 }
 
 pub fn update_workspace_group_conversation_members(
@@ -46,16 +68,18 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        create_workspace_group_conversation, list_workspace_conversations,
-        start_workspace_private_conversation, update_workspace_group_conversation_members,
+        create_workspace_group_conversation, list_workspace_conversations, list_workspace_messages,
+        send_workspace_message, start_workspace_private_conversation,
+        update_workspace_group_conversation_members, update_workspace_read_position,
     };
     use crate::{
         app::{contacts::create_global_contact, members::invite_workspace_member},
         contracts::{
-            ContactKind, ConversationKind, ConversationParticipantKind, CreateContactRequest,
-            CreateGroupConversationRequest, InviteMemberRequest, InvitedMemberType,
-            ListConversationsRequest, MemberRuntimeKind, MemberRuntimeProfile,
-            StartPrivateConversationRequest, UpdateGroupConversationMembersRequest,
+            ChatMessageStatus, ContactKind, ConversationKind, ConversationParticipantKind,
+            CreateContactRequest, CreateGroupConversationRequest, InviteMemberRequest,
+            InvitedMemberType, ListConversationsRequest, ListMessagesRequest, MemberRuntimeKind,
+            MemberRuntimeProfile, SendMessageRequest, StartPrivateConversationRequest,
+            UpdateGroupConversationMembersRequest, UpdateReadPositionRequest,
         },
     };
 
@@ -242,5 +266,195 @@ mod tests {
 
         assert_eq!(updated.conversation.members.len(), 1);
         assert_eq!(updated.conversation.members[0].instance_label, "Builder");
+    }
+
+    #[test]
+    fn message_send_stores_message_and_updates_conversation_metadata() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+
+        let sent = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                body: "  Hello\nworkspace  ".to_owned(),
+            },
+        )
+        .expect("message sent");
+
+        assert_eq!(sent.message.status, ChatMessageStatus::Sent);
+        assert_eq!(sent.message.body, "Hello\nworkspace");
+        assert_eq!(
+            sent.conversation.last_message_preview,
+            Some("Hello workspace".to_owned())
+        );
+        assert_eq!(sent.conversation.unread_count, 0);
+        assert_eq!(
+            sent.read_position.last_read_message_id,
+            sent.message.message_id
+        );
+
+        let page = list_workspace_messages(
+            app_data.path(),
+            ListMessagesRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+                before_message_id: None,
+                limit: Some(10),
+            },
+        )
+        .expect("messages listed");
+
+        assert_eq!(page.messages.len(), 1);
+        assert_eq!(page.messages[0].message_id, sent.message.message_id);
+        assert!(!page.has_more);
+    }
+
+    #[test]
+    fn message_history_pages_with_stable_cursor() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+        let mut sent_ids = Vec::new();
+
+        for body in ["first", "second", "third"] {
+            let sent = send_workspace_message(
+                app_data.path(),
+                SendMessageRequest {
+                    workspace_id: workspace_id.clone(),
+                    conversation_id: default_channel.conversation_id.clone(),
+                    body: body.to_owned(),
+                },
+            )
+            .expect("message sent");
+            sent_ids.push(sent.message.message_id);
+        }
+
+        let latest_page = list_workspace_messages(
+            app_data.path(),
+            ListMessagesRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                before_message_id: None,
+                limit: Some(2),
+            },
+        )
+        .expect("latest messages listed");
+
+        assert_eq!(
+            latest_page
+                .messages
+                .iter()
+                .map(|message| message.body.as_str())
+                .collect::<Vec<_>>(),
+            vec!["second", "third"]
+        );
+        assert!(latest_page.has_more);
+        assert_eq!(
+            latest_page.next_before_message_id,
+            Some(sent_ids[1].clone())
+        );
+
+        let older_page = list_workspace_messages(
+            app_data.path(),
+            ListMessagesRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+                before_message_id: latest_page.next_before_message_id,
+                limit: Some(2),
+            },
+        )
+        .expect("older messages listed");
+
+        assert_eq!(older_page.messages.len(), 1);
+        assert_eq!(older_page.messages[0].body, "first");
+        assert!(!older_page.has_more);
+    }
+
+    #[test]
+    fn read_position_updates_unread_count_for_newer_messages() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+        let first = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                body: "first".to_owned(),
+            },
+        )
+        .expect("first sent")
+        .message;
+        send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                body: "second".to_owned(),
+            },
+        )
+        .expect("second sent");
+        let third = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                body: "third".to_owned(),
+            },
+        )
+        .expect("third sent")
+        .message;
+
+        let first_read = update_workspace_read_position(
+            app_data.path(),
+            UpdateReadPositionRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                message_id: first.message_id,
+            },
+        )
+        .expect("read position updated to first");
+
+        assert_eq!(first_read.conversation.unread_count, 2);
+
+        let latest_read = update_workspace_read_position(
+            app_data.path(),
+            UpdateReadPositionRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+                message_id: third.message_id.clone(),
+            },
+        )
+        .expect("read position updated to latest");
+
+        assert_eq!(latest_read.conversation.unread_count, 0);
+        assert_eq!(
+            latest_read.read_position.last_read_message_id,
+            third.message_id
+        );
     }
 }

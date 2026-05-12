@@ -4,7 +4,8 @@ use orchlet_lib::{
     app::data_integrity::validate_data_integrity,
     app::members::initialize_members,
     contracts::{
-        ContactProfile, ConversationKind, ConversationProfile, DataIntegrityReport,
+        ChatMessageProfile, ChatMessageStatus, ContactProfile, ConversationKind,
+        ConversationProfile, ConversationReadPositionProfile, DataIntegrityReport,
         DataIntegrityStatus, MemberProfile, WorkspaceMetadata,
     },
     domain::workspace::validate_workspace_metadata,
@@ -64,6 +65,18 @@ struct ConversationMembershipFixture {
     workspace_id: String,
     member_id: String,
     created_at_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MessageHistoryFixture {
+    schema_version: u32,
+    workspace_id: String,
+    conversation_id: String,
+    messages: Vec<ChatMessageProfile>,
+    read_positions: Vec<ConversationReadPositionProfile>,
+    pagination_rule: String,
+    excluded_future_tables: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,7 +151,7 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 8);
+    assert_eq!(report.total_checks, 10);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -152,9 +165,9 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 8);
+    assert_eq!(report.total_checks, 10);
     assert_eq!(report.failed_checks, 1);
-    assert_eq!(report.skipped_checks, 4);
+    assert_eq!(report.skipped_checks, 6);
     assert!(report.has_failures);
 }
 
@@ -189,7 +202,9 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
             "schema_migrations",
             "members",
             "conversations",
-            "conversation_members"
+            "conversation_members",
+            "messages",
+            "conversation_read_positions"
         ]
     );
     assert_eq!(
@@ -198,7 +213,8 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
             "202605112300__members.sql",
             "202605120930__member_permissions.sql",
             "202605121210__private_conversations.sql",
-            "202605121300__conversation_list_groups.sql"
+            "202605121300__conversation_list_groups.sql",
+            "202605121430__messages_read_positions.sql"
         ]
     );
     assert!(fixture
@@ -214,9 +230,17 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
         .iter()
         .any(|path| path.contains("conversation_members")));
     assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("messages records")));
+    assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("conversation_read_positions")));
+    assert!(fixture
         .owned_by_future_stories
         .iter()
-        .any(|domain| domain == "messages"));
+        .any(|domain| domain == "notification"));
 }
 
 #[test]
@@ -299,10 +323,43 @@ fn conversation_list_fixture_covers_channel_group_private_and_membership() {
     assert!(fixture.conversation_members[0].created_at_ms > 0);
     assert!(fixture.conversation_members[0].member_id.starts_with("01K"));
     assert!(fixture.ordering_rule.contains("pinned"));
-    assert!(fixture
+    assert!(!fixture
         .excluded_future_tables
         .iter()
         .any(|table| table == "messages"));
+}
+
+#[test]
+fn message_history_fixture_covers_status_pagination_and_read_position() {
+    let fixture: MessageHistoryFixture =
+        read_fixture("../fixtures/schema/messages-v1/message-history.json");
+
+    assert_eq!(fixture.schema_version, 1);
+    assert_eq!(fixture.workspace_id, "01K00000000000000000000000");
+    assert_eq!(fixture.conversation_id, "01K00000000000000000000050");
+    assert_eq!(fixture.messages.len(), 3);
+    assert!(fixture
+        .messages
+        .iter()
+        .any(|message| message.status == ChatMessageStatus::Sent));
+    assert!(fixture
+        .messages
+        .iter()
+        .any(|message| message.status == ChatMessageStatus::Failed));
+    assert!(fixture
+        .messages
+        .windows(2)
+        .all(|window| window[0].created_at_ms <= window[1].created_at_ms));
+    assert_eq!(fixture.read_positions.len(), 1);
+    assert_eq!(
+        fixture.read_positions[0].last_read_message_id,
+        "01K00000000000000000000070"
+    );
+    assert!(fixture.pagination_rule.contains("beforeMessageId"));
+    assert!(fixture
+        .excluded_future_tables
+        .iter()
+        .any(|table| table == "terminal_dispatches"));
 }
 
 #[test]

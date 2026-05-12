@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   AtSign,
   Bot,
+  CheckCircle2,
   Edit3,
   FolderOpen,
   Hash,
@@ -14,6 +15,7 @@ import {
   Pin,
   Plus,
   RefreshCw,
+  Send,
   Search,
   Settings,
   ShieldCheck,
@@ -36,7 +38,12 @@ import type { ContactApi } from "../../../shared/api/contact-api";
 import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
 import type { MemberApi } from "../../../shared/api/member-api";
-import type { ConversationProfile, ListConversationsResult } from "../../../contracts/generated/chat";
+import type {
+  ChatMessageProfile,
+  ConversationProfile,
+  ListConversationsResult,
+  ListMessagesResult,
+} from "../../../contracts/generated/chat";
 import type { ContactKind, ContactProfile } from "../../../contracts/generated/contact";
 import type {
   InvitedMemberType,
@@ -79,6 +86,9 @@ type WorkspaceSelectionPageProps = {
     ChatApi,
     | "listConversations"
     | "createGroupConversation"
+    | "sendMessage"
+    | "listMessages"
+    | "updateReadPosition"
     | "updateGroupConversationMembers"
     | "startPrivateConversation"
   >;
@@ -87,6 +97,8 @@ type WorkspaceSelectionPageProps = {
 type PendingConflict = {
   conflict: WorkspaceRegistryConflict;
 };
+
+const MESSAGE_PAGE_LIMIT = 30;
 
 export function WorkspaceSelectionPage({
   api = workspaceApi,
@@ -128,6 +140,12 @@ export function WorkspaceSelectionPage({
   const [lastPrivateConversation, setLastPrivateConversation] =
     useState<ConversationProfile | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [messageDraft, setMessageDraft] = useState("");
+  const [messages, setMessages] = useState<ChatMessageProfile[]>([]);
+  const [nextBeforeMessageId, setNextBeforeMessageId] = useState<string | null>(null);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
   const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
   const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
@@ -135,6 +153,7 @@ export function WorkspaceSelectionPage({
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
   const conflictPrimaryButtonRef = useRef<HTMLButtonElement>(null);
   const conflictTriggerRef = useRef<HTMLElement | null>(null);
+  const lastReadUpdateRef = useRef<string | null>(null);
   const { toast, showToast, clearToast } = useToastStore();
   const { data: status, isLoading } = useQuery({
     queryKey: ["workspace-selection-status"],
@@ -180,6 +199,23 @@ export function WorkspaceSelectionPage({
     conversations.find((conversation) => conversation.conversationId === selectedConversationId) ??
     conversations[0] ??
     null;
+  const messageQueryKey = [
+    "chat-messages",
+    activeWorkspaceId,
+    selectedConversation?.conversationId ?? null,
+  ] as const;
+  const messageQuery = useQuery({
+    queryKey: messageQueryKey,
+    queryFn: () =>
+      conversationsApi.listMessages({
+        workspaceId: activeWorkspaceId ?? "",
+        conversationId: selectedConversation?.conversationId ?? "",
+        beforeMessageId: null,
+        limit: MESSAGE_PAGE_LIMIT,
+      }),
+    enabled: Boolean(activeWorkspaceId && selectedConversation?.conversationId),
+    retry: false,
+  });
   const filteredRecentWorkspaces = useMemo(() => {
     const query = recentSearch.trim().toLocaleLowerCase();
 
@@ -239,6 +275,77 @@ export function WorkspaceSelectionPage({
       action: appError.userAction ?? undefined,
     });
   }, [conversationQuery.error, showToast]);
+
+  useEffect(() => {
+    if (!messageQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(messageQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载消息",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [messageQuery.error, showToast]);
+
+  useEffect(() => {
+    const data = messageQuery.data;
+
+    if (!data) {
+      setMessages([]);
+      setNextBeforeMessageId(null);
+      setHasOlderMessages(false);
+      lastReadUpdateRef.current = null;
+      return;
+    }
+
+    setMessages(data.messages);
+    setNextBeforeMessageId(data.nextBeforeMessageId);
+    setHasOlderMessages(data.hasMore);
+    updateConversationInCache(data.conversation);
+  }, [messageQuery.data]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId || !selectedConversation || messages.length === 0) {
+      return;
+    }
+
+    const latestPersistedMessage = [...messages]
+      .reverse()
+      .find((message) => !message.messageId.startsWith("pending-"));
+
+    if (!latestPersistedMessage) {
+      return;
+    }
+
+    const updateKey = `${selectedConversation.conversationId}:${latestPersistedMessage.messageId}`;
+    if (lastReadUpdateRef.current === updateKey) {
+      return;
+    }
+    lastReadUpdateRef.current = updateKey;
+
+    conversationsApi
+      .updateReadPosition({
+        workspaceId: activeWorkspaceId,
+        conversationId: selectedConversation.conversationId,
+        messageId: latestPersistedMessage.messageId,
+      })
+      .then((result) => {
+        updateConversationInCache(result.conversation);
+      })
+      .catch((error) => {
+        const appError = normalizeAppError(error);
+        showToast({
+          tone: appError.severity,
+          title: "无法更新已读位置",
+          message: appError.message,
+          action: appError.userAction ?? undefined,
+        });
+      });
+  }, [activeWorkspaceId, conversationsApi, messages, selectedConversation, showToast]);
 
   useEffect(() => {
     if (selectedConversation?.kind !== "group") {
@@ -564,6 +671,133 @@ export function WorkspaceSelectionPage({
       });
     } finally {
       setIsUpdatingGroupMembers(false);
+    }
+  }
+
+  function updateConversationInCache(conversation: ConversationProfile) {
+    queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, (current) => {
+      if (!current) {
+        return { conversations: [conversation] };
+      }
+
+      const exists = current.conversations.some(
+        (item) => item.conversationId === conversation.conversationId,
+      );
+      const conversations = exists
+        ? current.conversations.map((item) =>
+            item.conversationId === conversation.conversationId ? conversation : item,
+          )
+        : [conversation, ...current.conversations];
+
+      return { conversations: sortConversationsForDisplay(conversations) };
+    });
+  }
+
+  async function handleLoadOlderMessages() {
+    if (!activeWorkspaceId || !selectedConversation || !nextBeforeMessageId) {
+      return;
+    }
+
+    setIsLoadingOlderMessages(true);
+
+    try {
+      const result = await conversationsApi.listMessages({
+        workspaceId: activeWorkspaceId,
+        conversationId: selectedConversation.conversationId,
+        beforeMessageId: nextBeforeMessageId,
+        limit: MESSAGE_PAGE_LIMIT,
+      });
+
+      setMessages((current) => mergeMessagePages(result.messages, current));
+      setNextBeforeMessageId(result.nextBeforeMessageId);
+      setHasOlderMessages(result.hasMore);
+      updateConversationInCache(result.conversation);
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法加载更早消息",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsLoadingOlderMessages(false);
+    }
+  }
+
+  async function handleSendMessage() {
+    if (!activeWorkspaceId || !selectedConversation) {
+      return;
+    }
+
+    const body = messageDraft.trim();
+    if (!body) {
+      showToast({
+        tone: "warning",
+        title: "消息为空",
+        message: "请输入消息内容后再发送。",
+      });
+      return;
+    }
+
+    const timestamp = Date.now();
+    const pendingMessage: ChatMessageProfile = {
+      messageId: `pending-${timestamp}`,
+      workspaceId: activeWorkspaceId,
+      conversationId: selectedConversation.conversationId,
+      authorMemberId: "local",
+      body,
+      status: "sending",
+      createdAtMs: timestamp,
+      updatedAtMs: timestamp,
+    };
+
+    setMessageDraft("");
+    setIsSendingMessage(true);
+    setMessages((current) => mergeMessagePages(current, [pendingMessage]));
+
+    try {
+      const result = await conversationsApi.sendMessage({
+        workspaceId: activeWorkspaceId,
+        conversationId: selectedConversation.conversationId,
+        body,
+      });
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.messageId === pendingMessage.messageId ? result.message : message,
+        ),
+      );
+      updateConversationInCache(result.conversation);
+      queryClient.setQueryData<ListMessagesResult>(messageQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              messages: mergeMessagePages(current.messages, [result.message]),
+              readPosition: result.readPosition,
+              conversation: result.conversation,
+            }
+          : current,
+      );
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.messageId === pendingMessage.messageId
+            ? { ...message, status: "failed" }
+            : message,
+        ),
+      );
+      showToast({
+        tone: appError.severity,
+        title: "消息发送失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSendingMessage(false);
     }
   }
 
@@ -930,14 +1164,23 @@ export function WorkspaceSelectionPage({
               <ConversationPanel
                 conversations={conversations}
                 selectedConversation={selectedConversation}
+                messages={messages}
                 members={members}
                 isLoading={conversationQuery.isLoading}
+                isLoadingMessages={messageQuery.isLoading}
+                isLoadingOlderMessages={isLoadingOlderMessages}
+                hasOlderMessages={hasOlderMessages}
+                isSendingMessage={isSendingMessage}
                 isCreating={isCreatingGroupConversation}
                 isUpdating={isUpdatingGroupMembers}
+                messageDraft={messageDraft}
                 groupTitle={groupTitle}
                 groupMemberIds={groupMemberIds}
                 selectedGroupMemberIds={selectedGroupMemberIds}
                 onSelectConversation={setSelectedConversationId}
+                onMessageDraftChange={setMessageDraft}
+                onSendMessage={() => void handleSendMessage()}
+                onLoadOlderMessages={() => void handleLoadOlderMessages()}
                 onGroupTitleChange={setGroupTitle}
                 onToggleCreateGroupMember={handleToggleCreateGroupMember}
                 onToggleSelectedGroupMember={handleToggleSelectedGroupMember}
@@ -1120,14 +1363,23 @@ const builtInRuntimeOptions = [
 function ConversationPanel({
   conversations,
   selectedConversation,
+  messages,
   members,
   isLoading,
+  isLoadingMessages,
+  isLoadingOlderMessages,
+  hasOlderMessages,
+  isSendingMessage,
   isCreating,
   isUpdating,
+  messageDraft,
   groupTitle,
   groupMemberIds,
   selectedGroupMemberIds,
   onSelectConversation,
+  onMessageDraftChange,
+  onSendMessage,
+  onLoadOlderMessages,
   onGroupTitleChange,
   onToggleCreateGroupMember,
   onToggleSelectedGroupMember,
@@ -1136,14 +1388,23 @@ function ConversationPanel({
 }: {
   conversations: ConversationProfile[];
   selectedConversation: ConversationProfile | null;
+  messages: ChatMessageProfile[];
   members: MemberProfile[];
   isLoading: boolean;
+  isLoadingMessages: boolean;
+  isLoadingOlderMessages: boolean;
+  hasOlderMessages: boolean;
+  isSendingMessage: boolean;
   isCreating: boolean;
   isUpdating: boolean;
+  messageDraft: string;
   groupTitle: string;
   groupMemberIds: string[];
   selectedGroupMemberIds: string[];
   onSelectConversation: (conversationId: string) => void;
+  onMessageDraftChange: (value: string) => void;
+  onSendMessage: () => void;
+  onLoadOlderMessages: () => void;
   onGroupTitleChange: (value: string) => void;
   onToggleCreateGroupMember: (memberId: string) => void;
   onToggleSelectedGroupMember: (memberId: string) => void;
@@ -1172,7 +1433,7 @@ function ConversationPanel({
         </span>
       </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(220px,0.85fr)_minmax(0,1.15fr)]">
         <div className="grid gap-2">
           {conversations.length > 0 ? (
             conversations.map((conversation) => (
@@ -1253,6 +1514,96 @@ function ConversationPanel({
                   "暂无成员"}
               </p>
             ) : null}
+          </div>
+
+          <div className="grid gap-2 border-t border-[#e3eadf] pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#263229]">
+                <MessageSquare aria-hidden="true" size={14} strokeWidth={2} />
+                消息
+              </div>
+              <button
+                type="button"
+                disabled={!hasOlderMessages || isLoadingOlderMessages || !selectedConversation}
+                onClick={onLoadOlderMessages}
+                className="inline-flex min-h-8 items-center justify-center rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isLoadingOlderMessages ? "加载中" : "加载更早"}
+              </button>
+            </div>
+
+            <div
+              role="log"
+              aria-label="消息历史"
+              className="grid max-h-72 min-h-40 content-start gap-2 overflow-y-auto rounded-md border border-[#edf1ea] bg-[#f8fbf6] p-2"
+            >
+              {isLoadingMessages ? (
+                <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+                  正在加载消息
+                </p>
+              ) : messages.length > 0 ? (
+                messages.map((message) => (
+                  <article
+                    key={message.messageId}
+                    className={
+                      message.status === "failed"
+                        ? "rounded-md border border-[#e2b8a7] bg-[#fff7f3] p-3"
+                        : "rounded-md border border-[#dfe8db] bg-white p-3"
+                    }
+                  >
+                    <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[#263229]">
+                      {message.body}
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#6a786c]">
+                      <span>{formatRecentTime(message.createdAtMs)}</span>
+                      <span className="inline-flex items-center gap-1 rounded border border-[#dfe8db] bg-[#f8fbf6] px-1.5 py-0.5 font-medium">
+                        <MessageStatusIcon status={message.status} />
+                        {messageStatusLabel(message.status)}
+                      </span>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+                  暂无消息
+                </p>
+              )}
+            </div>
+
+            <form
+              aria-label="发送消息"
+              className="grid gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onSendMessage();
+              }}
+            >
+              <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                输入消息
+                <textarea
+                  value={messageDraft}
+                  disabled={!selectedConversation}
+                  onChange={(event) => onMessageDraftChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      onSendMessage();
+                    }
+                  }}
+                  rows={3}
+                  placeholder={selectedConversation ? "发送到当前会话" : "先选择会话"}
+                  className="min-h-20 resize-y rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-not-allowed disabled:bg-[#f1f4ef]"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={!selectedConversation || isSendingMessage || messageDraft.trim().length === 0}
+                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+              >
+                <Send aria-hidden="true" size={14} strokeWidth={2} />
+                {isSendingMessage ? "发送中" : "发送"}
+              </button>
+            </form>
           </div>
 
           <form
@@ -1376,6 +1727,80 @@ function ConversationKindIcon({ kind }: { kind: ConversationProfile["kind"] }) {
   }
 
   return <MessageSquare aria-hidden="true" size={17} strokeWidth={2} />;
+}
+
+function MessageStatusIcon({ status }: { status: ChatMessageProfile["status"] }) {
+  if (status === "failed") {
+    return <AlertTriangle aria-hidden="true" size={12} strokeWidth={2} />;
+  }
+
+  if (status === "sending") {
+    return <RefreshCw aria-hidden="true" size={12} strokeWidth={2} />;
+  }
+
+  return <CheckCircle2 aria-hidden="true" size={12} strokeWidth={2} />;
+}
+
+function messageStatusLabel(status: ChatMessageProfile["status"]) {
+  if (status === "failed") {
+    return "failed";
+  }
+
+  if (status === "sending") {
+    return "sending";
+  }
+
+  return "sent";
+}
+
+function mergeMessagePages(
+  first: ChatMessageProfile[],
+  second: ChatMessageProfile[],
+): ChatMessageProfile[] {
+  const byId = new Map<string, ChatMessageProfile>();
+
+  for (const message of [...first, ...second]) {
+    byId.set(message.messageId, message);
+  }
+
+  return [...byId.values()].sort((left, right) => {
+    if (left.createdAtMs !== right.createdAtMs) {
+      return left.createdAtMs - right.createdAtMs;
+    }
+
+    return left.messageId.localeCompare(right.messageId);
+  });
+}
+
+function sortConversationsForDisplay(
+  conversations: ConversationProfile[],
+): ConversationProfile[] {
+  return [...conversations].sort((left, right) => {
+    if (left.isPinned !== right.isPinned) {
+      return left.isPinned ? -1 : 1;
+    }
+
+    const leftUnread = left.unreadCount > 0;
+    const rightUnread = right.unreadCount > 0;
+    if (leftUnread !== rightUnread) {
+      return leftUnread ? -1 : 1;
+    }
+
+    if (left.lastActivityAtMs !== right.lastActivityAtMs) {
+      return right.lastActivityAtMs - left.lastActivityAtMs;
+    }
+
+    if (left.updatedAtMs !== right.updatedAtMs) {
+      return right.updatedAtMs - left.updatedAtMs;
+    }
+
+    const titleCompare = left.title.localeCompare(right.title);
+    if (titleCompare !== 0) {
+      return titleCompare;
+    }
+
+    return left.conversationId.localeCompare(right.conversationId);
+  });
 }
 
 function MembersPanel({

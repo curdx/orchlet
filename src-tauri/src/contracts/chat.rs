@@ -21,6 +21,15 @@ pub enum ConversationParticipantKind {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "chat.ts")]
+pub enum ChatMessageStatus {
+    Sending,
+    Sent,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
 pub struct ConversationProfile {
     pub conversation_id: String,
     pub workspace_id: String,
@@ -50,6 +59,35 @@ pub struct ConversationMemberSummary {
     pub instance_label: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ChatMessageProfile {
+    pub message_id: String,
+    pub workspace_id: String,
+    pub conversation_id: String,
+    pub author_member_id: String,
+    pub body: String,
+    pub status: ChatMessageStatus,
+    #[ts(type = "number")]
+    pub created_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ConversationReadPositionProfile {
+    pub workspace_id: String,
+    pub conversation_id: String,
+    pub last_read_message_id: String,
+    #[ts(type = "number")]
+    pub last_read_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "chat.ts")]
@@ -62,6 +100,62 @@ pub struct ListConversationsRequest {
 #[ts(export, export_to = "chat.ts")]
 pub struct ListConversationsResult {
     pub conversations: Vec<ConversationProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct SendMessageRequest {
+    pub workspace_id: String,
+    pub conversation_id: String,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct SendMessageResult {
+    pub message: ChatMessageProfile,
+    pub conversation: ConversationProfile,
+    pub read_position: ConversationReadPositionProfile,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ListMessagesRequest {
+    pub workspace_id: String,
+    pub conversation_id: String,
+    pub before_message_id: Option<String>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ListMessagesResult {
+    pub messages: Vec<ChatMessageProfile>,
+    pub has_more: bool,
+    pub next_before_message_id: Option<String>,
+    pub read_position: Option<ConversationReadPositionProfile>,
+    pub conversation: ConversationProfile,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct UpdateReadPositionRequest {
+    pub workspace_id: String,
+    pub conversation_id: String,
+    pub message_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct UpdateReadPositionResult {
+    pub read_position: ConversationReadPositionProfile,
+    pub conversation: ConversationProfile,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

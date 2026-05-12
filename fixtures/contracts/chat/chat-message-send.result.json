@@ -1,0 +1,35 @@
+{
+  "message": {
+    "messageId": "01K00000000000000000000070",
+    "workspaceId": "01K00000000000000000000000",
+    "conversationId": "01K00000000000000000000050",
+    "authorMemberId": "01K00000000000000000000030",
+    "body": "Ship it",
+    "status": "sent",
+    "createdAtMs": 1760000011000,
+    "updatedAtMs": 1760000011000
+  },
+  "conversation": {
+    "conversationId": "01K00000000000000000000050",
+    "workspaceId": "01K00000000000000000000000",
+    "kind": "channel",
+    "title": "默认频道",
+    "isDefault": true,
+    "isPinned": true,
+    "unreadCount": 0,
+    "lastMessagePreview": "Ship it",
+    "participantKind": null,
+    "participantId": null,
+    "members": [],
+    "createdAtMs": 1760000007000,
+    "updatedAtMs": 1760000011000,
+    "lastActivityAtMs": 1760000011000
+  },
+  "readPosition": {
+    "workspaceId": "01K00000000000000000000000",
+    "conversationId": "01K00000000000000000000050",
+    "lastReadMessageId": "01K00000000000000000000070",
+    "lastReadAtMs": 1760000011000,
+    "updatedAtMs": 1760000011000
+  }
+}

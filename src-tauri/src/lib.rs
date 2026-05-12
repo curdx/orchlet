@@ -34,6 +34,9 @@ pub fn run() {
             gateway::contact_commands::contact_delete,
             gateway::chat_commands::chat_conversations_list,
             gateway::chat_commands::chat_group_conversation_create,
+            gateway::chat_commands::chat_message_send,
+            gateway::chat_commands::chat_messages_page,
+            gateway::chat_commands::chat_read_position_update,
             gateway::chat_commands::chat_group_conversation_members_update,
             gateway::chat_commands::chat_private_conversation_start
         ])

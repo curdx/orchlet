@@ -15,6 +15,9 @@ const requiredCommands = new Set([
   "contact_delete",
   "chat_conversations_list",
   "chat_group_conversation_create",
+  "chat_message_send",
+  "chat_messages_page",
+  "chat_read_position_update",
   "chat_group_conversation_members_update",
   "chat_private_conversation_start",
 ]);

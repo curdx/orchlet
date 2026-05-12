@@ -7,6 +7,8 @@ import App from "./App";
 import { WorkspaceSelectionPage } from "./pages/workspace-selection";
 import { useToastStore } from "./shared/ui";
 import type {
+  ChatMessageProfile,
+  ConversationReadPositionProfile,
   DataIntegrityReport,
   ContactProfile,
   CreateContactRequest,
@@ -20,6 +22,8 @@ import type {
   InviteMemberResult,
   ListConversationsRequest,
   ListConversationsResult,
+  ListMessagesRequest,
+  ListMessagesResult,
   ListContactsRequest,
   ListContactsResult,
   ListMembersRequest,
@@ -29,12 +33,16 @@ import type {
   RecentWorkspaceEntry,
   RemoveMemberRequest,
   RemoveMemberResult,
+  SendMessageRequest,
+  SendMessageResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
   UpdateContactRequest,
   UpdateContactResult,
   UpdateGroupConversationMembersRequest,
   UpdateGroupConversationMembersResult,
+  UpdateReadPositionRequest,
+  UpdateReadPositionResult,
   WindowContextSnapshot,
   WorkspaceSelectionStatus,
 } from "./contracts/generated";
@@ -76,6 +84,11 @@ function renderWorkspaceSelection(api: {
     createGroupConversation: (
       request: CreateGroupConversationRequest,
     ) => Promise<CreateGroupConversationResult>;
+    sendMessage: (request: SendMessageRequest) => Promise<SendMessageResult>;
+    listMessages: (request: ListMessagesRequest) => Promise<ListMessagesResult>;
+    updateReadPosition: (
+      request: UpdateReadPositionRequest,
+    ) => Promise<UpdateReadPositionResult>;
     updateGroupConversationMembers: (
       request: UpdateGroupConversationMembersRequest,
     ) => Promise<UpdateGroupConversationMembersResult>;
@@ -118,6 +131,17 @@ function renderWorkspaceSelection(api: {
           listConversations: () => Promise.resolve({ conversations: [defaultChannel()] }),
           createGroupConversation: () =>
             Promise.reject(new Error("createGroupConversation mock missing")),
+          sendMessage: () => Promise.reject(new Error("sendMessage mock missing")),
+          listMessages: () =>
+            Promise.resolve({
+              messages: [],
+              hasMore: false,
+              nextBeforeMessageId: null,
+              readPosition: null,
+              conversation: defaultChannel(),
+            }),
+          updateReadPosition: () =>
+            Promise.reject(new Error("updateReadPosition mock missing")),
           updateGroupConversationMembers: () =>
             Promise.reject(new Error("updateGroupConversationMembers mock missing")),
           startPrivateConversation: () =>
@@ -268,7 +292,7 @@ function conversationProfile(overrides: Partial<ConversationProfile> = {}): Conv
   };
 }
 
-function defaultChannel(): ConversationProfile {
+function defaultChannel(overrides: Partial<ConversationProfile> = {}): ConversationProfile {
   return conversationProfile({
     conversationId: "01K00000000000000000000060",
     kind: "channel",
@@ -277,7 +301,35 @@ function defaultChannel(): ConversationProfile {
     isPinned: true,
     participantKind: null,
     participantId: null,
+    ...overrides,
   });
+}
+
+function chatMessage(overrides: Partial<ChatMessageProfile> = {}): ChatMessageProfile {
+  return {
+    messageId: "01K00000000000000000000070",
+    workspaceId: "01K00000000000000000000000",
+    conversationId: "01K00000000000000000000060",
+    authorMemberId: "01KMEMBER000000000000000000",
+    body: "Hello workspace",
+    status: "sent",
+    createdAtMs: 1760000001000,
+    updatedAtMs: 1760000001000,
+    ...overrides,
+  };
+}
+
+function readPosition(
+  overrides: Partial<ConversationReadPositionProfile> = {},
+): ConversationReadPositionProfile {
+  return {
+    workspaceId: "01K00000000000000000000000",
+    conversationId: "01K00000000000000000000060",
+    lastReadMessageId: "01K00000000000000000000070",
+    lastReadAtMs: 1760000001000,
+    updatedAtMs: 1760000001000,
+    ...overrides,
+  };
 }
 
 describe("App workspace entry", () => {
@@ -450,6 +502,165 @@ describe("App workspace entry", () => {
       memberIds: [builder.memberId],
     });
     expect((await within(conversationPanel).findAllByText(/Builder/)).length).toBeGreaterThan(0);
+  });
+
+  it("loads message history, sends with visible status and loads older messages without blocking input", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel({
+      unreadCount: 2,
+      lastMessagePreview: "Latest note",
+    });
+    const olderMessage = chatMessage({
+      messageId: "01K00000000000000000000071",
+      body: "Earlier context",
+      createdAtMs: 1760000000000,
+      updatedAtMs: 1760000000000,
+    });
+    const latestMessage = chatMessage({
+      messageId: "01K00000000000000000000072",
+      body: "Latest note",
+      createdAtMs: 1760000002000,
+      updatedAtMs: 1760000002000,
+    });
+    const sentMessage = chatMessage({
+      messageId: "01K00000000000000000000073",
+      body: "Ship it",
+      createdAtMs: 1760000003000,
+      updatedAtMs: 1760000003000,
+    });
+    let resolveOlder!: (result: ListMessagesResult) => void;
+    const olderPromise = new Promise<ListMessagesResult>((resolve) => {
+      resolveOlder = resolve;
+    });
+    let resolveSend!: (result: SendMessageResult) => void;
+    const sendPromise = new Promise<SendMessageResult>((resolve) => {
+      resolveSend = resolve;
+    });
+    const listMessages = vi.fn((request: ListMessagesRequest) => {
+      if (request.beforeMessageId) {
+        return olderPromise;
+      }
+
+      return Promise.resolve({
+        messages: [latestMessage],
+        hasMore: true,
+        nextBeforeMessageId: latestMessage.messageId,
+        readPosition: null,
+        conversation: channel,
+      } satisfies ListMessagesResult);
+    });
+    const sendMessage = vi.fn(() => sendPromise);
+    const updateReadPosition = vi.fn(() =>
+      Promise.resolve({
+        readPosition: readPosition({
+          lastReadMessageId: latestMessage.messageId,
+          lastReadAtMs: latestMessage.createdAtMs,
+        }),
+        conversation: {
+          ...channel,
+          unreadCount: 0,
+        },
+      } satisfies UpdateReadPositionResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages,
+        sendMessage,
+        updateReadPosition,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    expect(within(messageLog).getByText("Latest note")).toBeInTheDocument();
+    expect(updateReadPosition).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: channel.conversationId,
+      messageId: latestMessage.messageId,
+    });
+
+    const composer = within(conversationPanel).getByLabelText("输入消息");
+    await user.click(within(conversationPanel).getByRole("button", { name: "加载更早" }));
+    expect(listMessages).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: channel.conversationId,
+      beforeMessageId: latestMessage.messageId,
+      limit: 30,
+    });
+    expect(composer).toBeEnabled();
+
+    resolveOlder({
+      messages: [olderMessage],
+      hasMore: false,
+      nextBeforeMessageId: null,
+      readPosition: null,
+      conversation: channel,
+    });
+    expect(await within(messageLog).findByText("Earlier context")).toBeInTheDocument();
+
+    await user.type(composer, "Ship it");
+    await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
+    expect(await within(messageLog).findByText("sending")).toBeInTheDocument();
+    expect(sendMessage).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: channel.conversationId,
+      body: "Ship it",
+    });
+
+    resolveSend({
+      message: sentMessage,
+      conversation: {
+        ...channel,
+        unreadCount: 0,
+        lastMessagePreview: "Ship it",
+        lastActivityAtMs: sentMessage.createdAtMs,
+        updatedAtMs: sentMessage.updatedAtMs,
+      },
+      readPosition: readPosition({
+        lastReadMessageId: sentMessage.messageId,
+        lastReadAtMs: sentMessage.createdAtMs,
+      }),
+    });
+
+    expect((await within(messageLog).findAllByText("sent")).length).toBeGreaterThan(0);
+    expect(within(messageLog).getByText("Ship it")).toBeInTheDocument();
+  });
+
+  it("keeps a failed message visible when send fails", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel();
+    const sendMessage = vi.fn(() => Promise.reject(new Error("disk full")));
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        sendMessage,
+        updateReadPosition: () =>
+          Promise.resolve({
+            readPosition: readPosition(),
+            conversation: channel,
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.type(within(conversationPanel).getByLabelText("输入消息"), "Will fail");
+    await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
+
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    expect(await within(messageLog).findByText("failed")).toBeInTheDocument();
+    expect(within(messageLog).getByText("Will fail")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("消息发送失败");
   });
 
   it("loads default owner and saves invited assistant instances without launching terminal", async () => {

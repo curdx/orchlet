@@ -192,7 +192,56 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             privacy_class: StoragePrivacyClass::WorkspaceData,
             fixture_required: true,
             validation_check_id: "conversation.members.schema_validate".to_owned(),
-            notes: "Contains group conversation member ids only; member removal is not cascaded by this story, and messages/read positions remain future storage."
+            notes: "Contains group conversation member ids only; member removal is not cascaded by this story."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "message.records".to_owned(),
+            owner: StorageOwner::Chat,
+            category: StorageCategory::MessageRecords,
+            description: "Workspace-local chat message records and local send status."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataWorkspaceFile,
+            relative_path: Some(WORKSPACE_SQLITE_RELATIVE_PATH.to_owned()),
+            file_name: Some(WORKSPACE_SQLITE_FILE_NAME.to_owned()),
+            format: StorageFormat::Sqlite,
+            schema_version: WORKSPACE_SQLITE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/conversation_repository.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/conversation_repository.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "message.records.schema_validate".to_owned(),
+            notes: "Contains plain text local chat messages and sending/sent/failed status only; dispatch, terminal output, attachments, mentions and reactions are future domains."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "conversation.read_positions".to_owned(),
+            owner: StorageOwner::Chat,
+            category: StorageCategory::ConversationReadPositions,
+            description: "Workspace-local conversation read position records.".to_owned(),
+            path_policy: StoragePathPolicy::AppDataWorkspaceFile,
+            relative_path: Some(WORKSPACE_SQLITE_RELATIVE_PATH.to_owned()),
+            file_name: Some(WORKSPACE_SQLITE_FILE_NAME.to_owned()),
+            format: StorageFormat::Sqlite,
+            schema_version: WORKSPACE_SQLITE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/conversation_repository.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/conversation_repository.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "conversation.read_positions.schema_validate".to_owned(),
+            notes: "Contains local read cursor per conversation only; multi-member read receipts and notifications are future domains."
                 .to_owned(),
         },
     ]

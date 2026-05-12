@@ -46,6 +46,8 @@ function storageCategory(value: string): StorageCategory {
     case "contactProfiles":
     case "conversationRecords":
     case "conversationMembers":
+    case "messageRecords":
+    case "conversationReadPositions":
     case "privateConversations":
       return value;
     default:

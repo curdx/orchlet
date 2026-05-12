@@ -1,0 +1,9 @@
+{
+  "code": "message.cursor.notFound",
+  "message": "未找到消息。",
+  "userAction": "请刷新消息列表后重试。",
+  "details": "workspaceId=01K00000000000000000000000 conversationId=01K00000000000000000000050 messageId=01K00000000000000000009999",
+  "severity": "warning",
+  "recoverable": true,
+  "correlationId": null
+}

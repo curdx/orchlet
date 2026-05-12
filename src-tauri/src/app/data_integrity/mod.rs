@@ -22,6 +22,7 @@ use crate::{
             contact_repository::{contact_database_path, validate_contact_store},
             conversation_repository::{
                 validate_conversation_member_store, validate_conversation_record_store,
+                validate_message_store, validate_read_position_store,
             },
             member_repository::validate_member_store,
             workspace_database::workspace_database_path,
@@ -108,6 +109,14 @@ pub fn validate_data_integrity(
         app_data_dir,
         workspace_id.as_deref(),
     ));
+    checks.push(validate_message_records(
+        app_data_dir,
+        workspace_id.as_deref(),
+    ));
+    checks.push(validate_conversation_read_positions(
+        app_data_dir,
+        workspace_id.as_deref(),
+    ));
 
     report_from_checks(manifest, checks)
 }
@@ -136,6 +145,8 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::ContactProfiles,
         StorageCategory::ConversationRecords,
         StorageCategory::ConversationMembers,
+        StorageCategory::MessageRecords,
+        StorageCategory::ConversationReadPositions,
     ];
     let missing_categories = expected_categories
         .iter()
@@ -237,6 +248,63 @@ fn validate_conversation_members(
         vec![database_path],
         validate_conversation_member_store(app_data_dir, workspace_id)
             .map(|_| "Conversation membership store is readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_message_records(
+    app_data_dir: &Path,
+    workspace_id: Option<&str>,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_id) = workspace_id else {
+        return DataIntegrityCheckResult {
+            check_id: "message.records.schema_validate".to_owned(),
+            category: StorageCategory::MessageRecords,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace id is available for message record validation."
+                .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+    check_result(
+        "message.records.schema_validate",
+        StorageCategory::MessageRecords,
+        vec![database_path],
+        validate_message_store(app_data_dir, workspace_id)
+            .map(|_| "Message record store is readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_conversation_read_positions(
+    app_data_dir: &Path,
+    workspace_id: Option<&str>,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_id) = workspace_id else {
+        return DataIntegrityCheckResult {
+            check_id: "conversation.read_positions.schema_validate".to_owned(),
+            category: StorageCategory::ConversationReadPositions,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message:
+                "No active workspace id is available for conversation read-position validation."
+                    .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+    check_result(
+        "conversation.read_positions.schema_validate",
+        StorageCategory::ConversationReadPositions,
+        vec![database_path],
+        validate_read_position_store(app_data_dir, workspace_id)
+            .map(|_| "Conversation read-position store is readable when initialized.".to_owned()),
     )
 }
 
@@ -463,7 +531,7 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 7);
+        assert_eq!(manifest.len(), 9);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
@@ -471,6 +539,8 @@ mod tests {
         assert!(categories.contains(&StorageCategory::ContactProfiles));
         assert!(categories.contains(&StorageCategory::ConversationRecords));
         assert!(categories.contains(&StorageCategory::ConversationMembers));
+        assert!(categories.contains(&StorageCategory::MessageRecords));
+        assert!(categories.contains(&StorageCategory::ConversationReadPositions));
         assert!(manifest
             .iter()
             .all(|entry| entry.schema_version == 1 && entry.fixture_required));
@@ -481,9 +551,9 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 8);
+        assert_eq!(report.total_checks, 10);
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 4);
+        assert_eq!(report.skipped_checks, 6);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Skipped
@@ -572,7 +642,7 @@ mod tests {
         );
 
         assert_eq!(report.failed_checks, 1);
-        assert_eq!(report.skipped_checks, 3);
+        assert_eq!(report.skipped_checks, 5);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Failed
@@ -620,7 +690,7 @@ mod tests {
         let report = validate_data_integrity(app_data.path(), None, None);
 
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 4);
+        assert_eq!(report.skipped_checks, 6);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceRegistry
                 && check.status == DataIntegrityStatus::Passed

@@ -3,10 +3,16 @@ import type {
   CreateGroupConversationResult,
   ListConversationsRequest,
   ListConversationsResult,
+  ListMessagesRequest,
+  ListMessagesResult,
+  SendMessageRequest,
+  SendMessageResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
   UpdateGroupConversationMembersRequest,
   UpdateGroupConversationMembersResult,
+  UpdateReadPositionRequest,
+  UpdateReadPositionResult,
 } from "../../contracts/generated/chat";
 import { invokeCommand } from "./client";
 
@@ -17,6 +23,11 @@ export type ChatApi = {
   createGroupConversation: (
     request: CreateGroupConversationRequest,
   ) => Promise<CreateGroupConversationResult>;
+  sendMessage: (request: SendMessageRequest) => Promise<SendMessageResult>;
+  listMessages: (request: ListMessagesRequest) => Promise<ListMessagesResult>;
+  updateReadPosition: (
+    request: UpdateReadPositionRequest,
+  ) => Promise<UpdateReadPositionResult>;
   updateGroupConversationMembers: (
     request: UpdateGroupConversationMembersRequest,
   ) => Promise<UpdateGroupConversationMembersResult>;
@@ -33,6 +44,21 @@ export const chatApi: ChatApi = {
   },
   createGroupConversation(request) {
     return invokeCommand<CreateGroupConversationResult>("chat_group_conversation_create", {
+      request,
+    });
+  },
+  sendMessage(request) {
+    return invokeCommand<SendMessageResult>("chat_message_send", {
+      request,
+    });
+  },
+  listMessages(request) {
+    return invokeCommand<ListMessagesResult>("chat_messages_page", {
+      request,
+    });
+  },
+  updateReadPosition(request) {
+    return invokeCommand<UpdateReadPositionResult>("chat_read_position_update", {
       request,
     });
   },

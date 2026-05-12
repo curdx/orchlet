@@ -1,16 +1,25 @@
 import type { AppError } from "../../src/contracts/generated/common";
 import type {
+  ChatMessageProfile,
+  ChatMessageStatus,
+  ConversationReadPositionProfile,
   ConversationKind,
   CreateGroupConversationRequest,
   CreateGroupConversationResult,
   ListConversationsRequest,
   ListConversationsResult,
+  ListMessagesRequest,
+  ListMessagesResult,
   ConversationParticipantKind,
   ConversationProfile,
+  SendMessageRequest,
+  SendMessageResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
   UpdateGroupConversationMembersRequest,
   UpdateGroupConversationMembersResult,
+  UpdateReadPositionRequest,
+  UpdateReadPositionResult,
 } from "../../src/contracts/generated/chat";
 import type {
   ContactKind,
@@ -67,6 +76,15 @@ import listConversationsResult from "../../fixtures/contracts/chat/chat-conversa
 import createGroupConversationError from "../../fixtures/contracts/chat/chat-group-conversation-create.error.json";
 import createGroupConversationRequest from "../../fixtures/contracts/chat/chat-group-conversation-create.request.json";
 import createGroupConversationResult from "../../fixtures/contracts/chat/chat-group-conversation-create.result.json";
+import sendMessageError from "../../fixtures/contracts/chat/chat-message-send.error.json";
+import sendMessageRequest from "../../fixtures/contracts/chat/chat-message-send.request.json";
+import sendMessageResult from "../../fixtures/contracts/chat/chat-message-send.result.json";
+import listMessagesError from "../../fixtures/contracts/chat/chat-messages-page.error.json";
+import listMessagesRequest from "../../fixtures/contracts/chat/chat-messages-page.request.json";
+import listMessagesResult from "../../fixtures/contracts/chat/chat-messages-page.result.json";
+import updateReadPositionError from "../../fixtures/contracts/chat/chat-read-position-update.error.json";
+import updateReadPositionRequest from "../../fixtures/contracts/chat/chat-read-position-update.request.json";
+import updateReadPositionResult from "../../fixtures/contracts/chat/chat-read-position-update.result.json";
 import updateGroupConversationMembersError from "../../fixtures/contracts/chat/chat-group-conversation-members-update.error.json";
 import updateGroupConversationMembersRequest from "../../fixtures/contracts/chat/chat-group-conversation-members-update.request.json";
 import updateGroupConversationMembersResult from "../../fixtures/contracts/chat/chat-group-conversation-members-update.result.json";
@@ -203,6 +221,34 @@ export const createGroupConversationResultFixture: CreateGroupConversationResult
 export const createGroupConversationErrorFixture: AppError =
   appError(createGroupConversationError);
 
+export const sendMessageRequestFixture: SendMessageRequest = sendMessageRequest;
+export const sendMessageResultFixture: SendMessageResult = {
+  message: chatMessageProfile(sendMessageResult.message),
+  conversation: conversationProfile(sendMessageResult.conversation),
+  readPosition: readPositionProfile(sendMessageResult.readPosition),
+};
+export const sendMessageErrorFixture: AppError = appError(sendMessageError);
+
+export const listMessagesRequestFixture: ListMessagesRequest = listMessagesRequest;
+export const listMessagesResultFixture: ListMessagesResult = {
+  messages: listMessagesResult.messages.map(chatMessageProfile),
+  hasMore: listMessagesResult.hasMore,
+  nextBeforeMessageId: listMessagesResult.nextBeforeMessageId,
+  readPosition: listMessagesResult.readPosition
+    ? readPositionProfile(listMessagesResult.readPosition)
+    : null,
+  conversation: conversationProfile(listMessagesResult.conversation),
+};
+export const listMessagesErrorFixture: AppError = appError(listMessagesError);
+
+export const updateReadPositionRequestFixture: UpdateReadPositionRequest =
+  updateReadPositionRequest;
+export const updateReadPositionResultFixture: UpdateReadPositionResult = {
+  readPosition: readPositionProfile(updateReadPositionResult.readPosition),
+  conversation: conversationProfile(updateReadPositionResult.conversation),
+};
+export const updateReadPositionErrorFixture: AppError = appError(updateReadPositionError);
+
 export const updateGroupConversationMembersRequestFixture: UpdateGroupConversationMembersRequest =
   updateGroupConversationMembersRequest;
 export const updateGroupConversationMembersResultFixture: UpdateGroupConversationMembersResult = {
@@ -235,6 +281,9 @@ type ErrorJson =
   | typeof deleteContactError
   | typeof listConversationsError
   | typeof createGroupConversationError
+  | typeof sendMessageError
+  | typeof listMessagesError
+  | typeof updateReadPositionError
   | typeof updateGroupConversationMembersError
   | typeof privateConversationError;
 
@@ -334,6 +383,8 @@ function storageCategory(value: string): StorageCategory {
     case "contactProfiles":
     case "conversationRecords":
     case "conversationMembers":
+    case "messageRecords":
+    case "conversationReadPositions":
     case "privateConversations":
       return value;
     default:
@@ -435,9 +486,21 @@ type ConversationJson =
   | (typeof listConversationsResult.conversations)[number]
   | typeof createGroupConversationResult.conversation
   | (typeof createGroupConversationResult.conversations)[number]
+  | typeof sendMessageResult.conversation
+  | typeof listMessagesResult.conversation
+  | typeof updateReadPositionResult.conversation
   | typeof updateGroupConversationMembersResult.conversation
   | (typeof updateGroupConversationMembersResult.conversations)[number]
   | typeof privateConversationResult.conversation;
+
+type ChatMessageJson =
+  | typeof sendMessageResult.message
+  | (typeof listMessagesResult.messages)[number];
+
+type ReadPositionJson =
+  | typeof sendMessageResult.readPosition
+  | NonNullable<typeof listMessagesResult.readPosition>
+  | typeof updateReadPositionResult.readPosition;
 
 function conversationProfile(conversation: ConversationJson): ConversationProfile {
   return {
@@ -449,6 +512,17 @@ function conversationProfile(conversation: ConversationJson): ConversationProfil
   };
 }
 
+function chatMessageProfile(message: ChatMessageJson): ChatMessageProfile {
+  return {
+    ...message,
+    status: messageStatus(message.status),
+  };
+}
+
+function readPositionProfile(readPosition: ReadPositionJson): ConversationReadPositionProfile {
+  return readPosition;
+}
+
 function conversationKind(value: string): ConversationKind {
   switch (value) {
     case "channel":
@@ -457,6 +531,17 @@ function conversationKind(value: string): ConversationKind {
       return value;
     default:
       throw new Error(`Unknown conversation kind: ${value}`);
+  }
+}
+
+function messageStatus(value: string): ChatMessageStatus {
+  switch (value) {
+    case "sending":
+    case "sent":
+    case "failed":
+      return value;
+    default:
+      throw new Error(`Unknown message status: ${value}`);
   }
 }
 
