@@ -4,22 +4,23 @@
   "databaseScope": "workspace",
   "databaseFile": "workspaces/<workspaceId>/orchlet.sqlite",
   "migrationDirectory": "src-tauri/migrations/workspace",
-  "tables": ["schema_migrations", "members", "conversations"],
+  "tables": ["schema_migrations", "members", "conversations", "conversation_members"],
   "migrationFiles": [
     "202605112300__members.sql",
     "202605120930__member_permissions.sql",
-    "202605121210__private_conversations.sql"
+    "202605121210__private_conversations.sql",
+    "202605121300__conversation_list_groups.sql"
   ],
   "validationPaths": [
     "member profiles database must contain exactly one owner per workspace",
     "member profiles include instance labels, mention/remove permissions and sandbox/unlimited access flags",
+    "conversation records include exactly one default channel per initialized workspace",
     "private conversations reuse one conversation per workspace participant",
+    "conversation_members records persist group member ids separately from conversation list records",
     "future stories must add their own manifest entries, migrations and fixtures with their own tables"
   ],
   "ownedByFutureStories": [
     "messages",
-    "channels",
-    "groupConversations",
     "member",
     "terminalSnapshot",
     "notification",

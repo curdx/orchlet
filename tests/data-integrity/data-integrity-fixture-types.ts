@@ -44,6 +44,8 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceFallbacks":
     case "memberProfiles":
     case "contactProfiles":
+    case "conversationRecords":
+    case "conversationMembers":
     case "privateConversations":
       return value;
     default:

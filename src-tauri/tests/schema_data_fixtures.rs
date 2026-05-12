@@ -4,7 +4,8 @@ use orchlet_lib::{
     app::data_integrity::validate_data_integrity,
     app::members::initialize_members,
     contracts::{
-        ContactProfile, DataIntegrityReport, DataIntegrityStatus, MemberProfile, WorkspaceMetadata,
+        ContactProfile, ConversationKind, ConversationProfile, DataIntegrityReport,
+        DataIntegrityStatus, MemberProfile, WorkspaceMetadata,
     },
     domain::workspace::validate_workspace_metadata,
     infrastructure::persistence::json_store::{
@@ -43,6 +44,26 @@ struct ContactProfilesFixture {
     database_scope: String,
     database_file: String,
     contacts: Vec<ContactProfile>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationListFixture {
+    schema_version: u32,
+    workspace_id: String,
+    conversations: Vec<ConversationProfile>,
+    conversation_members: Vec<ConversationMembershipFixture>,
+    ordering_rule: String,
+    excluded_future_tables: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConversationMembershipFixture {
+    conversation_id: String,
+    workspace_id: String,
+    member_id: String,
+    created_at_ms: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,7 +138,7 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 7);
+    assert_eq!(report.total_checks, 8);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -131,9 +152,9 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 7);
+    assert_eq!(report.total_checks, 8);
     assert_eq!(report.failed_checks, 1);
-    assert_eq!(report.skipped_checks, 3);
+    assert_eq!(report.skipped_checks, 4);
     assert!(report.has_failures);
 }
 
@@ -151,7 +172,7 @@ fn data_integrity_report_fixtures_have_consistent_counts() {
 }
 
 #[test]
-fn sqlite_schema_fixture_tracks_member_profiles_only() {
+fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
     let fixture: SqliteSchemaFixture =
         read_fixture("../fixtures/schema/sqlite-workspace-v1/schema-manifest.json");
 
@@ -164,20 +185,34 @@ fn sqlite_schema_fixture_tracks_member_profiles_only() {
     );
     assert_eq!(
         fixture.tables,
-        vec!["schema_migrations", "members", "conversations"]
+        vec![
+            "schema_migrations",
+            "members",
+            "conversations",
+            "conversation_members"
+        ]
     );
     assert_eq!(
         fixture.migration_files,
         vec![
             "202605112300__members.sql",
             "202605120930__member_permissions.sql",
-            "202605121210__private_conversations.sql"
+            "202605121210__private_conversations.sql",
+            "202605121300__conversation_list_groups.sql"
         ]
     );
     assert!(fixture
         .validation_paths
         .iter()
         .any(|path| path.contains("exactly one owner")));
+    assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("default channel")));
+    assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("conversation_members")));
     assert!(fixture
         .owned_by_future_stories
         .iter()
@@ -224,6 +259,50 @@ fn contact_profile_fixture_covers_global_admin_contact() {
         orchlet_lib::contracts::ContactKind::Administrator
     );
     assert_eq!(fixture.contacts[0].display_name, "External Admin");
+}
+
+#[test]
+fn conversation_list_fixture_covers_channel_group_private_and_membership() {
+    let fixture: ConversationListFixture =
+        read_fixture("../fixtures/schema/conversations-v1/conversation-list.json");
+
+    assert_eq!(fixture.schema_version, 1);
+    assert_eq!(fixture.workspace_id, "01K00000000000000000000000");
+    assert_eq!(fixture.conversations.len(), 3);
+    assert_eq!(
+        fixture
+            .conversations
+            .iter()
+            .filter(|conversation| {
+                conversation.kind == ConversationKind::Channel && conversation.is_default
+            })
+            .count(),
+        1
+    );
+    assert!(fixture.conversations.iter().any(|conversation| {
+        conversation.kind == ConversationKind::Group
+            && conversation.unread_count > 0
+            && !conversation.members.is_empty()
+    }));
+    assert!(fixture.conversations.iter().any(|conversation| {
+        conversation.kind == ConversationKind::Private && conversation.participant_id.is_some()
+    }));
+    assert_eq!(fixture.conversation_members.len(), 1);
+    assert_eq!(
+        fixture.conversation_members[0].conversation_id,
+        "01K00000000000000000000051"
+    );
+    assert_eq!(
+        fixture.conversation_members[0].workspace_id,
+        fixture.workspace_id
+    );
+    assert!(fixture.conversation_members[0].created_at_ms > 0);
+    assert!(fixture.conversation_members[0].member_id.starts_with("01K"));
+    assert!(fixture.ordering_rule.contains("pinned"));
+    assert!(fixture
+        .excluded_future_tables
+        .iter()
+        .any(|table| table == "messages"));
 }
 
 #[test]

@@ -1,0 +1,9 @@
+{
+  "code": "conversation.title.empty",
+  "message": "会话名称不能为空。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请输入群聊名称后重试。",
+  "details": null,
+  "correlationId": null
+}

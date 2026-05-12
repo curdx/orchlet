@@ -102,6 +102,39 @@
     },
     {
       "domain": "chat",
+      "command": "chat_conversations_list",
+      "requestFixture": "fixtures/contracts/chat/chat-conversations-list.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-conversations-list.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-conversations-list.error.json",
+      "rustRequestDto": "ListConversationsRequest",
+      "rustSuccessDto": "ListConversationsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR19", "FR21", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_group_conversation_create",
+      "requestFixture": "fixtures/contracts/chat/chat-group-conversation-create.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-group-conversation-create.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-group-conversation-create.error.json",
+      "rustRequestDto": "CreateGroupConversationRequest",
+      "rustSuccessDto": "CreateGroupConversationResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR20", "FR21", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_group_conversation_members_update",
+      "requestFixture": "fixtures/contracts/chat/chat-group-conversation-members-update.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-group-conversation-members-update.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-group-conversation-members-update.error.json",
+      "rustRequestDto": "UpdateGroupConversationMembersRequest",
+      "rustSuccessDto": "UpdateGroupConversationMembersResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR20", "FR21", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
       "command": "chat_private_conversation_start",
       "requestFixture": "fixtures/contracts/chat/chat-private-conversation-start.request.json",
       "successResultFixture": "fixtures/contracts/chat/chat-private-conversation-start.result.json",

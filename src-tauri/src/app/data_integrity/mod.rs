@@ -20,7 +20,9 @@ use crate::{
         },
         sqlite::{
             contact_repository::{contact_database_path, validate_contact_store},
-            conversation_repository::validate_private_conversation_store,
+            conversation_repository::{
+                validate_conversation_member_store, validate_conversation_record_store,
+            },
             member_repository::validate_member_store,
             workspace_database::workspace_database_path,
         },
@@ -98,7 +100,11 @@ pub fn validate_data_integrity(
         workspace_id.as_deref(),
     ));
     checks.push(validate_contact_profiles(app_data_dir));
-    checks.push(validate_private_conversations(
+    checks.push(validate_conversation_records(
+        app_data_dir,
+        workspace_id.as_deref(),
+    ));
+    checks.push(validate_conversation_members(
         app_data_dir,
         workspace_id.as_deref(),
     ));
@@ -128,7 +134,8 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::WorkspaceFallbacks,
         StorageCategory::MemberProfiles,
         StorageCategory::ContactProfiles,
-        StorageCategory::PrivateConversations,
+        StorageCategory::ConversationRecords,
+        StorageCategory::ConversationMembers,
     ];
     let missing_categories = expected_categories
         .iter()
@@ -177,17 +184,17 @@ fn validate_contact_profiles(app_data_dir: &Path) -> DataIntegrityCheckResult {
     )
 }
 
-fn validate_private_conversations(
+fn validate_conversation_records(
     app_data_dir: &Path,
     workspace_id: Option<&str>,
 ) -> DataIntegrityCheckResult {
     let Some(workspace_id) = workspace_id else {
         return DataIntegrityCheckResult {
-            check_id: "conversation.private.schema_validate".to_owned(),
-            category: StorageCategory::PrivateConversations,
+            check_id: "conversation.records.schema_validate".to_owned(),
+            category: StorageCategory::ConversationRecords,
             status: DataIntegrityStatus::Skipped,
             severity: DataIntegritySeverity::Info,
-            message: "No active workspace id is available for private conversation validation."
+            message: "No active workspace id is available for conversation record validation."
                 .to_owned(),
             affected_paths: Vec::new(),
             user_action: None,
@@ -197,11 +204,39 @@ fn validate_private_conversations(
 
     let database_path = workspace_database_path(app_data_dir, workspace_id);
     check_result(
-        "conversation.private.schema_validate",
-        StorageCategory::PrivateConversations,
+        "conversation.records.schema_validate",
+        StorageCategory::ConversationRecords,
         vec![database_path],
-        validate_private_conversation_store(app_data_dir, workspace_id)
-            .map(|_| "Private conversation store is readable when initialized.".to_owned()),
+        validate_conversation_record_store(app_data_dir, workspace_id)
+            .map(|_| "Conversation record store is readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_conversation_members(
+    app_data_dir: &Path,
+    workspace_id: Option<&str>,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_id) = workspace_id else {
+        return DataIntegrityCheckResult {
+            check_id: "conversation.members.schema_validate".to_owned(),
+            category: StorageCategory::ConversationMembers,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace id is available for conversation membership validation."
+                .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+    check_result(
+        "conversation.members.schema_validate",
+        StorageCategory::ConversationMembers,
+        vec![database_path],
+        validate_conversation_member_store(app_data_dir, workspace_id)
+            .map(|_| "Conversation membership store is readable when initialized.".to_owned()),
     )
 }
 
@@ -428,13 +463,14 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 6);
+        assert_eq!(manifest.len(), 7);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
         assert!(categories.contains(&StorageCategory::MemberProfiles));
         assert!(categories.contains(&StorageCategory::ContactProfiles));
-        assert!(categories.contains(&StorageCategory::PrivateConversations));
+        assert!(categories.contains(&StorageCategory::ConversationRecords));
+        assert!(categories.contains(&StorageCategory::ConversationMembers));
         assert!(manifest
             .iter()
             .all(|entry| entry.schema_version == 1 && entry.fixture_required));
@@ -445,9 +481,9 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 7);
+        assert_eq!(report.total_checks, 8);
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 3);
+        assert_eq!(report.skipped_checks, 4);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Skipped
@@ -536,7 +572,7 @@ mod tests {
         );
 
         assert_eq!(report.failed_checks, 1);
-        assert_eq!(report.skipped_checks, 2);
+        assert_eq!(report.skipped_checks, 3);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Failed
@@ -584,7 +620,7 @@ mod tests {
         let report = validate_data_integrity(app_data.path(), None, None);
 
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 3);
+        assert_eq!(report.skipped_checks, 4);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceRegistry
                 && check.status == DataIntegrityStatus::Passed

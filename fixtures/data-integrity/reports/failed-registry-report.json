@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=6"
+      "details": "entries=7"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -65,20 +65,30 @@
       "details": null
     },
     {
-      "checkId": "conversation.private.schema_validate",
-      "category": "privateConversations",
+      "checkId": "conversation.records.schema_validate",
+      "category": "conversationRecords",
       "status": "skipped",
       "severity": "info",
-      "message": "No active workspace id is available for private conversation validation.",
+      "message": "No active workspace id is available for conversation record validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "conversation.members.schema_validate",
+      "category": "conversationMembers",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace id is available for conversation membership validation.",
       "affectedPaths": [],
       "userAction": null,
       "details": null
     }
   ],
-  "totalChecks": 7,
+  "totalChecks": 8,
   "passedChecks": 3,
   "failedChecks": 1,
-  "skippedChecks": 3,
+  "skippedChecks": 4,
   "hasFailures": true,
   "batched": true
 }

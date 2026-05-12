@@ -1,13 +1,16 @@
 use std::{fs, path::Path};
 
 use orchlet_lib::contracts::{
-    AppError, ContactKind, ConversationParticipantKind, CreateContactRequest, CreateContactResult,
+    AppError, ContactKind, ConversationKind, ConversationParticipantKind, CreateContactRequest,
+    CreateContactResult, CreateGroupConversationRequest, CreateGroupConversationResult,
     DataIntegrityValidateRequest, DataIntegrityValidateResult, DeleteContactRequest,
     DeleteContactResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
-    ListContactsRequest, ListContactsResult, ListMembersRequest, ListMembersResult, MemberRole,
-    MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest, OpenWorkspaceResult,
-    RemoveMemberRequest, RemoveMemberResult, StartPrivateConversationRequest,
-    StartPrivateConversationResult, UpdateContactRequest, UpdateContactResult, WorkspaceOpenStatus,
+    ListContactsRequest, ListContactsResult, ListConversationsRequest, ListConversationsResult,
+    ListMembersRequest, ListMembersResult, MemberRole, MemberRuntimeKind, MemberStatus,
+    OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult,
+    StartPrivateConversationRequest, StartPrivateConversationResult, UpdateContactRequest,
+    UpdateContactResult, UpdateGroupConversationMembersRequest,
+    UpdateGroupConversationMembersResult, WorkspaceOpenStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -150,6 +153,27 @@ fn contact_contract_fixtures_deserialize_into_rust_dtos() {
 
 #[test]
 fn chat_contract_fixtures_deserialize_into_rust_dtos() {
+    let list_request: ListConversationsRequest =
+        read_fixture("../fixtures/contracts/chat/chat-conversations-list.request.json");
+    let list_result: ListConversationsResult =
+        read_fixture("../fixtures/contracts/chat/chat-conversations-list.result.json");
+    let list_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-conversations-list.error.json");
+    let create_group_request: CreateGroupConversationRequest =
+        read_fixture("../fixtures/contracts/chat/chat-group-conversation-create.request.json");
+    let create_group_result: CreateGroupConversationResult =
+        read_fixture("../fixtures/contracts/chat/chat-group-conversation-create.result.json");
+    let create_group_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-group-conversation-create.error.json");
+    let update_group_request: UpdateGroupConversationMembersRequest = read_fixture(
+        "../fixtures/contracts/chat/chat-group-conversation-members-update.request.json",
+    );
+    let update_group_result: UpdateGroupConversationMembersResult = read_fixture(
+        "../fixtures/contracts/chat/chat-group-conversation-members-update.result.json",
+    );
+    let update_group_error: AppError = read_fixture(
+        "../fixtures/contracts/chat/chat-group-conversation-members-update.error.json",
+    );
     let request: StartPrivateConversationRequest =
         read_fixture("../fixtures/contracts/chat/chat-private-conversation-start.request.json");
     let result: StartPrivateConversationResult =
@@ -157,6 +181,35 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
     let error: AppError =
         read_fixture("../fixtures/contracts/chat/chat-private-conversation-start.error.json");
 
+    assert_eq!(list_request.workspace_id, "01K00000000000000000000000");
+    assert_eq!(list_result.conversations.len(), 3);
+    assert_eq!(list_result.conversations[0].kind, ConversationKind::Channel);
+    assert!(list_result.conversations[0].is_default);
+    assert!(list_result.conversations[0].is_pinned);
+    assert_eq!(list_result.conversations[1].kind, ConversationKind::Group);
+    assert_eq!(list_result.conversations[1].members.len(), 2);
+    assert_eq!(list_error.code, "member.workspace.invalidId");
+    assert_eq!(create_group_request.title, " Review Room ");
+    assert_eq!(create_group_request.member_ids.len(), 2);
+    assert_eq!(
+        create_group_result.conversation.kind,
+        ConversationKind::Group
+    );
+    assert_eq!(create_group_result.conversation.members.len(), 2);
+    assert_eq!(create_group_error.code, "conversation.title.empty");
+    assert_eq!(
+        update_group_request.conversation_id,
+        create_group_result.conversation.conversation_id
+    );
+    assert_eq!(update_group_result.conversation.members.len(), 1);
+    assert_eq!(
+        update_group_result.conversation.members[0].member_id,
+        "01K00000000000000000000032"
+    );
+    assert_eq!(
+        update_group_error.code,
+        "conversation.group.updateMembers.invalidKind"
+    );
     assert_eq!(request.workspace_id, "01K00000000000000000000000");
     assert_eq!(
         request.participant_kind,

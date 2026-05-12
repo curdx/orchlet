@@ -32,6 +32,9 @@ pub fn run() {
             gateway::contact_commands::contact_create,
             gateway::contact_commands::contact_update,
             gateway::contact_commands::contact_delete,
+            gateway::chat_commands::chat_conversations_list,
+            gateway::chat_commands::chat_group_conversation_create,
+            gateway::chat_commands::chat_group_conversation_members_update,
             gateway::chat_commands::chat_private_conversation_start
         ])
         .run(tauri::generate_context!())

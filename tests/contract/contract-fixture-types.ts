@@ -1,10 +1,16 @@
 import type { AppError } from "../../src/contracts/generated/common";
 import type {
   ConversationKind,
+  CreateGroupConversationRequest,
+  CreateGroupConversationResult,
+  ListConversationsRequest,
+  ListConversationsResult,
   ConversationParticipantKind,
   ConversationProfile,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
+  UpdateGroupConversationMembersRequest,
+  UpdateGroupConversationMembersResult,
 } from "../../src/contracts/generated/chat";
 import type {
   ContactKind,
@@ -55,6 +61,15 @@ import type {
 import dataIntegrityError from "../../fixtures/contracts/data-integrity/data-integrity-validate.error.json";
 import dataIntegrityRequest from "../../fixtures/contracts/data-integrity/data-integrity-validate.request.json";
 import dataIntegrityResult from "../../fixtures/contracts/data-integrity/data-integrity-validate.result.json";
+import listConversationsError from "../../fixtures/contracts/chat/chat-conversations-list.error.json";
+import listConversationsRequest from "../../fixtures/contracts/chat/chat-conversations-list.request.json";
+import listConversationsResult from "../../fixtures/contracts/chat/chat-conversations-list.result.json";
+import createGroupConversationError from "../../fixtures/contracts/chat/chat-group-conversation-create.error.json";
+import createGroupConversationRequest from "../../fixtures/contracts/chat/chat-group-conversation-create.request.json";
+import createGroupConversationResult from "../../fixtures/contracts/chat/chat-group-conversation-create.result.json";
+import updateGroupConversationMembersError from "../../fixtures/contracts/chat/chat-group-conversation-members-update.error.json";
+import updateGroupConversationMembersRequest from "../../fixtures/contracts/chat/chat-group-conversation-members-update.request.json";
+import updateGroupConversationMembersResult from "../../fixtures/contracts/chat/chat-group-conversation-members-update.result.json";
 import privateConversationError from "../../fixtures/contracts/chat/chat-private-conversation-start.error.json";
 import privateConversationRequest from "../../fixtures/contracts/chat/chat-private-conversation-start.request.json";
 import privateConversationResult from "../../fixtures/contracts/chat/chat-private-conversation-start.result.json";
@@ -172,6 +187,32 @@ export const deleteContactResultFixture: DeleteContactResult = {
 };
 export const deleteContactErrorFixture: AppError = appError(deleteContactError);
 
+export const listConversationsRequestFixture: ListConversationsRequest =
+  listConversationsRequest;
+export const listConversationsResultFixture: ListConversationsResult = {
+  conversations: listConversationsResult.conversations.map(conversationProfile),
+};
+export const listConversationsErrorFixture: AppError = appError(listConversationsError);
+
+export const createGroupConversationRequestFixture: CreateGroupConversationRequest =
+  createGroupConversationRequest;
+export const createGroupConversationResultFixture: CreateGroupConversationResult = {
+  conversation: conversationProfile(createGroupConversationResult.conversation),
+  conversations: createGroupConversationResult.conversations.map(conversationProfile),
+};
+export const createGroupConversationErrorFixture: AppError =
+  appError(createGroupConversationError);
+
+export const updateGroupConversationMembersRequestFixture: UpdateGroupConversationMembersRequest =
+  updateGroupConversationMembersRequest;
+export const updateGroupConversationMembersResultFixture: UpdateGroupConversationMembersResult = {
+  conversation: conversationProfile(updateGroupConversationMembersResult.conversation),
+  conversations: updateGroupConversationMembersResult.conversations.map(conversationProfile),
+};
+export const updateGroupConversationMembersErrorFixture: AppError = appError(
+  updateGroupConversationMembersError,
+);
+
 export const privateConversationRequestFixture: StartPrivateConversationRequest = {
   ...privateConversationRequest,
   participantKind: conversationParticipantKind(privateConversationRequest.participantKind),
@@ -192,6 +233,9 @@ type ErrorJson =
   | typeof createContactError
   | typeof updateContactError
   | typeof deleteContactError
+  | typeof listConversationsError
+  | typeof createGroupConversationError
+  | typeof updateGroupConversationMembersError
   | typeof privateConversationError;
 
 function appError(error: ErrorJson): AppError {
@@ -288,6 +332,8 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceFallbacks":
     case "memberProfiles":
     case "contactProfiles":
+    case "conversationRecords":
+    case "conversationMembers":
     case "privateConversations":
       return value;
     default:
@@ -385,18 +431,28 @@ function contactKind(value: string): ContactKind {
   }
 }
 
-function conversationProfile(
-  conversation: typeof privateConversationResult.conversation,
-): ConversationProfile {
+type ConversationJson =
+  | (typeof listConversationsResult.conversations)[number]
+  | typeof createGroupConversationResult.conversation
+  | (typeof createGroupConversationResult.conversations)[number]
+  | typeof updateGroupConversationMembersResult.conversation
+  | (typeof updateGroupConversationMembersResult.conversations)[number]
+  | typeof privateConversationResult.conversation;
+
+function conversationProfile(conversation: ConversationJson): ConversationProfile {
   return {
     ...conversation,
     kind: conversationKind(conversation.kind),
-    participantKind: conversationParticipantKind(conversation.participantKind),
+    participantKind: conversation.participantKind
+      ? conversationParticipantKind(conversation.participantKind)
+      : null,
   };
 }
 
 function conversationKind(value: string): ConversationKind {
   switch (value) {
+    case "channel":
+    case "group":
     case "private":
       return value;
     default:

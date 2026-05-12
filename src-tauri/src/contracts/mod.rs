@@ -6,8 +6,10 @@ pub mod member;
 pub mod workspace;
 
 pub use chat::{
-    ConversationKind, ConversationParticipantKind, ConversationProfile,
-    StartPrivateConversationRequest, StartPrivateConversationResult,
+    ConversationKind, ConversationMemberSummary, ConversationParticipantKind, ConversationProfile,
+    CreateGroupConversationRequest, CreateGroupConversationResult, ListConversationsRequest,
+    ListConversationsResult, StartPrivateConversationRequest, StartPrivateConversationResult,
+    UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
 };
 pub use common::{AppError, AppErrorSeverity};
 pub use contact::{

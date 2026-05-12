@@ -1,0 +1,9 @@
+{
+  "code": "conversation.group.updateMembers.invalidKind",
+  "message": "该会话不能更新群聊成员。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请选择群聊后重试。",
+  "details": "conversationId=01K00000000000000000000050 kind=Channel isDefault=true",
+  "correlationId": null
+}

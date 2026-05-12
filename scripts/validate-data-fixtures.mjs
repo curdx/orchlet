@@ -10,6 +10,7 @@ validateWorkspaceFallbacks("fixtures/data-integrity/valid-json-stores/app-data/w
 validateSqliteScaffold("fixtures/schema/sqlite-workspace-v1/schema-manifest.json");
 validateMemberProfiles("fixtures/schema/members-v1/member-profiles.json");
 validateContactProfiles("fixtures/schema/contacts-v1/contact-profiles.json");
+validateConversationList("fixtures/schema/conversations-v1/conversation-list.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/passed-report.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/failed-registry-report.json");
 validateTerminalStreams("fixtures/terminal-streams");
@@ -69,10 +70,11 @@ function validateSqliteScaffold(path) {
     Array.isArray(schema.tables) &&
       schema.tables.includes("schema_migrations") &&
       schema.tables.includes("members") &&
-      schema.tables.includes("conversations"),
-    `${path} must include current member and private conversation schema tables`,
+      schema.tables.includes("conversations") &&
+      schema.tables.includes("conversation_members"),
+    `${path} must include current member and conversation schema tables`,
   );
-  assert(schema.tables.length === 3, `${path} must not include future chat/message tables`);
+  assert(schema.tables.length === 4, `${path} must not include future chat/message tables`);
   assert(!schema.tables.includes("terminal_sessions"), `${path} must not include future terminal tables`);
   assert(Array.isArray(schema.migrationFiles), `${path}.migrationFiles must be an array`);
   assert(
@@ -86,6 +88,10 @@ function validateSqliteScaffold(path) {
   assert(
     schema.migrationFiles.includes("202605121210__private_conversations.sql"),
     `${path} must include the private conversations migration file`,
+  );
+  assert(
+    schema.migrationFiles.includes("202605121300__conversation_list_groups.sql"),
+    `${path} must include the conversation list and group membership migration file`,
   );
   assert(
     Array.isArray(schema.ownedByFutureStories) && schema.ownedByFutureStories.includes("messages"),
@@ -144,6 +150,48 @@ function validateContactProfiles(path) {
     if (contact.sourceLabel !== null) assertNonEmptyString(contact.sourceLabel, `${path}.contacts[].sourceLabel`);
     assertPositiveTimestamp(contact.createdAtMs, `${path}.contacts[].createdAtMs`);
     assert(contact.updatedAtMs >= contact.createdAtMs, `${path}.contacts[].updatedAtMs must be >= createdAtMs`);
+  }
+}
+
+function validateConversationList(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assertValidUlid(fixture.workspaceId, `${path}.workspaceId`);
+  assert(Array.isArray(fixture.conversations) && fixture.conversations.length >= 3, `${path}.conversations must cover channel, group and private entries`);
+
+  const defaultChannels = fixture.conversations.filter(
+    (conversation) => conversation.kind === "channel" && conversation.isDefault,
+  );
+  assert(defaultChannels.length === 1, `${path} must include exactly one default channel`);
+
+  for (const conversation of fixture.conversations) {
+    assertValidUlid(conversation.conversationId, `${path}.conversations[].conversationId`);
+    assert(conversation.workspaceId === fixture.workspaceId, `${path}.conversations[].workspaceId must match`);
+    assert(["channel", "group", "private"].includes(conversation.kind), `${path} invalid conversation kind`);
+    assertNonEmptyString(conversation.title, `${path}.conversations[].title`);
+    assert(typeof conversation.isDefault === "boolean", `${path}.conversations[].isDefault must be boolean`);
+    assert(typeof conversation.isPinned === "boolean", `${path}.conversations[].isPinned must be boolean`);
+    assert(Number.isInteger(conversation.unreadCount) && conversation.unreadCount >= 0, `${path}.conversations[].unreadCount must be non-negative`);
+    if (conversation.lastMessagePreview !== null) assertNonEmptyString(conversation.lastMessagePreview, `${path}.conversations[].lastMessagePreview`);
+    if (conversation.kind === "private") {
+      assert(["member", "contact"].includes(conversation.participantKind), `${path}.private participantKind is required`);
+      assertValidUlid(conversation.participantId, `${path}.private participantId`);
+    } else {
+      assert(conversation.participantKind === null, `${path}.nonPrivate participantKind must be null`);
+      assert(conversation.participantId === null, `${path}.nonPrivate participantId must be null`);
+    }
+    assert(Array.isArray(conversation.members), `${path}.conversations[].members must be an array`);
+    assertPositiveTimestamp(conversation.createdAtMs, `${path}.conversations[].createdAtMs`);
+    assert(conversation.updatedAtMs >= conversation.createdAtMs, `${path}.conversations[].updatedAtMs must be >= createdAtMs`);
+    assert(conversation.lastActivityAtMs >= conversation.createdAtMs, `${path}.conversations[].lastActivityAtMs must be >= createdAtMs`);
+  }
+
+  assert(Array.isArray(fixture.conversationMembers) && fixture.conversationMembers.length >= 1, `${path}.conversationMembers must include group membership`);
+  for (const membership of fixture.conversationMembers) {
+    assertValidUlid(membership.conversationId, `${path}.conversationMembers[].conversationId`);
+    assert(membership.workspaceId === fixture.workspaceId, `${path}.conversationMembers[].workspaceId must match`);
+    assertValidUlid(membership.memberId, `${path}.conversationMembers[].memberId`);
+    assertPositiveTimestamp(membership.createdAtMs, `${path}.conversationMembers[].createdAtMs`);
   }
 }
 

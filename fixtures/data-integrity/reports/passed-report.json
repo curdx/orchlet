@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=6"
+      "details": "entries=7"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -65,18 +65,28 @@
       "details": null
     },
     {
-      "checkId": "conversation.private.schema_validate",
-      "category": "privateConversations",
+      "checkId": "conversation.records.schema_validate",
+      "category": "conversationRecords",
       "status": "passed",
       "severity": "info",
-      "message": "Private conversation store is readable when initialized.",
+      "message": "Conversation record store is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "conversation.members.schema_validate",
+      "category": "conversationMembers",
+      "status": "passed",
+      "severity": "info",
+      "message": "Conversation membership store is readable when initialized.",
       "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
       "userAction": null,
       "details": null
     }
   ],
-  "totalChecks": 7,
-  "passedChecks": 7,
+  "totalChecks": 8,
+  "passedChecks": 8,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,

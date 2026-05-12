@@ -1,10 +1,17 @@
 export type { AppError, AppErrorSeverity } from "./common";
 export type {
   ConversationKind,
+  ConversationMemberSummary,
   ConversationParticipantKind,
   ConversationProfile,
+  CreateGroupConversationRequest,
+  CreateGroupConversationResult,
+  ListConversationsRequest,
+  ListConversationsResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
+  UpdateGroupConversationMembersRequest,
+  UpdateGroupConversationMembersResult,
 } from "./chat";
 export type {
   ContactInviteSource,

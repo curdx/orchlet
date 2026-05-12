@@ -1,0 +1,9 @@
+{
+  "code": "member.workspace.invalidId",
+  "message": "工作区标识无效，无法加载成员。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请重新打开工作区；如果问题持续，请运行数据验证。",
+  "details": "workspaceId must be a ULID string: not-a-workspace",
+  "correlationId": null
+}

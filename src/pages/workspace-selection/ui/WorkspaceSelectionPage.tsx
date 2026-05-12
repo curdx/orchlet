@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { RefObject } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   AtSign,
   Bot,
   Edit3,
   FolderOpen,
+  Hash,
   History,
   MessageSquare,
   MoreVertical,
+  Pin,
   Plus,
   RefreshCw,
   Search,
@@ -34,7 +36,7 @@ import type { ContactApi } from "../../../shared/api/contact-api";
 import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
 import type { MemberApi } from "../../../shared/api/member-api";
-import type { ConversationProfile } from "../../../contracts/generated/chat";
+import type { ConversationProfile, ListConversationsResult } from "../../../contracts/generated/chat";
 import type { ContactKind, ContactProfile } from "../../../contracts/generated/contact";
 import type {
   InvitedMemberType,
@@ -73,7 +75,13 @@ type WorkspaceSelectionPageProps = {
   integrityApi?: Pick<DataIntegrityApi, "validate">;
   memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember">;
   contactApi?: Pick<ContactApi, "listContacts" | "createContact" | "updateContact" | "deleteContact">;
-  chatApi?: Pick<ChatApi, "startPrivateConversation">;
+  chatApi?: Pick<
+    ChatApi,
+    | "listConversations"
+    | "createGroupConversation"
+    | "updateGroupConversationMembers"
+    | "startPrivateConversation"
+  >;
 };
 
 type PendingConflict = {
@@ -90,6 +98,7 @@ export function WorkspaceSelectionPage({
   contactApi: contactsApi = contactApi,
   chatApi: conversationsApi = chatApi,
 }: WorkspaceSelectionPageProps) {
+  const queryClient = useQueryClient();
   const [isOpening, setIsOpening] = useState(false);
   const [isOpeningFileManager, setIsOpeningFileManager] = useState(false);
   const [isSyncActionPending, setIsSyncActionPending] = useState(false);
@@ -114,8 +123,14 @@ export function WorkspaceSelectionPage({
   const [contactNotes, setContactNotes] = useState("");
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [isStartingConversation, setIsStartingConversation] = useState(false);
+  const [isCreatingGroupConversation, setIsCreatingGroupConversation] = useState(false);
+  const [isUpdatingGroupMembers, setIsUpdatingGroupMembers] = useState(false);
   const [lastPrivateConversation, setLastPrivateConversation] =
     useState<ConversationProfile | null>(null);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupMemberIds, setGroupMemberIds] = useState<string[]>([]);
+  const [selectedGroupMemberIds, setSelectedGroupMemberIds] = useState<string[]>([]);
   const [recentSearch, setRecentSearch] = useState("");
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
   const conflictPrimaryButtonRef = useRef<HTMLButtonElement>(null);
@@ -132,23 +147,39 @@ export function WorkspaceSelectionPage({
   });
   const recentWorkspaces = recentQuery.data ?? [];
   const activeWorkspace = openedWorkspace ?? windowContext?.activeWorkspace ?? null;
+  const activeWorkspaceId = activeWorkspace?.metadata.projectId ?? null;
+  const conversationQueryKey = ["chat-conversations", activeWorkspaceId] as const;
   const memberQuery = useQuery({
-    queryKey: ["members", activeWorkspace?.metadata.projectId],
+    queryKey: ["members", activeWorkspaceId],
     queryFn: () =>
       membersApi.listMembers({
-        workspaceId: activeWorkspace?.metadata.projectId ?? "",
+        workspaceId: activeWorkspaceId ?? "",
       }),
-    enabled: Boolean(activeWorkspace?.metadata.projectId),
+    enabled: Boolean(activeWorkspaceId),
     retry: false,
   });
   const members = memberQuery.data?.members ?? [];
   const contactQuery = useQuery({
     queryKey: ["contacts"],
     queryFn: () => contactsApi.listContacts({}),
-    enabled: Boolean(activeWorkspace?.metadata.projectId),
+    enabled: Boolean(activeWorkspaceId),
     retry: false,
   });
   const contacts = contactQuery.data?.contacts ?? [];
+  const conversationQuery = useQuery({
+    queryKey: conversationQueryKey,
+    queryFn: () =>
+      conversationsApi.listConversations({
+        workspaceId: activeWorkspaceId ?? "",
+      }),
+    enabled: Boolean(activeWorkspaceId),
+    retry: false,
+  });
+  const conversations = conversationQuery.data?.conversations ?? [];
+  const selectedConversation =
+    conversations.find((conversation) => conversation.conversationId === selectedConversationId) ??
+    conversations[0] ??
+    null;
   const filteredRecentWorkspaces = useMemo(() => {
     const query = recentSearch.trim().toLocaleLowerCase();
 
@@ -193,6 +224,30 @@ export function WorkspaceSelectionPage({
       action: appError.userAction ?? undefined,
     });
   }, [recentQuery.error, showToast]);
+
+  useEffect(() => {
+    if (!conversationQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(conversationQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载会话列表",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [conversationQuery.error, showToast]);
+
+  useEffect(() => {
+    if (selectedConversation?.kind !== "group") {
+      setSelectedGroupMemberIds([]);
+      return;
+    }
+
+    setSelectedGroupMemberIds(selectedConversation.members.map((member) => member.memberId));
+  }, [selectedConversation?.conversationId, selectedConversation?.kind, selectedConversation?.members]);
 
   async function handleOpenWorkspace() {
     await runOpenFlow(() => api.pickAndOpenWorkspace());
@@ -427,6 +482,91 @@ export function WorkspaceSelectionPage({
     });
   }
 
+  function handleToggleCreateGroupMember(memberId: string) {
+    setGroupMemberIds((current) => toggleId(current, memberId));
+  }
+
+  function handleToggleSelectedGroupMember(memberId: string) {
+    setSelectedGroupMemberIds((current) => toggleId(current, memberId));
+  }
+
+  async function handleCreateGroupConversation() {
+    if (!activeWorkspace) {
+      return;
+    }
+
+    setIsCreatingGroupConversation(true);
+
+    try {
+      const result = await conversationsApi.createGroupConversation({
+        workspaceId: activeWorkspace.metadata.projectId,
+        title: groupTitle,
+        memberIds: groupMemberIds,
+      });
+
+      queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, {
+        conversations: result.conversations,
+      });
+      setSelectedConversationId(result.conversation.conversationId);
+      setGroupTitle("");
+      setGroupMemberIds([]);
+      showToast({
+        tone: "info",
+        title: "群聊已创建",
+        message: `${result.conversation.title} 已加入会话列表。`,
+        action: `${result.conversation.members.length} 个成员`,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法创建群聊",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsCreatingGroupConversation(false);
+    }
+  }
+
+  async function handleUpdateGroupMembers() {
+    if (!activeWorkspace || selectedConversation?.kind !== "group") {
+      return;
+    }
+
+    setIsUpdatingGroupMembers(true);
+
+    try {
+      const result = await conversationsApi.updateGroupConversationMembers({
+        workspaceId: activeWorkspace.metadata.projectId,
+        conversationId: selectedConversation.conversationId,
+        memberIds: selectedGroupMemberIds,
+      });
+
+      queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, {
+        conversations: result.conversations,
+      });
+      setSelectedConversationId(result.conversation.conversationId);
+      showToast({
+        tone: "info",
+        title: "群聊成员已更新",
+        message: `${result.conversation.title} 当前包含 ${result.conversation.members.length} 个成员。`,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法更新群聊成员",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsUpdatingGroupMembers(false);
+    }
+  }
+
   async function handleStartPrivateConversation(
     participantKind: "member" | "contact",
     participantId: string,
@@ -446,6 +586,8 @@ export function WorkspaceSelectionPage({
 
       setMemberActionMenuId(null);
       setLastPrivateConversation(result.conversation);
+      setSelectedConversationId(result.conversation.conversationId);
+      await conversationQuery.refetch();
       showToast({
         tone: "info",
         title: result.created ? "私聊已创建" : "私聊已复用",
@@ -785,6 +927,26 @@ export function WorkspaceSelectionPage({
             ) : null}
 
             {activeWorkspace ? (
+              <ConversationPanel
+                conversations={conversations}
+                selectedConversation={selectedConversation}
+                members={members}
+                isLoading={conversationQuery.isLoading}
+                isCreating={isCreatingGroupConversation}
+                isUpdating={isUpdatingGroupMembers}
+                groupTitle={groupTitle}
+                groupMemberIds={groupMemberIds}
+                selectedGroupMemberIds={selectedGroupMemberIds}
+                onSelectConversation={setSelectedConversationId}
+                onGroupTitleChange={setGroupTitle}
+                onToggleCreateGroupMember={handleToggleCreateGroupMember}
+                onToggleSelectedGroupMember={handleToggleSelectedGroupMember}
+                onCreateGroup={() => void handleCreateGroupConversation()}
+                onUpdateGroupMembers={() => void handleUpdateGroupMembers()}
+              />
+            ) : null}
+
+            {activeWorkspace ? (
               <MembersPanel
                 members={members}
                 isLoading={memberQuery.isLoading}
@@ -954,6 +1116,267 @@ const builtInRuntimeOptions = [
   { id: "opencode", label: "OpenCode", command: "opencode" },
   { id: "qwen-code", label: "Qwen Code", command: "qwen" },
 ];
+
+function ConversationPanel({
+  conversations,
+  selectedConversation,
+  members,
+  isLoading,
+  isCreating,
+  isUpdating,
+  groupTitle,
+  groupMemberIds,
+  selectedGroupMemberIds,
+  onSelectConversation,
+  onGroupTitleChange,
+  onToggleCreateGroupMember,
+  onToggleSelectedGroupMember,
+  onCreateGroup,
+  onUpdateGroupMembers,
+}: {
+  conversations: ConversationProfile[];
+  selectedConversation: ConversationProfile | null;
+  members: MemberProfile[];
+  isLoading: boolean;
+  isCreating: boolean;
+  isUpdating: boolean;
+  groupTitle: string;
+  groupMemberIds: string[];
+  selectedGroupMemberIds: string[];
+  onSelectConversation: (conversationId: string) => void;
+  onGroupTitleChange: (value: string) => void;
+  onToggleCreateGroupMember: (memberId: string) => void;
+  onToggleSelectedGroupMember: (memberId: string) => void;
+  onCreateGroup: () => void;
+  onUpdateGroupMembers: () => void;
+}) {
+  const canCreateGroup = groupTitle.trim().length > 0 && groupMemberIds.length > 0;
+  const canUpdateGroup =
+    selectedConversation?.kind === "group" && selectedGroupMemberIds.length > 0;
+
+  return (
+    <section
+      aria-labelledby="conversations-title"
+      className="mt-6 rounded-lg border border-[#dbe4d7] bg-[#fbfcfa] p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-[#6a786c]">聊天</p>
+          <h2 id="conversations-title" className="mt-1 text-sm font-semibold text-[#263229]">
+            会话列表
+          </h2>
+        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-md border border-[#cfe0c9] bg-white px-2.5 py-1 text-xs font-medium text-[#37533e]">
+          <MessageSquare aria-hidden="true" size={14} strokeWidth={2} />
+          {isLoading ? "加载中" : `${conversations.length} 个会话`}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="grid gap-2">
+          {conversations.length > 0 ? (
+            conversations.map((conversation) => (
+              <button
+                key={conversation.conversationId}
+                type="button"
+                onClick={() => onSelectConversation(conversation.conversationId)}
+                className={
+                  selectedConversation?.conversationId === conversation.conversationId
+                    ? "grid min-h-[72px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[#9fbd98] bg-[#eef6ea] p-3 text-left"
+                    : "grid min-h-[72px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 rounded-md border border-[#e3eadf] bg-white p-3 text-left transition hover:border-[#b7cfb0] hover:bg-[#f8fbf6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+                }
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
+                  <ConversationKindIcon kind={conversation.kind} />
+                </span>
+                <span className="min-w-0">
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-sm font-semibold text-[#263229]">
+                      {conversation.title}
+                    </span>
+                    {conversation.isDefault ? (
+                      <span className="shrink-0 rounded border border-[#cfe0c9] bg-white px-1.5 py-0.5 text-[10px] font-semibold text-[#37533e]">
+                        默认
+                      </span>
+                    ) : null}
+                    {conversation.isPinned ? (
+                      <Pin
+                        aria-label="已置顶"
+                        className="shrink-0 text-[#6a774d]"
+                        size={13}
+                        strokeWidth={2}
+                      />
+                    ) : null}
+                  </span>
+                  <span className="mt-1 block truncate text-xs text-[#6a786c]">
+                    {conversationKindLabel(conversation)}
+                    {conversation.lastMessagePreview
+                      ? ` · ${conversation.lastMessagePreview}`
+                      : ""}
+                  </span>
+                  <span className="mt-1 block truncate text-[11px] text-[#879182]">
+                    {formatRecentTime(conversation.lastActivityAtMs)}
+                  </span>
+                </span>
+                <span className="flex w-10 justify-end">
+                  {conversation.unreadCount > 0 ? (
+                    <span className="inline-flex min-w-7 justify-center rounded-full bg-[#2f6f55] px-2 py-0.5 text-[11px] font-semibold text-white">
+                      {conversation.unreadCount > 99 ? "99+" : conversation.unreadCount}
+                    </span>
+                  ) : (
+                    <span className="h-5 w-7" aria-hidden="true" />
+                  )}
+                </span>
+              </button>
+            ))
+          ) : (
+            <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+              {isLoading ? "正在初始化默认频道" : "暂无会话"}
+            </p>
+          )}
+        </div>
+
+        <div className="grid content-start gap-3 rounded-md border border-[#e3eadf] bg-white p-4">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-[#6a786c]">当前会话</p>
+            <p className="mt-1 truncate text-sm font-semibold text-[#263229]">
+              {selectedConversation?.title ?? "未选择会话"}
+            </p>
+            {selectedConversation ? (
+              <p className="mt-1 text-xs text-[#6a786c]">
+                {conversationKindLabel(selectedConversation)}
+              </p>
+            ) : null}
+            {selectedConversation?.kind === "group" ? (
+              <p className="mt-2 line-clamp-3 text-xs text-[#526054]">
+                {selectedConversation.members.map((member) => member.instanceLabel).join("、") ||
+                  "暂无成员"}
+              </p>
+            ) : null}
+          </div>
+
+          <form
+            aria-label="新建群聊"
+            className="grid gap-2 border-t border-[#e3eadf] pt-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onCreateGroup();
+            }}
+          >
+            <div className="flex items-center gap-2 text-xs font-semibold text-[#263229]">
+              <Users aria-hidden="true" size={14} strokeWidth={2} />
+              新建群聊
+            </div>
+            <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+              名称
+              <input
+                value={groupTitle}
+                onChange={(event) => onGroupTitleChange(event.target.value)}
+                placeholder="Review Room"
+                className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87]"
+              />
+            </label>
+            <MemberCheckboxList
+              members={members}
+              selectedMemberIds={groupMemberIds}
+              emptyText="邀请成员后可创建群聊"
+              onToggleMember={onToggleCreateGroupMember}
+            />
+            <button
+              type="submit"
+              disabled={isCreating || !canCreateGroup}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+            >
+              <Plus aria-hidden="true" size={14} strokeWidth={2} />
+              {isCreating ? "创建中" : "创建群聊"}
+            </button>
+          </form>
+
+          {selectedConversation?.kind === "group" ? (
+            <form
+              aria-label="群聊成员"
+              className="grid gap-2 border-t border-[#e3eadf] pt-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                onUpdateGroupMembers();
+              }}
+            >
+              <div className="flex items-center gap-2 text-xs font-semibold text-[#263229]">
+                <Users aria-hidden="true" size={14} strokeWidth={2} />
+                群聊成员
+              </div>
+              <MemberCheckboxList
+                members={members}
+                selectedMemberIds={selectedGroupMemberIds}
+                emptyText="暂无可选成员"
+                onToggleMember={onToggleSelectedGroupMember}
+              />
+              <button
+                type="submit"
+                disabled={isUpdating || !canUpdateGroup}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-3 py-2 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Users aria-hidden="true" size={14} strokeWidth={2} />
+                {isUpdating ? "保存中" : "更新成员"}
+              </button>
+            </form>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MemberCheckboxList({
+  members,
+  selectedMemberIds,
+  emptyText,
+  onToggleMember,
+}: {
+  members: MemberProfile[];
+  selectedMemberIds: string[];
+  emptyText: string;
+  onToggleMember: (memberId: string) => void;
+}) {
+  if (members.length === 0) {
+    return (
+      <p className="rounded-md border border-dashed border-[#cfd9cc] bg-[#f8fbf6] p-2 text-xs text-[#6a786c]">
+        {emptyText}
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid max-h-36 gap-1 overflow-y-auto pr-1">
+      {members.map((member) => (
+        <label
+          key={member.memberId}
+          className="flex min-h-8 items-center gap-2 rounded-md px-2 text-xs font-medium text-[#526054] hover:bg-[#f8fbf6]"
+        >
+          <input
+            type="checkbox"
+            checked={selectedMemberIds.includes(member.memberId)}
+            onChange={() => onToggleMember(member.memberId)}
+            className="h-4 w-4 shrink-0 rounded border-[#cfd9cc] accent-[#2f6f55]"
+          />
+          <span className="min-w-0 truncate">{member.instanceLabel}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function ConversationKindIcon({ kind }: { kind: ConversationProfile["kind"] }) {
+  if (kind === "channel") {
+    return <Hash aria-hidden="true" size={17} strokeWidth={2} />;
+  }
+
+  if (kind === "group") {
+    return <Users aria-hidden="true" size={17} strokeWidth={2} />;
+  }
+
+  return <MessageSquare aria-hidden="true" size={17} strokeWidth={2} />;
+}
 
 function MembersPanel({
   members,
@@ -1632,6 +2055,17 @@ function contactKindLabel(kind: ContactKind) {
   }
 }
 
+function conversationKindLabel(conversation: ConversationProfile) {
+  switch (conversation.kind) {
+    case "channel":
+      return conversation.isDefault ? "默认频道" : "频道";
+    case "group":
+      return `群聊 · ${conversation.members.length} 个成员`;
+    case "private":
+      return conversation.participantKind === "contact" ? "联系人私聊" : "成员私聊";
+  }
+}
+
 function memberStatusLabel(status: MemberProfile["status"]) {
   switch (status) {
     case "online":
@@ -1678,6 +2112,12 @@ function clampInstanceCount(value: number) {
   }
 
   return Math.min(20, Math.max(1, Math.trunc(value)));
+}
+
+function toggleId(values: string[], value: string) {
+  return values.includes(value)
+    ? values.filter((current) => current !== value)
+    : [...values, value];
 }
 
 function DataIntegrityPanel({

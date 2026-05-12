@@ -11,10 +11,15 @@ import type {
   ContactProfile,
   CreateContactRequest,
   CreateContactResult,
+  CreateGroupConversationRequest,
+  CreateGroupConversationResult,
+  ConversationProfile,
   DeleteContactRequest,
   DeleteContactResult,
   InviteMemberRequest,
   InviteMemberResult,
+  ListConversationsRequest,
+  ListConversationsResult,
   ListContactsRequest,
   ListContactsResult,
   ListMembersRequest,
@@ -28,6 +33,8 @@ import type {
   StartPrivateConversationResult,
   UpdateContactRequest,
   UpdateContactResult,
+  UpdateGroupConversationMembersRequest,
+  UpdateGroupConversationMembersResult,
   WindowContextSnapshot,
   WorkspaceSelectionStatus,
 } from "./contracts/generated";
@@ -65,6 +72,13 @@ function renderWorkspaceSelection(api: {
     deleteContact: (request: DeleteContactRequest) => Promise<DeleteContactResult>;
   }>;
   chatApi?: Partial<{
+    listConversations: (request: ListConversationsRequest) => Promise<ListConversationsResult>;
+    createGroupConversation: (
+      request: CreateGroupConversationRequest,
+    ) => Promise<CreateGroupConversationResult>;
+    updateGroupConversationMembers: (
+      request: UpdateGroupConversationMembersRequest,
+    ) => Promise<UpdateGroupConversationMembersResult>;
     startPrivateConversation: (
       request: StartPrivateConversationRequest,
     ) => Promise<StartPrivateConversationResult>;
@@ -101,6 +115,11 @@ function renderWorkspaceSelection(api: {
           ...contactApi,
         }}
         chatApi={{
+          listConversations: () => Promise.resolve({ conversations: [defaultChannel()] }),
+          createGroupConversation: () =>
+            Promise.reject(new Error("createGroupConversation mock missing")),
+          updateGroupConversationMembers: () =>
+            Promise.reject(new Error("updateGroupConversationMembers mock missing")),
           startPrivateConversation: () =>
             Promise.reject(new Error("startPrivateConversation mock missing")),
           ...chatApi,
@@ -229,6 +248,38 @@ function contactProfile(overrides: Partial<ContactProfile> = {}): ContactProfile
   };
 }
 
+function conversationProfile(overrides: Partial<ConversationProfile> = {}): ConversationProfile {
+  return {
+    conversationId: "01K00000000000000000000050",
+    workspaceId: "01K00000000000000000000000",
+    kind: "private",
+    title: "External Admin",
+    isDefault: false,
+    isPinned: false,
+    unreadCount: 0,
+    lastMessagePreview: null,
+    participantKind: "contact",
+    participantId: "01KCONTACT0000000000000000",
+    members: [],
+    createdAtMs: 1760000000000,
+    updatedAtMs: 1760000000000,
+    lastActivityAtMs: 1760000000000,
+    ...overrides,
+  };
+}
+
+function defaultChannel(): ConversationProfile {
+  return conversationProfile({
+    conversationId: "01K00000000000000000000060",
+    kind: "channel",
+    title: "默认频道",
+    isDefault: true,
+    isPinned: true,
+    participantKind: null,
+    participantId: null,
+  });
+}
+
 describe("App workspace entry", () => {
   it("opens to a usable workspace selection surface", async () => {
     render(<App />);
@@ -285,6 +336,122 @@ describe("App workspace entry", () => {
     expect(screen.getByRole("button", { name: "打开文件管理器" })).toBeInTheDocument();
   });
 
+  it("loads conversations and creates then updates group membership", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const builder = memberProfile({
+      memberId: "01KMEMBER000000000000000011",
+      role: "member",
+      displayName: "Builder",
+      instanceLabel: "Builder",
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const createdGroup = conversationProfile({
+      conversationId: "01K00000000000000000000061",
+      kind: "group",
+      title: "Review Room",
+      unreadCount: 3,
+      lastMessagePreview: "Draft ready",
+      participantKind: null,
+      participantId: null,
+      members: [
+        {
+          memberId: reviewer.memberId,
+          displayName: reviewer.displayName,
+          instanceLabel: reviewer.instanceLabel,
+        },
+      ],
+      lastActivityAtMs: 1760000002000,
+      updatedAtMs: 1760000002000,
+    });
+    const updatedGroup = {
+      ...createdGroup,
+      members: [
+        {
+          memberId: builder.memberId,
+          displayName: builder.displayName,
+          instanceLabel: builder.instanceLabel,
+        },
+      ],
+      updatedAtMs: 1760000003000,
+      lastActivityAtMs: 1760000003000,
+    };
+    const listConversations = vi.fn(() =>
+      Promise.resolve({ conversations: [defaultChannel()] }),
+    );
+    const createGroupConversation = vi.fn(() =>
+      Promise.resolve({
+        conversation: createdGroup,
+        conversations: [defaultChannel(), createdGroup],
+      }),
+    );
+    const updateGroupConversationMembers = vi.fn(() =>
+      Promise.resolve({
+        conversation: updatedGroup,
+        conversations: [defaultChannel(), updatedGroup],
+      }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer, builder] }),
+      },
+      chatApi: {
+        listConversations,
+        createGroupConversation,
+        updateGroupConversationMembers,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    expect(listConversations).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+    });
+    expect(within(conversationPanel).getAllByText("默认频道").length).toBeGreaterThan(0);
+
+    const createForm = within(conversationPanel).getByRole("form", { name: "新建群聊" });
+    await user.type(within(createForm).getByLabelText("名称"), "Review Room");
+    await user.click(within(createForm).getByLabelText("Reviewer"));
+    await user.click(within(createForm).getByRole("button", { name: "创建群聊" }));
+
+    expect(createGroupConversation).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      title: "Review Room",
+      memberIds: [reviewer.memberId],
+    });
+    expect(await within(conversationPanel).findAllByText("Review Room")).not.toHaveLength(0);
+    expect(within(conversationPanel).getByText("3")).toBeInTheDocument();
+    expect(within(conversationPanel).getByText(/Draft ready/)).toBeInTheDocument();
+
+    const updateForm = await within(conversationPanel).findByRole("form", { name: "群聊成员" });
+    await user.click(within(updateForm).getByLabelText("Reviewer"));
+    await user.click(within(updateForm).getByLabelText("Builder"));
+    await user.click(within(updateForm).getByRole("button", { name: "更新成员" }));
+
+    expect(updateGroupConversationMembers).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: createdGroup.conversationId,
+      memberIds: [builder.memberId],
+    });
+    expect((await within(conversationPanel).findAllByText(/Builder/)).length).toBeGreaterThan(0);
+  });
+
   it("loads default owner and saves invited assistant instances without launching terminal", async () => {
     const user = userEvent.setup();
     const owner = memberProfile();
@@ -336,10 +503,9 @@ describe("App workspace entry", () => {
 
     await user.click(screen.getByRole("button", { name: "打开文件夹" }));
 
-    expect(await screen.findByText("Workspace Owner")).toBeInTheDocument();
-    expect(screen.getByText("Owner · 在线 · 无运行时")).toBeInTheDocument();
-
-    const membersPanel = screen.getByRole("region", { name: "Owner 与邀请成员" });
+    const membersPanel = await screen.findByRole("region", { name: "Owner 与邀请成员" });
+    expect(within(membersPanel).getByText("Workspace Owner")).toBeInTheDocument();
+    expect(within(membersPanel).getByText("Owner · 在线 · 无运行时")).toBeInTheDocument();
 
     await user.type(within(membersPanel).getByLabelText("显示名称"), "Codex Reviewer");
     await user.selectOptions(within(membersPanel).getByLabelText("内置运行时"), "gemini-cli");
@@ -366,10 +532,10 @@ describe("App workspace entry", () => {
         unlimitedAccess: false,
       },
     });
-    expect(await screen.findByText("Codex Reviewer 1")).toBeInTheDocument();
-    expect(screen.getByText("Codex Reviewer 2")).toBeInTheDocument();
-    expect(screen.getAllByText("Assistant · 离线 · Gemini CLI")).toHaveLength(2);
-    expect(screen.getAllByText((content) => content.includes("@可用"))).toHaveLength(2);
+    expect(await within(membersPanel).findByText("Codex Reviewer 1")).toBeInTheDocument();
+    expect(within(membersPanel).getByText("Codex Reviewer 2")).toBeInTheDocument();
+    expect(within(membersPanel).getAllByText("Assistant · 离线 · Gemini CLI")).toHaveLength(2);
+    expect(within(membersPanel).getAllByText((content) => content.includes("@可用"))).toHaveLength(2);
     expect(await screen.findByRole("status")).toHaveTextContent("终端不会自动启动");
   });
 
@@ -410,17 +576,12 @@ describe("App workspace entry", () => {
     );
     const startPrivateConversation = vi.fn(() =>
       Promise.resolve({
-        conversation: {
-          conversationId: "01KCONVERSATION000000000000",
-          workspaceId: "01K00000000000000000000000",
-          kind: "private",
+        conversation: conversationProfile({
+          conversationId: "01K00000000000000000000062",
           title: "Agent 1",
           participantKind: "member",
           participantId: assistant.memberId,
-          createdAtMs: 1760000000000,
-          updatedAtMs: 1760000000000,
-          lastActivityAtMs: 1760000000000,
-        },
+        }),
         created: true,
       } satisfies StartPrivateConversationResult),
     );
@@ -435,9 +596,10 @@ describe("App workspace entry", () => {
 
       await user.click(screen.getByRole("button", { name: "打开文件夹" }));
 
-      expect(await screen.findByText("Agent 1")).toBeInTheDocument();
-      expect(screen.getByText((content) => content.includes("@可用"))).toBeInTheDocument();
-      expect(screen.getAllByText((content) => content.includes("沙盒 · 受限"))).toHaveLength(1);
+      const membersPanel = await screen.findByRole("region", { name: "Owner 与邀请成员" });
+      expect(within(membersPanel).getByText("Agent 1")).toBeInTheDocument();
+      expect(within(membersPanel).getByText((content) => content.includes("@可用"))).toBeInTheDocument();
+      expect(within(membersPanel).getAllByText((content) => content.includes("沙盒 · 受限"))).toHaveLength(1);
 
       await user.click(screen.getByRole("button", { name: "Agent 1 操作" }));
       await user.click(screen.getByRole("menuitem", { name: "发送消息" }));
@@ -532,17 +694,12 @@ describe("App workspace entry", () => {
     );
     const startPrivateConversation = vi.fn(() =>
       Promise.resolve({
-        conversation: {
-          conversationId: "01KCONVERSATION000000000001",
-          workspaceId: "01K00000000000000000000000",
-          kind: "private",
+        conversation: conversationProfile({
+          conversationId: "01K00000000000000000000063",
           title: "External Admin",
           participantKind: "contact",
           participantId: contact.contactId,
-          createdAtMs: 1760000000000,
-          updatedAtMs: 1760000000000,
-          lastActivityAtMs: 1760000000000,
-        },
+        }),
         created: true,
       } satisfies StartPrivateConversationResult),
     );

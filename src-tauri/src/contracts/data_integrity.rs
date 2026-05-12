@@ -21,6 +21,8 @@ pub enum StorageCategory {
     WorkspaceFallbacks,
     MemberProfiles,
     ContactProfiles,
+    ConversationRecords,
+    ConversationMembers,
     PrivateConversations,
 }
 

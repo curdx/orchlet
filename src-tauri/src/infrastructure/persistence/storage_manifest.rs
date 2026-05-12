@@ -147,10 +147,10 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
                 .to_owned(),
         },
         StorageManifestEntry {
-            id: "conversation.private".to_owned(),
+            id: "conversation.records".to_owned(),
             owner: StorageOwner::Chat,
-            category: StorageCategory::PrivateConversations,
-            description: "Workspace private conversation metadata for member/contact participants."
+            category: StorageCategory::ConversationRecords,
+            description: "Workspace channel, group and private conversation list metadata."
                 .to_owned(),
             path_policy: StoragePathPolicy::AppDataWorkspaceFile,
             relative_path: Some(WORKSPACE_SQLITE_RELATIVE_PATH.to_owned()),
@@ -167,8 +167,32 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             ],
             privacy_class: StoragePrivacyClass::WorkspaceData,
             fixture_required: true,
-            validation_check_id: "conversation.private.schema_validate".to_owned(),
-            notes: "Contains private conversation metadata only; messages, unread state, group chats, channels and dispatch are owned by later stories."
+            validation_check_id: "conversation.records.schema_validate".to_owned(),
+            notes: "Contains conversation list records only: default channel, group/private entries, pin/unread display fields and last activity metadata. Messages, read positions, notifications and dispatch are not stored here."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "conversation.members".to_owned(),
+            owner: StorageOwner::Chat,
+            category: StorageCategory::ConversationMembers,
+            description: "Workspace group conversation membership records.".to_owned(),
+            path_policy: StoragePathPolicy::AppDataWorkspaceFile,
+            relative_path: Some(WORKSPACE_SQLITE_RELATIVE_PATH.to_owned()),
+            file_name: Some(WORKSPACE_SQLITE_FILE_NAME.to_owned()),
+            format: StorageFormat::Sqlite,
+            schema_version: WORKSPACE_SQLITE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/conversation_repository.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/conversation_repository.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "conversation.members.schema_validate".to_owned(),
+            notes: "Contains group conversation member ids only; member removal is not cascaded by this story, and messages/read positions remain future storage."
                 .to_owned(),
         },
     ]
