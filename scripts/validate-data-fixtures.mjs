@@ -74,10 +74,11 @@ function validateSqliteScaffold(path) {
       schema.tables.includes("conversations") &&
       schema.tables.includes("conversation_members") &&
       schema.tables.includes("messages") &&
+      schema.tables.includes("message_mentions") &&
       schema.tables.includes("conversation_read_positions"),
     `${path} must include current member, conversation and message schema tables`,
   );
-  assert(schema.tables.length === 6, `${path} must include only current workspace tables`);
+  assert(schema.tables.length === 7, `${path} must include only current workspace tables`);
   assert(!schema.tables.includes("terminal_sessions"), `${path} must not include future terminal tables`);
   assert(Array.isArray(schema.migrationFiles), `${path}.migrationFiles must be an array`);
   assert(
@@ -103,6 +104,10 @@ function validateSqliteScaffold(path) {
   assert(
     schema.migrationFiles.includes("202605121600__conversation_management.sql"),
     `${path} must include the conversation management migration file`,
+  );
+  assert(
+    schema.migrationFiles.includes("202605121700__message_mentions.sql"),
+    `${path} must include the message mentions migration file`,
   );
   assert(
     Array.isArray(schema.ownedByFutureStories) && schema.ownedByFutureStories.includes("notification"),
@@ -220,9 +225,27 @@ function validateMessageHistory(path) {
     assert(message.conversationId === fixture.conversationId, `${path}.messages[].conversationId must match`);
     assertValidUlid(message.authorMemberId, `${path}.messages[].authorMemberId`);
     assertNonEmptyString(message.body, `${path}.messages[].body`);
+    assert(Array.isArray(message.mentionedMemberIds), `${path}.messages[].mentionedMemberIds must be an array`);
+    for (const memberId of message.mentionedMemberIds) {
+      assertValidUlid(memberId, `${path}.messages[].mentionedMemberIds[]`);
+    }
     assert(["sending", "sent", "failed"].includes(message.status), `${path}.messages[].status invalid`);
     assertPositiveTimestamp(message.createdAtMs, `${path}.messages[].createdAtMs`);
     assert(message.updatedAtMs >= message.createdAtMs, `${path}.messages[].updatedAtMs must be >= createdAtMs`);
+  }
+
+  assert(Array.isArray(fixture.messageMentions), `${path}.messageMentions must be an array`);
+  for (const mention of fixture.messageMentions) {
+    assert(mention.workspaceId === fixture.workspaceId, `${path}.messageMentions[].workspaceId must match`);
+    assert(mention.conversationId === fixture.conversationId, `${path}.messageMentions[].conversationId must match`);
+    assertValidUlid(mention.messageId, `${path}.messageMentions[].messageId`);
+    assertValidUlid(mention.memberId, `${path}.messageMentions[].memberId`);
+    assertPositiveTimestamp(mention.createdAtMs, `${path}.messageMentions[].createdAtMs`);
+    const message = fixture.messages.find((item) => item.messageId === mention.messageId);
+    assert(
+      message?.mentionedMemberIds.includes(mention.memberId),
+      `${path}.messageMentions[] must agree with message mentionedMemberIds`,
+    );
   }
 
   assert(Array.isArray(fixture.readPositions) && fixture.readPositions.length >= 1, `${path}.readPositions must include a read cursor`);

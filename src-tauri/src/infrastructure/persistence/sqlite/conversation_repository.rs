@@ -42,6 +42,8 @@ const MESSAGES_READ_POSITIONS_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/workspace/202605121430__messages_read_positions.sql");
 const CONVERSATION_MANAGEMENT_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/workspace/202605121600__conversation_management.sql");
+const MESSAGE_MENTIONS_MIGRATION_SQL: &str =
+    include_str!("../../../../migrations/workspace/202605121700__message_mentions.sql");
 const DEFAULT_CHANNEL_TITLE: &str = "默认频道";
 
 pub fn list_conversations(
@@ -60,8 +62,13 @@ pub fn send_message(
     validate_workspace_id(&request.workspace_id)?;
     validate_conversation_id(&request.conversation_id)?;
     let body = normalize_message_body(&request.body)?;
+    let mentioned_member_ids = normalize_mentioned_member_ids(
+        app_data_dir,
+        &request.workspace_id,
+        request.mentioned_member_ids,
+    )?;
     let owner_member_id = local_owner_member_id(app_data_dir, &request.workspace_id)?;
-    let connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    let mut connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
     ensure_default_channel(&connection, &request.workspace_id)?;
     conversation_by_id_from_connection(
         &connection,
@@ -76,15 +83,20 @@ pub fn send_message(
         conversation_id: request.conversation_id.clone(),
         author_member_id: owner_member_id,
         body,
+        mentioned_member_ids,
         status: ChatMessageStatus::Sent,
         created_at_ms: timestamp,
         updated_at_ms: timestamp,
     };
 
-    insert_message(&connection, &message)?;
-    touch_conversation_after_message(&connection, &message)?;
+    let transaction = connection
+        .transaction()
+        .map_err(sqlite_error("message.transaction.beginFailed"))?;
+    insert_message(&transaction, &message)?;
+    insert_message_mentions(&transaction, &message)?;
+    touch_conversation_after_message(&transaction, &message)?;
     upsert_read_position(
-        &connection,
+        &transaction,
         &message.workspace_id,
         &message.conversation_id,
         &message.message_id,
@@ -92,7 +104,7 @@ pub fn send_message(
         timestamp,
     )?;
     recalculate_unread_count_after(
-        &connection,
+        &transaction,
         &message.workspace_id,
         &message.conversation_id,
         message.created_at_ms,
@@ -100,16 +112,19 @@ pub fn send_message(
     )?;
 
     let conversation = conversation_by_id_from_connection(
-        &connection,
+        &transaction,
         &message.workspace_id,
         &message.conversation_id,
     )?;
     let read_position = read_position_from_connection(
-        &connection,
+        &transaction,
         &message.workspace_id,
         &message.conversation_id,
     )?
     .expect("send_message upserts read position");
+    transaction
+        .commit()
+        .map_err(sqlite_error("message.transaction.commitFailed"))?;
 
     Ok(SendMessageResult {
         message,
@@ -352,6 +367,12 @@ pub fn clear_conversation(
         &request.conversation_id,
     )?;
 
+    connection
+        .execute(
+            "DELETE FROM message_mentions WHERE workspace_id = ?1 AND conversation_id = ?2",
+            params![request.workspace_id, request.conversation_id],
+        )
+        .map_err(sqlite_error("conversation.clear.mentionsFailed"))?;
     let cleared_message_count = connection
         .execute(
             "DELETE FROM messages WHERE workspace_id = ?1 AND conversation_id = ?2",
@@ -422,6 +443,12 @@ pub fn delete_conversation(
         ));
     }
 
+    connection
+        .execute(
+            "DELETE FROM message_mentions WHERE workspace_id = ?1 AND conversation_id = ?2",
+            params![request.workspace_id, request.conversation_id],
+        )
+        .map_err(sqlite_error("conversation.delete.mentionsFailed"))?;
     connection
         .execute(
             "DELETE FROM messages WHERE workspace_id = ?1 AND conversation_id = ?2",
@@ -711,6 +738,52 @@ pub fn validate_message_store(app_data_dir: &Path, workspace_id: &str) -> Result
         .map_err(sqlite_error("message.validateFailed"))
 }
 
+pub fn validate_message_mention_store(
+    app_data_dir: &Path,
+    workspace_id: &str,
+) -> Result<(), AppError> {
+    validate_workspace_id(workspace_id)?;
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+
+    if !database_path.exists() {
+        return Ok(());
+    }
+
+    let connection = Connection::open_with_flags(&database_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| {
+            AppError::recoverable_error(
+                "messageMention.database.readOnlyOpenFailed",
+                "无法读取工作区消息提及数据库。",
+                "请检查应用数据目录权限；如果问题持续，请运行数据验证。",
+                Some(format!("{}: {}", database_path.display(), error)),
+            )
+        })?;
+
+    if !table_exists(&connection, "message_mentions")? {
+        if !table_exists(&connection, "messages")? {
+            return Ok(());
+        }
+
+        return Err(AppError::recoverable_error(
+            "messageMention.tableMissing",
+            "消息提及表缺失。",
+            "请重新打开工作区以运行消息提及迁移；如果问题持续，请备份并修复工作区数据库。",
+            Some(format!("workspaceId={}", workspace_id)),
+        ));
+    }
+
+    connection
+        .prepare(
+            "SELECT workspace_id, conversation_id, message_id, member_id, created_at_ms
+             FROM message_mentions
+             WHERE workspace_id = ?1
+             LIMIT 1",
+        )
+        .and_then(|mut statement| statement.exists(params![workspace_id]))
+        .map(|_| ())
+        .map_err(sqlite_error("messageMention.validateFailed"))
+}
+
 pub fn validate_read_position_store(
     app_data_dir: &Path,
     workspace_id: &str,
@@ -782,7 +855,8 @@ fn apply_conversation_migrations(connection: &Connection) -> Result<(), AppError
         .map_err(sqlite_error("conversation.migration.failed"))?;
     apply_conversation_list_migration(connection)?;
     apply_messages_read_positions_migration(connection)?;
-    apply_conversation_management_migration(connection)
+    apply_conversation_management_migration(connection)?;
+    apply_message_mentions_migration(connection)
 }
 
 fn apply_conversation_list_migration(connection: &Connection) -> Result<(), AppError> {
@@ -848,6 +922,18 @@ fn apply_conversation_management_migration(connection: &Connection) -> Result<()
         )
         .map_err(sqlite_error("conversation.managementMigration.indexFailed"))?;
     record_migration(connection, "202605121600__conversation_management")
+}
+
+fn apply_message_mentions_migration(connection: &Connection) -> Result<(), AppError> {
+    if !table_exists(connection, "message_mentions")? {
+        connection
+            .execute_batch(MESSAGE_MENTIONS_MIGRATION_SQL)
+            .map_err(sqlite_error("message.mentionsMigration.failed"))?;
+    } else {
+        record_migration(connection, "202605121700__message_mentions")?;
+    }
+
+    Ok(())
 }
 
 fn ensure_default_channel(connection: &Connection, workspace_id: &str) -> Result<(), AppError> {
@@ -1059,6 +1145,30 @@ fn insert_message(connection: &Connection, message: &ChatMessageProfile) -> Resu
         .map_err(sqlite_error("message.insert.failed"))
 }
 
+fn insert_message_mentions(
+    connection: &Connection,
+    message: &ChatMessageProfile,
+) -> Result<(), AppError> {
+    for member_id in &message.mentioned_member_ids {
+        connection
+            .execute(
+                "INSERT INTO message_mentions (
+                    workspace_id, conversation_id, message_id, member_id, created_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    message.workspace_id,
+                    message.conversation_id,
+                    message.message_id,
+                    member_id,
+                    message.created_at_ms as i64,
+                ],
+            )
+            .map_err(sqlite_error("message.mentions.insertFailed"))?;
+    }
+
+    Ok(())
+}
+
 fn touch_conversation_after_message(
     connection: &Connection,
     message: &ChatMessageProfile,
@@ -1155,6 +1265,7 @@ fn page_messages_from_connection(
         None
     };
     messages.reverse();
+    hydrate_message_mentions(connection, &mut messages)?;
 
     Ok((messages, has_more, next_before_message_id))
 }
@@ -1192,6 +1303,36 @@ fn message_by_id_from_connection(
             ),
             _ => sqlite_error("message.getById.queryFailed")(error),
         })
+}
+
+fn hydrate_message_mentions(
+    connection: &Connection,
+    messages: &mut [ChatMessageProfile],
+) -> Result<(), AppError> {
+    for message in messages {
+        let mut statement = connection
+            .prepare(
+                "SELECT member_id
+                 FROM message_mentions
+                 WHERE workspace_id = ?1 AND conversation_id = ?2 AND message_id = ?3
+                 ORDER BY member_id ASC",
+            )
+            .map_err(sqlite_error("message.mentions.prepareFailed"))?;
+        message.mentioned_member_ids = statement
+            .query_map(
+                params![
+                    message.workspace_id,
+                    message.conversation_id,
+                    message.message_id
+                ],
+                |row| row.get(0),
+            )
+            .map_err(sqlite_error("message.mentions.queryFailed"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(sqlite_error("message.mentions.decodeFailed"))?;
+    }
+
+    Ok(())
 }
 
 fn upsert_read_position(
@@ -1402,6 +1543,56 @@ fn normalize_group_member_ids(member_ids: Vec<String>) -> Result<Vec<String>, Ap
     Ok(normalized)
 }
 
+fn normalize_mentioned_member_ids(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    member_ids: Vec<String>,
+) -> Result<Vec<String>, AppError> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for member_id in member_ids {
+        validate_member_id(&member_id)?;
+        if seen.insert(member_id.clone()) {
+            normalized.push(member_id);
+        }
+    }
+
+    if normalized.is_empty() {
+        return Ok(normalized);
+    }
+
+    let members = initialize_member_store(app_data_dir, workspace_id)?.members;
+
+    for member_id in &normalized {
+        let Some(member) = members.iter().find(|member| member.member_id == *member_id) else {
+            return Err(AppError::recoverable_error(
+                "message.mention.memberNotFound",
+                "提及的成员不存在。",
+                "请刷新成员列表后重新选择提及对象。",
+                Some(format!(
+                    "workspaceId={} memberId={}",
+                    workspace_id, member_id
+                )),
+            ));
+        };
+
+        if !member.permissions.can_mention {
+            return Err(AppError::recoverable_error(
+                "message.mention.memberNotAllowed",
+                "该成员当前不能被提及。",
+                "请选择允许提及的成员后重试。",
+                Some(format!(
+                    "workspaceId={} memberId={}",
+                    workspace_id, member_id
+                )),
+            ));
+        }
+    }
+
+    Ok(normalized)
+}
+
 fn local_owner_member_id(app_data_dir: &Path, workspace_id: &str) -> Result<String, AppError> {
     initialize_member_store(app_data_dir, workspace_id)?
         .members
@@ -1462,6 +1653,7 @@ fn message_from_row(row: &rusqlite::Row<'_>) -> Result<ChatMessageProfile, rusql
         conversation_id: row.get(2)?,
         author_member_id: row.get(3)?,
         body: row.get(4)?,
+        mentioned_member_ids: Vec::new(),
         status: message_status_from_str(row.get::<_, String>(5)?.as_str()),
         created_at_ms: row.get::<_, i64>(6)? as u64,
         updated_at_ms: row.get::<_, i64>(7)? as u64,

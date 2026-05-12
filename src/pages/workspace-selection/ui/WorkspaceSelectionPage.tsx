@@ -12,6 +12,8 @@ import {
   FolderOpen,
   Hash,
   History,
+  Image as ImageIcon,
+  ListTodo,
   MessageSquare,
   MoreVertical,
   Pin,
@@ -21,10 +23,12 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Smile,
   Trash2,
   User,
   UserPlus,
   Users,
+  X,
 } from "lucide-react";
 
 import {
@@ -103,7 +107,10 @@ type PendingConflict = {
   conflict: WorkspaceRegistryConflict;
 };
 
+type AttachmentEntry = "image" | "roadmap";
+
 const MESSAGE_PAGE_LIMIT = 30;
+const RECENT_EMOJI_STORAGE_KEY = "orchlet.chat.recentEmojis";
 
 export function WorkspaceSelectionPage({
   api = workspaceApi,
@@ -150,6 +157,8 @@ export function WorkspaceSelectionPage({
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
+  const [mentionedMemberIds, setMentionedMemberIds] = useState<string[]>([]);
+  const [attachmentEntries, setAttachmentEntries] = useState<AttachmentEntry[]>([]);
   const [messages, setMessages] = useState<ChatMessageProfile[]>([]);
   const [nextBeforeMessageId, setNextBeforeMessageId] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
@@ -594,12 +603,40 @@ export function WorkspaceSelectionPage({
     }
 
     setMemberActionMenuId(null);
+    addMentionMember(member);
     showToast({
       tone: "info",
       title: "已准备提及成员",
       message: `${member.instanceLabel} 的提及入口已记录。`,
       action: `@${member.instanceLabel}`,
     });
+  }
+
+  function handleMessageDraftChange(value: string) {
+    setMessageDraft(value);
+  }
+
+  function addMentionMember(member: MemberProfile) {
+    if (!member.permissions.canMention) {
+      return;
+    }
+
+    setMentionedMemberIds((current) =>
+      current.includes(member.memberId) ? current : [...current, member.memberId],
+    );
+    setMessageDraft((current) => insertMentionText(current, member));
+  }
+
+  function removeMentionMember(memberId: string) {
+    setMentionedMemberIds((current) => current.filter((id) => id !== memberId));
+  }
+
+  function addAttachmentEntry(entry: AttachmentEntry) {
+    setAttachmentEntries((current) => (current.includes(entry) ? current : [...current, entry]));
+  }
+
+  function removeAttachmentEntry(entry: AttachmentEntry) {
+    setAttachmentEntries((current) => current.filter((item) => item !== entry));
   }
 
   function handleToggleCreateGroupMember(memberId: string) {
@@ -917,6 +954,15 @@ export function WorkspaceSelectionPage({
       return;
     }
 
+    if (hasAllMentionToken(body)) {
+      showToast({
+        tone: "warning",
+        title: "@all 暂未启用",
+        message: "请选择具体成员提及；群体派发会在后续编排故事中明确实现。",
+      });
+      return;
+    }
+
     const timestamp = Date.now();
     const pendingMessage: ChatMessageProfile = {
       messageId: `pending-${timestamp}`,
@@ -924,12 +970,15 @@ export function WorkspaceSelectionPage({
       conversationId: selectedConversation.conversationId,
       authorMemberId: "local",
       body,
+      mentionedMemberIds,
       status: "sending",
       createdAtMs: timestamp,
       updatedAtMs: timestamp,
     };
 
     setMessageDraft("");
+    setMentionedMemberIds([]);
+    setAttachmentEntries([]);
     setIsSendingMessage(true);
     setMessages((current) => mergeMessagePages(current, [pendingMessage]));
 
@@ -938,6 +987,7 @@ export function WorkspaceSelectionPage({
         workspaceId: activeWorkspaceId,
         conversationId: selectedConversation.conversationId,
         body,
+        mentionedMemberIds,
       });
 
       setMessages((current) =>
@@ -1354,6 +1404,8 @@ export function WorkspaceSelectionPage({
                 isDeleting={isDeletingConversation}
                 renameDraft={renameDraft}
                 messageDraft={messageDraft}
+                mentionedMemberIds={mentionedMemberIds}
+                attachmentEntries={attachmentEntries}
                 groupTitle={groupTitle}
                 groupMemberIds={groupMemberIds}
                 selectedGroupMemberIds={selectedGroupMemberIds}
@@ -1368,7 +1420,11 @@ export function WorkspaceSelectionPage({
                 }
                 onClearConversation={() => void handleClearConversation()}
                 onDeleteConversation={() => void handleDeleteConversation()}
-                onMessageDraftChange={setMessageDraft}
+                onMessageDraftChange={handleMessageDraftChange}
+                onAddMention={addMentionMember}
+                onRemoveMention={removeMentionMember}
+                onAddAttachmentEntry={addAttachmentEntry}
+                onRemoveAttachmentEntry={removeAttachmentEntry}
                 onSendMessage={() => void handleSendMessage()}
                 onLoadOlderMessages={() => void handleLoadOlderMessages()}
                 onGroupTitleChange={setGroupTitle}
@@ -1567,6 +1623,8 @@ function ConversationPanel({
   isDeleting,
   renameDraft,
   messageDraft,
+  mentionedMemberIds,
+  attachmentEntries,
   groupTitle,
   groupMemberIds,
   selectedGroupMemberIds,
@@ -1578,6 +1636,10 @@ function ConversationPanel({
   onClearConversation,
   onDeleteConversation,
   onMessageDraftChange,
+  onAddMention,
+  onRemoveMention,
+  onAddAttachmentEntry,
+  onRemoveAttachmentEntry,
   onSendMessage,
   onLoadOlderMessages,
   onGroupTitleChange,
@@ -1602,6 +1664,8 @@ function ConversationPanel({
   isDeleting: boolean;
   renameDraft: string;
   messageDraft: string;
+  mentionedMemberIds: string[];
+  attachmentEntries: AttachmentEntry[];
   groupTitle: string;
   groupMemberIds: string[];
   selectedGroupMemberIds: string[];
@@ -1613,6 +1677,10 @@ function ConversationPanel({
   onClearConversation: () => void;
   onDeleteConversation: () => void;
   onMessageDraftChange: (value: string) => void;
+  onAddMention: (member: MemberProfile) => void;
+  onRemoveMention: (memberId: string) => void;
+  onAddAttachmentEntry: (entry: AttachmentEntry) => void;
+  onRemoveAttachmentEntry: (entry: AttachmentEntry) => void;
   onSendMessage: () => void;
   onLoadOlderMessages: () => void;
   onGroupTitleChange: (value: string) => void;
@@ -1621,6 +1689,9 @@ function ConversationPanel({
   onCreateGroup: () => void;
   onUpdateGroupMembers: () => void;
 }) {
+  const [isEmojiPanelOpen, setIsEmojiPanelOpen] = useState(false);
+  const [emojiSearch, setEmojiSearch] = useState("");
+  const [recentEmojis, setRecentEmojis] = useState<string[]>(() => loadRecentEmojis());
   const canCreateGroup = groupTitle.trim().length > 0 && groupMemberIds.length > 0;
   const canUpdateGroup =
     selectedConversation?.kind === "group" && selectedGroupMemberIds.length > 0;
@@ -1628,6 +1699,44 @@ function ConversationPanel({
     Boolean(selectedConversation) &&
     renameDraft.trim().length > 0 &&
     renameDraft.trim() !== selectedConversation?.title;
+  const mentionQuery = activeMentionQuery(messageDraft);
+  const mentionSuggestions =
+    mentionQuery === null || mentionQuery.toLocaleLowerCase() === "all"
+      ? []
+      : members
+          .filter(
+            (member) =>
+              member.permissions.canMention &&
+              !mentionedMemberIds.includes(member.memberId) &&
+              mentionMatches(member, mentionQuery),
+          )
+          .slice(0, 6);
+  const selectedMentionMembers = mentionedMemberIds
+    .map((memberId) => members.find((member) => member.memberId === memberId))
+    .filter((member): member is MemberProfile => Boolean(member));
+  const hasUnsupportedAllMention = hasAllMentionToken(messageDraft);
+  const filteredEmojiOptions = emojiOptions.filter((option) => {
+    const query = emojiSearch.trim().toLocaleLowerCase();
+
+    if (!query) {
+      return true;
+    }
+
+    return (
+      option.label.toLocaleLowerCase().includes(query) ||
+      option.keywords.some((keyword) => keyword.includes(query)) ||
+      option.value.includes(query)
+    );
+  });
+
+  function handleSelectEmoji(value: string) {
+    const nextRecentEmojis = [value, ...recentEmojis.filter((emoji) => emoji !== value)].slice(0, 8);
+
+    setRecentEmojis(nextRecentEmojis);
+    saveRecentEmojis(nextRecentEmojis);
+    onMessageDraftChange(`${messageDraft}${value}`);
+    setIsEmojiPanelOpen(false);
+  }
 
   return (
     <section
@@ -1876,6 +1985,142 @@ function ConversationPanel({
                 onSendMessage();
               }}
             >
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!selectedConversation}
+                  onClick={() => setIsEmojiPanelOpen((current) => !current)}
+                  className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Smile aria-hidden="true" size={13} strokeWidth={2} />
+                  Emoji
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedConversation}
+                  onClick={() => onAddAttachmentEntry("image")}
+                  className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <ImageIcon aria-hidden="true" size={13} strokeWidth={2} />
+                  图片入口
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedConversation}
+                  onClick={() => onAddAttachmentEntry("roadmap")}
+                  className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <ListTodo aria-hidden="true" size={13} strokeWidth={2} />
+                  路线图引用
+                </button>
+              </div>
+
+              {isEmojiPanelOpen ? (
+                <div
+                  role="dialog"
+                  aria-label="Emoji 面板"
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setIsEmojiPanelOpen(false);
+                    }
+                  }}
+                  className="grid gap-2 rounded-md border border-[#dbe4d7] bg-[#fbfcfa] p-3"
+                >
+                  <label className="flex items-center gap-2 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1.5 text-xs text-[#263229] focus-within:border-[#8fad87]">
+                    <Search aria-hidden="true" size={13} strokeWidth={2} />
+                    <span className="sr-only">搜索 emoji</span>
+                    <input
+                      value={emojiSearch}
+                      onChange={(event) => setEmojiSearch(event.target.value)}
+                      placeholder="搜索 emoji"
+                      className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[#7b887a]"
+                    />
+                  </label>
+                  {recentEmojis.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5" aria-label="最近 emoji">
+                      {recentEmojis.map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          aria-label={`最近 ${emoji}`}
+                          onClick={() => handleSelectEmoji(emoji)}
+                          className="inline-flex h-8 min-w-8 items-center justify-center rounded-md border border-[#dfe8db] bg-white text-base transition hover:border-[#8fad87] hover:bg-[#eef6ea]"
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="grid max-h-28 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-8">
+                    {filteredEmojiOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-label={`${option.label} ${option.value}`}
+                        onClick={() => handleSelectEmoji(option.value)}
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-[#dfe8db] bg-white text-base transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+                      >
+                        {option.value}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-1.5" aria-label="快捷提示">
+                {quickPrompts.map((prompt) => (
+                  <button
+                    key={prompt.label}
+                    type="button"
+                    disabled={!selectedConversation}
+                    onClick={() => onMessageDraftChange(appendDraftBlock(messageDraft, prompt.text))}
+                    className="inline-flex min-h-8 items-center rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {prompt.label}
+                  </button>
+                ))}
+              </div>
+
+              {selectedMentionMembers.length > 0 || attachmentEntries.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5" aria-label="组合状态">
+                  {selectedMentionMembers.map((member) => (
+                    <button
+                      key={member.memberId}
+                      type="button"
+                      onClick={() => onRemoveMention(member.memberId)}
+                      className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[#b9d0b2] bg-[#eef6ea] px-2 text-xs font-semibold text-[#2f5038]"
+                    >
+                      <AtSign aria-hidden="true" size={12} strokeWidth={2} />
+                      {member.instanceLabel}
+                      <X aria-hidden="true" size={12} strokeWidth={2} />
+                    </button>
+                  ))}
+                  {attachmentEntries.map((entry) => (
+                    <button
+                      key={entry}
+                      type="button"
+                      onClick={() => onRemoveAttachmentEntry(entry)}
+                      className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[#d7c8a5] bg-[#fff9ed] px-2 text-xs font-semibold text-[#604a1f]"
+                    >
+                      {entry === "image" ? (
+                        <ImageIcon aria-hidden="true" size={12} strokeWidth={2} />
+                      ) : (
+                        <ListTodo aria-hidden="true" size={12} strokeWidth={2} />
+                      )}
+                      {attachmentEntryLabel(entry)}
+                      <X aria-hidden="true" size={12} strokeWidth={2} />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {hasUnsupportedAllMention ? (
+                <p className="rounded-md border border-[#e0c37b] bg-[#fff8e6] px-3 py-2 text-xs font-medium text-[#765400]">
+                  @all 暂未在 MVP 中启用，请选择具体成员。
+                </p>
+              ) : null}
+
               <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
                 输入消息
                 <textarea
@@ -1883,7 +2128,17 @@ function ConversationPanel({
                   disabled={!selectedConversation}
                   onChange={(event) => onMessageDraftChange(event.target.value)}
                   onKeyDown={(event) => {
+                    if (event.key === "Escape" && isEmojiPanelOpen) {
+                      event.preventDefault();
+                      setIsEmojiPanelOpen(false);
+                      return;
+                    }
+
                     if (event.key === "Enter" && !event.shiftKey) {
+                      if (event.nativeEvent.isComposing) {
+                        return;
+                      }
+
                       event.preventDefault();
                       onSendMessage();
                     }
@@ -1893,6 +2148,30 @@ function ConversationPanel({
                   className="min-h-20 resize-y rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-not-allowed disabled:bg-[#f1f4ef]"
                 />
               </label>
+              {mentionSuggestions.length > 0 ? (
+                <div
+                  role="listbox"
+                  aria-label="提及建议"
+                  className="grid max-h-36 gap-1 overflow-y-auto rounded-md border border-[#dbe4d7] bg-white p-1"
+                >
+                  {mentionSuggestions.map((member) => (
+                    <button
+                      key={member.memberId}
+                      type="button"
+                      role="option"
+                      aria-selected="false"
+                      onClick={() => onAddMention(member)}
+                      className="flex min-h-9 items-center gap-2 rounded px-2 text-left text-xs text-[#263229] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#2f6f55]"
+                    >
+                      <AtSign aria-hidden="true" size={13} strokeWidth={2} />
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold">{member.instanceLabel}</span>
+                        <span className="block truncate text-[#6a786c]">{member.displayName}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <button
                 type="submit"
                 disabled={!selectedConversation || isSendingMessage || messageDraft.trim().length === 0}
@@ -2013,6 +2292,103 @@ function MemberCheckboxList({
       ))}
     </div>
   );
+}
+
+const quickPrompts = [
+  { label: "请评审", text: "请评审这次变更并指出阻塞风险。" },
+  { label: "给方案", text: "请给出可执行方案，并列出取舍。" },
+  { label: "查边界", text: "请检查边界条件和失败路径。" },
+];
+
+const emojiOptions = [
+  { value: "✅", label: "完成", keywords: ["done", "pass", "check"] },
+  { value: "🙏", label: "感谢", keywords: ["thanks", "please"] },
+  { value: "👀", label: "查看", keywords: ["review", "look"] },
+  { value: "💡", label: "想法", keywords: ["idea", "tip"] },
+  { value: "⚠️", label: "注意", keywords: ["warning", "risk"] },
+  { value: "🚧", label: "进行中", keywords: ["wip", "progress"] },
+  { value: "❓", label: "问题", keywords: ["question", "ask"] },
+  { value: "📌", label: "固定", keywords: ["pin", "note"] },
+  { value: "🧪", label: "测试", keywords: ["test", "qa"] },
+  { value: "🔍", label: "搜索", keywords: ["search", "inspect"] },
+  { value: "📝", label: "记录", keywords: ["note", "doc"] },
+  { value: "⏳", label: "等待", keywords: ["wait", "pending"] },
+];
+
+function activeMentionQuery(draft: string) {
+  const match = /(?:^|\s)@([^\s@]*)$/.exec(draft);
+
+  return match ? match[1] : null;
+}
+
+function mentionMatches(member: MemberProfile, query: string) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return [member.instanceLabel, member.displayName, member.role]
+    .join(" ")
+    .toLocaleLowerCase()
+    .includes(normalizedQuery);
+}
+
+function insertMentionText(draft: string, member: MemberProfile) {
+  const mentionText = `@${member.instanceLabel}`;
+  const activeQuery = activeMentionQuery(draft);
+
+  if (activeQuery !== null) {
+    const atIndex = draft.lastIndexOf("@");
+    return `${draft.slice(0, atIndex)}${mentionText} `;
+  }
+
+  return appendInlineText(draft, mentionText);
+}
+
+function appendInlineText(draft: string, text: string) {
+  if (draft.length === 0 || /\s$/.test(draft)) {
+    return `${draft}${text}`;
+  }
+
+  return `${draft} ${text}`;
+}
+
+function appendDraftBlock(draft: string, text: string) {
+  const normalized = draft.trimEnd();
+
+  return normalized ? `${normalized}\n${text}` : text;
+}
+
+function hasAllMentionToken(body: string) {
+  return body
+    .split(/[\s,.!?;:，。！？；：]+/)
+    .some((token) => token === "@all");
+}
+
+function attachmentEntryLabel(entry: AttachmentEntry) {
+  return entry === "image" ? "图片待附加" : "路线图待引用";
+}
+
+function loadRecentEmojis() {
+  try {
+    const raw = window.localStorage.getItem(RECENT_EMOJI_STORAGE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string").slice(0, 8)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentEmojis(emojis: string[]) {
+  try {
+    window.localStorage.setItem(RECENT_EMOJI_STORAGE_KEY, JSON.stringify(emojis));
+  } catch {
+    // Recent emoji state is a best-effort UI cache.
+  }
 }
 
 function ConversationKindIcon({ kind }: { kind: ConversationProfile["kind"] }) {

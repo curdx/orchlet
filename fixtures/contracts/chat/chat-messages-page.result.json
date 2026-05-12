@@ -6,6 +6,7 @@
       "conversationId": "01K00000000000000000000050",
       "authorMemberId": "01K00000000000000000000030",
       "body": "Earlier context",
+      "mentionedMemberIds": [],
       "status": "sent",
       "createdAtMs": 1760000010000,
       "updatedAtMs": 1760000010000
@@ -16,6 +17,7 @@
       "conversationId": "01K00000000000000000000050",
       "authorMemberId": "01K00000000000000000000030",
       "body": "Latest note",
+      "mentionedMemberIds": ["01K00000000000000000000031"],
       "status": "sent",
       "createdAtMs": 1760000011000,
       "updatedAtMs": 1760000011000

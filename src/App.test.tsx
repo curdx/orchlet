@@ -61,6 +61,7 @@ const status: WorkspaceSelectionStatus = {
 
 beforeEach(() => {
   useToastStore.getState().clearToast();
+  window.localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
   document.documentElement.lang = "";
 });
@@ -328,6 +329,7 @@ function chatMessage(overrides: Partial<ChatMessageProfile> = {}): ChatMessagePr
     conversationId: "01K00000000000000000000060",
     authorMemberId: "01KMEMBER000000000000000000",
     body: "Hello workspace",
+    mentionedMemberIds: [],
     status: "sent",
     createdAtMs: 1760000001000,
     updatedAtMs: 1760000001000,
@@ -820,6 +822,7 @@ describe("App workspace entry", () => {
       workspaceId: "01K00000000000000000000000",
       conversationId: channel.conversationId,
       body: "Ship it",
+      mentionedMemberIds: [],
     });
 
     resolveSend({
@@ -839,6 +842,185 @@ describe("App workspace entry", () => {
 
     expect((await within(messageLog).findAllByText("sent")).length).toBeGreaterThan(0);
     expect(within(messageLog).getByText("Ship it")).toBeInTheDocument();
+  });
+
+  it("inserts member mention suggestions as chips and sends structured mention ids", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const silent = memberProfile({
+      memberId: "01KMEMBER000000000000000011",
+      role: "member",
+      displayName: "Silent",
+      instanceLabel: "Silent",
+      permissions: {
+        canMention: false,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel();
+    const sendMessage = vi.fn((request: SendMessageRequest) =>
+      Promise.resolve({
+        message: chatMessage({
+          messageId: "01K00000000000000000000074",
+          body: request.body,
+          mentionedMemberIds: request.mentionedMemberIds,
+          createdAtMs: 1760000004000,
+          updatedAtMs: 1760000004000,
+        }),
+        conversation: {
+          ...channel,
+          lastMessagePreview: request.body,
+          lastActivityAtMs: 1760000004000,
+          updatedAtMs: 1760000004000,
+        },
+        readPosition: readPosition({
+          lastReadMessageId: "01K00000000000000000000074",
+          lastReadAtMs: 1760000004000,
+        }),
+      } satisfies SendMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer, silent] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        sendMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const composer = within(conversationPanel).getByLabelText("输入消息");
+    await user.type(composer, "@Rev");
+
+    const suggestions = await within(conversationPanel).findByRole("listbox", {
+      name: "提及建议",
+    });
+    await user.click(within(suggestions).getByRole("option", { name: /Reviewer/ }));
+    await user.type(composer, "please review");
+
+    expect(within(conversationPanel).getByRole("button", { name: /Reviewer/ }))
+      .toBeInTheDocument();
+    expect(within(conversationPanel).queryByRole("option", { name: /Silent/ }))
+      .not.toBeInTheDocument();
+
+    await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
+
+    expect(sendMessage).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: channel.conversationId,
+      body: "@Reviewer please review",
+      mentionedMemberIds: [reviewer.memberId],
+    });
+  });
+
+  it("shows explicit MVP abandonment for @all without sending", async () => {
+    const user = userEvent.setup();
+    const sendMessage = vi.fn(() =>
+      Promise.resolve({
+        message: chatMessage(),
+        conversation: defaultChannel(),
+        readPosition: readPosition(),
+      } satisfies SendMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        sendMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.type(within(conversationPanel).getByLabelText("输入消息"), "please review @all");
+
+    expect(within(conversationPanel).getByText(/@all 暂未在 MVP 中启用/))
+      .toBeInTheDocument();
+
+    await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(await screen.findByRole("status")).toHaveTextContent("@all 暂未启用");
+  });
+
+  it("supports emoji search, recent emoji cache and Escape close", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(within(conversationPanel).getByRole("button", { name: "Emoji" }));
+    const emojiPanel = await within(conversationPanel).findByRole("dialog", {
+      name: "Emoji 面板",
+    });
+    await user.type(within(emojiPanel).getByPlaceholderText("搜索 emoji"), "test");
+    await user.click(within(emojiPanel).getByRole("button", { name: /测试/ }));
+
+    const composer = within(conversationPanel).getByLabelText("输入消息");
+    expect(composer).toHaveValue("🧪");
+
+    await user.click(within(conversationPanel).getByRole("button", { name: "Emoji" }));
+    expect(
+      await within(conversationPanel).findByRole("button", { name: "最近 🧪" }),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(composer, { key: "Escape" });
+    expect(within(conversationPanel).queryByRole("dialog", { name: "Emoji 面板" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("appends quick prompts and exposes removable attachment composition state", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const composer = within(conversationPanel).getByLabelText("输入消息");
+    await user.type(composer, "Existing");
+    await user.click(within(conversationPanel).getByRole("button", { name: "请评审" }));
+
+    expect(composer).toHaveValue("Existing\n请评审这次变更并指出阻塞风险。");
+
+    await user.click(within(conversationPanel).getByRole("button", { name: "图片入口" }));
+    await user.click(within(conversationPanel).getByRole("button", { name: "路线图引用" }));
+
+    expect(within(conversationPanel).getByRole("button", { name: /图片待附加/ }))
+      .toBeInTheDocument();
+    const roadmapChip = within(conversationPanel).getByRole("button", {
+      name: /路线图待引用/,
+    });
+    expect(roadmapChip).toBeInTheDocument();
+
+    await user.click(roadmapChip);
+    expect(within(conversationPanel).queryByRole("button", { name: /路线图待引用/ }))
+      .not.toBeInTheDocument();
   });
 
   it("keeps a failed message visible when send fails", async () => {

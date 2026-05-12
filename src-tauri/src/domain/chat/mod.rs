@@ -82,6 +82,15 @@ pub fn normalize_message_body(body: &str) -> Result<String, AppError> {
         ));
     }
 
+    if contains_all_mention_token(&normalized) {
+        return Err(AppError::recoverable_error(
+            "message.mention.allUnsupported",
+            "@all 暂未在 MVP 中启用。",
+            "请选择具体成员提及；群体派发会在后续编排故事中明确实现。",
+            Some("@all is explicitly unsupported in MVP chat composition".to_owned()),
+        ));
+    }
+
     Ok(normalized)
 }
 
@@ -103,4 +112,15 @@ pub fn normalize_message_page_limit(limit: Option<u32>) -> Result<u32, AppError>
 pub fn message_preview(body: &str) -> String {
     let compact = body.split_whitespace().collect::<Vec<_>>().join(" ");
     compact.chars().take(120).collect()
+}
+
+fn contains_all_mention_token(body: &str) -> bool {
+    body.split(|character: char| {
+        character.is_whitespace()
+            || matches!(
+                character,
+                ',' | '.' | '!' | '?' | ';' | ':' | '，' | '。' | '！' | '？' | '；' | '：'
+            )
+    })
+    .any(|token| token == "@all")
 }

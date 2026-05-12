@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=9"
+      "details": "entries=10"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -95,6 +95,16 @@
       "details": null
     },
     {
+      "checkId": "message.mentions.schema_validate",
+      "category": "messageMentions",
+      "status": "passed",
+      "severity": "info",
+      "message": "Message mention store is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
+      "userAction": null,
+      "details": null
+    },
+    {
       "checkId": "conversation.read_positions.schema_validate",
       "category": "conversationReadPositions",
       "status": "passed",
@@ -105,8 +115,8 @@
       "details": null
     }
   ],
-  "totalChecks": 10,
-  "passedChecks": 10,
+  "totalChecks": 11,
+  "passedChecks": 11,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,

@@ -105,9 +105,10 @@ mod tests {
             ChatMessageStatus, ClearConversationRequest, ContactKind, ConversationKind,
             ConversationParticipantKind, CreateContactRequest, CreateGroupConversationRequest,
             DeleteConversationRequest, InviteMemberRequest, InvitedMemberType,
-            ListConversationsRequest, ListMessagesRequest, MemberRuntimeKind, MemberRuntimeProfile,
-            SendMessageRequest, StartPrivateConversationRequest, UpdateConversationSettingsRequest,
-            UpdateGroupConversationMembersRequest, UpdateReadPositionRequest,
+            ListConversationsRequest, ListMessagesRequest, MemberPermissions, MemberRuntimeKind,
+            MemberRuntimeProfile, SendMessageRequest, StartPrivateConversationRequest,
+            UpdateConversationSettingsRequest, UpdateGroupConversationMembersRequest,
+            UpdateReadPositionRequest,
         },
     };
 
@@ -369,6 +370,7 @@ mod tests {
                 workspace_id: workspace_id.clone(),
                 conversation_id: default_channel.conversation_id.clone(),
                 body: "Clear me".to_owned(),
+                mentioned_member_ids: Vec::new(),
             },
         )
         .expect("message sent");
@@ -441,6 +443,7 @@ mod tests {
                 workspace_id: workspace_id.clone(),
                 conversation_id: group.conversation_id.clone(),
                 body: "Delete me".to_owned(),
+                mentioned_member_ids: Vec::new(),
             },
         )
         .expect("message sent");
@@ -516,6 +519,7 @@ mod tests {
                 workspace_id: workspace_id.clone(),
                 conversation_id: default_channel.conversation_id.clone(),
                 body: "  Hello\nworkspace  ".to_owned(),
+                mentioned_member_ids: Vec::new(),
             },
         )
         .expect("message sent");
@@ -549,6 +553,178 @@ mod tests {
     }
 
     #[test]
+    fn message_send_persists_and_hydrates_deduplicated_mentions() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace_id.clone(),
+                member_type: InvitedMemberType::Member,
+                display_name: "Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::Shell,
+                    runtime_id: Some("zsh".to_owned()),
+                    label: Some("zsh".to_owned()),
+                    command: Some("zsh".to_owned()),
+                },
+                instance_count: None,
+                permissions: Some(MemberPermissions {
+                    can_mention: true,
+                    can_remove: true,
+                }),
+                isolation: None,
+            },
+        )
+        .expect("member invited")
+        .member;
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+
+        let sent = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                body: "@Reviewer please review".to_owned(),
+                mentioned_member_ids: vec![member.member_id.clone(), member.member_id.clone()],
+            },
+        )
+        .expect("message sent");
+
+        assert_eq!(
+            sent.message.mentioned_member_ids,
+            vec![member.member_id.clone()]
+        );
+
+        let page = list_workspace_messages(
+            app_data.path(),
+            ListMessagesRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+                before_message_id: None,
+                limit: Some(10),
+            },
+        )
+        .expect("messages listed");
+
+        assert_eq!(page.messages.len(), 1);
+        assert_eq!(
+            page.messages[0].mentioned_member_ids,
+            vec![member.member_id]
+        );
+    }
+
+    #[test]
+    fn message_send_rejects_missing_mentioned_member() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+
+        let error = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+                body: "@Missing please review".to_owned(),
+                mentioned_member_ids: vec!["01K00000000000000000000099".to_owned()],
+            },
+        )
+        .expect_err("missing mention should be rejected");
+
+        assert_eq!(error.code, "message.mention.memberNotFound");
+    }
+
+    #[test]
+    fn message_send_rejects_unmentionable_member() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace_id.clone(),
+                member_type: InvitedMemberType::Member,
+                display_name: "Silent Member".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::Shell,
+                    runtime_id: Some("zsh".to_owned()),
+                    label: Some("zsh".to_owned()),
+                    command: Some("zsh".to_owned()),
+                },
+                instance_count: None,
+                permissions: Some(MemberPermissions {
+                    can_mention: false,
+                    can_remove: true,
+                }),
+                isolation: None,
+            },
+        )
+        .expect("member invited")
+        .member;
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+
+        let error = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+                body: "@Silent Member please review".to_owned(),
+                mentioned_member_ids: vec![member.member_id],
+            },
+        )
+        .expect_err("unmentionable member should be rejected");
+
+        assert_eq!(error.code, "message.mention.memberNotAllowed");
+    }
+
+    #[test]
+    fn message_send_rejects_all_mention_token() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+
+        let error = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+                body: "please review @all".to_owned(),
+                mentioned_member_ids: Vec::new(),
+            },
+        )
+        .expect_err("@all should be rejected");
+
+        assert_eq!(error.code, "message.mention.allUnsupported");
+    }
+
+    #[test]
     fn message_history_pages_with_stable_cursor() {
         let app_data = tempdir().expect("app data");
         let workspace_id = "01K00000000000000000000000".to_owned();
@@ -569,6 +745,7 @@ mod tests {
                     workspace_id: workspace_id.clone(),
                     conversation_id: default_channel.conversation_id.clone(),
                     body: body.to_owned(),
+                    mentioned_member_ids: Vec::new(),
                 },
             )
             .expect("message sent");
@@ -634,6 +811,7 @@ mod tests {
                 workspace_id: workspace_id.clone(),
                 conversation_id: default_channel.conversation_id.clone(),
                 body: "first".to_owned(),
+                mentioned_member_ids: Vec::new(),
             },
         )
         .expect("first sent")
@@ -644,6 +822,7 @@ mod tests {
                 workspace_id: workspace_id.clone(),
                 conversation_id: default_channel.conversation_id.clone(),
                 body: "second".to_owned(),
+                mentioned_member_ids: Vec::new(),
             },
         )
         .expect("second sent");
@@ -653,6 +832,7 @@ mod tests {
                 workspace_id: workspace_id.clone(),
                 conversation_id: default_channel.conversation_id.clone(),
                 body: "third".to_owned(),
+                mentioned_member_ids: Vec::new(),
             },
         )
         .expect("third sent")

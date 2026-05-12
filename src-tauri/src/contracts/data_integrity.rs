@@ -24,6 +24,7 @@ pub enum StorageCategory {
     ConversationRecords,
     ConversationMembers,
     MessageRecords,
+    MessageMentions,
     ConversationReadPositions,
     PrivateConversations,
 }

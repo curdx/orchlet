@@ -69,6 +69,7 @@ pub struct ChatMessageProfile {
     pub conversation_id: String,
     pub author_member_id: String,
     pub body: String,
+    pub mentioned_member_ids: Vec<String>,
     pub status: ChatMessageStatus,
     #[ts(type = "number")]
     pub created_at_ms: u64,
@@ -162,6 +163,7 @@ pub struct SendMessageRequest {
     pub workspace_id: String,
     pub conversation_id: String,
     pub body: String,
+    pub mentioned_member_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

@@ -429,6 +429,7 @@ function storageCategory(value: string): StorageCategory {
     case "conversationRecords":
     case "conversationMembers":
     case "messageRecords":
+    case "messageMentions":
     case "conversationReadPositions":
     case "privateConversations":
       return value;

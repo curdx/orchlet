@@ -1,5 +1,6 @@
 {
   "workspaceId": "01K00000000000000000000000",
   "conversationId": "01K00000000000000000000050",
-  "body": "Ship it"
+  "body": "Ship it",
+  "mentionedMemberIds": ["01K00000000000000000000031"]
 }

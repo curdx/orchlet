@@ -75,8 +75,19 @@ struct MessageHistoryFixture {
     conversation_id: String,
     messages: Vec<ChatMessageProfile>,
     read_positions: Vec<ConversationReadPositionProfile>,
+    message_mentions: Vec<MessageMentionFixture>,
     pagination_rule: String,
     excluded_future_tables: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MessageMentionFixture {
+    workspace_id: String,
+    conversation_id: String,
+    message_id: String,
+    member_id: String,
+    created_at_ms: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -151,7 +162,7 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 10);
+    assert_eq!(report.total_checks, 11);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -165,9 +176,9 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 10);
+    assert_eq!(report.total_checks, 11);
     assert_eq!(report.failed_checks, 1);
-    assert_eq!(report.skipped_checks, 6);
+    assert_eq!(report.skipped_checks, 7);
     assert!(report.has_failures);
 }
 
@@ -204,6 +215,7 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
             "conversations",
             "conversation_members",
             "messages",
+            "message_mentions",
             "conversation_read_positions"
         ]
     );
@@ -215,7 +227,8 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
             "202605121210__private_conversations.sql",
             "202605121300__conversation_list_groups.sql",
             "202605121430__messages_read_positions.sql",
-            "202605121600__conversation_management.sql"
+            "202605121600__conversation_management.sql",
+            "202605121700__message_mentions.sql"
         ]
     );
     assert!(fixture
@@ -238,6 +251,10 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
         .validation_paths
         .iter()
         .any(|path| path.contains("messages records")));
+    assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("message_mentions")));
     assert!(fixture
         .validation_paths
         .iter()
@@ -351,6 +368,10 @@ fn message_history_fixture_covers_status_pagination_and_read_position() {
     assert!(fixture
         .messages
         .iter()
+        .any(|message| !message.mentioned_member_ids.is_empty()));
+    assert!(fixture
+        .messages
+        .iter()
         .any(|message| message.status == ChatMessageStatus::Failed));
     assert!(fixture
         .messages
@@ -362,6 +383,24 @@ fn message_history_fixture_covers_status_pagination_and_read_position() {
         "01K00000000000000000000070"
     );
     assert!(fixture.pagination_rule.contains("beforeMessageId"));
+    assert_eq!(fixture.message_mentions.len(), 1);
+    assert_eq!(
+        fixture.message_mentions[0].workspace_id,
+        fixture.workspace_id
+    );
+    assert_eq!(
+        fixture.message_mentions[0].conversation_id,
+        fixture.conversation_id
+    );
+    assert_eq!(
+        fixture.message_mentions[0].message_id,
+        "01K00000000000000000000071"
+    );
+    assert_eq!(
+        fixture.message_mentions[0].member_id,
+        "01K00000000000000000000031"
+    );
+    assert!(fixture.message_mentions[0].created_at_ms > 0);
     assert!(fixture
         .excluded_future_tables
         .iter()

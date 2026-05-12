@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=9"
+      "details": "entries=10"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -95,6 +95,16 @@
       "details": null
     },
     {
+      "checkId": "message.mentions.schema_validate",
+      "category": "messageMentions",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace id is available for message mention validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
+    },
+    {
       "checkId": "conversation.read_positions.schema_validate",
       "category": "conversationReadPositions",
       "status": "skipped",
@@ -105,10 +115,10 @@
       "details": null
     }
   ],
-  "totalChecks": 10,
+  "totalChecks": 11,
   "passedChecks": 3,
   "failedChecks": 1,
-  "skippedChecks": 6,
+  "skippedChecks": 7,
   "hasFailures": true,
   "batched": true
 }

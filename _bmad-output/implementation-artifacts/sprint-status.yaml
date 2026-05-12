@@ -59,7 +59,7 @@ development_status:
   2-4-default-channel-group-chat-conversation-list: done
   2-5-message-send-history-pagination-read-position: done
   2-6-conversation-management-actions: done
-  2-7-mentions-emoji-attachments-quick-prompts: backlog
+  2-7-mentions-emoji-attachments-quick-prompts: done
   epic-2-retrospective: optional
 
   epic-3: backlog

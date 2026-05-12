@@ -264,7 +264,15 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(delete_result.conversations.len(), 1);
     assert_eq!(delete_error.code, "conversation.delete.defaultForbidden");
     assert_eq!(send_message_request.body, "Ship it");
+    assert_eq!(
+        send_message_request.mentioned_member_ids,
+        vec!["01K00000000000000000000031".to_owned()]
+    );
     assert_eq!(send_message_result.message.status, ChatMessageStatus::Sent);
+    assert_eq!(
+        send_message_result.message.mentioned_member_ids,
+        send_message_request.mentioned_member_ids
+    );
     assert_eq!(
         send_message_result.read_position.last_read_message_id,
         send_message_result.message.message_id
@@ -273,6 +281,10 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(list_messages_request.limit, Some(30));
     assert_eq!(list_messages_result.messages.len(), 2);
     assert!(list_messages_result.has_more);
+    assert_eq!(
+        list_messages_result.messages[1].mentioned_member_ids,
+        vec!["01K00000000000000000000031".to_owned()]
+    );
     assert_eq!(
         list_messages_result.messages[1].status,
         ChatMessageStatus::Sent

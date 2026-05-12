@@ -9,6 +9,7 @@
       "conversationId": "01K00000000000000000000050",
       "authorMemberId": "01K00000000000000000000030",
       "body": "Earlier context",
+      "mentionedMemberIds": [],
       "status": "sent",
       "createdAtMs": 1760000010000,
       "updatedAtMs": 1760000010000
@@ -19,6 +20,7 @@
       "conversationId": "01K00000000000000000000050",
       "authorMemberId": "01K00000000000000000000030",
       "body": "Latest note",
+      "mentionedMemberIds": ["01K00000000000000000000031"],
       "status": "sent",
       "createdAtMs": 1760000011000,
       "updatedAtMs": 1760000011000
@@ -29,6 +31,7 @@
       "conversationId": "01K00000000000000000000050",
       "authorMemberId": "01K00000000000000000000030",
       "body": "Local draft could not be stored",
+      "mentionedMemberIds": [],
       "status": "failed",
       "createdAtMs": 1760000012000,
       "updatedAtMs": 1760000012000
@@ -43,12 +46,20 @@
       "updatedAtMs": 1760000010000
     }
   ],
+  "messageMentions": [
+    {
+      "workspaceId": "01K00000000000000000000000",
+      "conversationId": "01K00000000000000000000050",
+      "messageId": "01K00000000000000000000071",
+      "memberId": "01K00000000000000000000031",
+      "createdAtMs": 1760000011000
+    }
+  ],
   "paginationRule": "newest page first, beforeMessageId loads older messages, display order is chronological",
   "excludedFutureTables": [
     "notifications",
     "terminal_dispatches",
     "attachments",
-    "emoji_reactions",
-    "message_mentions"
+    "emoji_reactions"
   ]
 }

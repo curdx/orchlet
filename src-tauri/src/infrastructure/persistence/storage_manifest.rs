@@ -217,7 +217,32 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             privacy_class: StoragePrivacyClass::WorkspaceData,
             fixture_required: true,
             validation_check_id: "message.records.schema_validate".to_owned(),
-            notes: "Contains plain text local chat messages and sending/sent/failed status only; dispatch, terminal output, attachments, mentions and reactions are future domains."
+            notes: "Contains plain text local chat messages and sending/sent/failed status only; dispatch, terminal output, attachments and reactions are future domains."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "message.mentions".to_owned(),
+            owner: StorageOwner::Chat,
+            category: StorageCategory::MessageMentions,
+            description: "Workspace-local structured member mentions attached to chat messages."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataWorkspaceFile,
+            relative_path: Some(WORKSPACE_SQLITE_RELATIVE_PATH.to_owned()),
+            file_name: Some(WORKSPACE_SQLITE_FILE_NAME.to_owned()),
+            format: StorageFormat::Sqlite,
+            schema_version: WORKSPACE_SQLITE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/conversation_repository.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/conversation_repository.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "message.mentions.schema_validate".to_owned(),
+            notes: "Contains explicit member ids mentioned in persisted messages only; @all fan-out and dispatch routing are future domains."
                 .to_owned(),
         },
         StorageManifestEntry {
