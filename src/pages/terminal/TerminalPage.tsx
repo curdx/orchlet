@@ -2,12 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  Columns2,
   FolderOpen,
+  Grid2X2,
   Loader2,
   Pin,
   Plus,
   RotateCcw,
+  Rows2,
   Search,
+  Square,
+  SquareArrowRight,
   SquareTerminal,
   X,
 } from "lucide-react";
@@ -48,10 +53,38 @@ type TerminalPageApi = Pick<
   | "subscribeStatus"
 >;
 
+type PaneLayout = "single" | "splitVertical" | "splitHorizontal" | "grid2x2";
+type PaneId = "pane-1" | "pane-2" | "pane-3" | "pane-4";
+type PaneAssignments = Record<PaneId, string | null>;
+
+const PANE_IDS: PaneId[] = ["pane-1", "pane-2", "pane-3", "pane-4"];
+const VISIBLE_PANES_BY_LAYOUT: Record<PaneLayout, PaneId[]> = {
+  single: ["pane-1"],
+  splitVertical: ["pane-1", "pane-2"],
+  splitHorizontal: ["pane-1", "pane-2"],
+  grid2x2: PANE_IDS,
+};
+
+const PANE_LAYOUTS: Array<{
+  id: PaneLayout;
+  label: string;
+  title: string;
+  icon: typeof Square;
+}> = [
+  { id: "single", label: "单窗格布局", title: "单窗格", icon: Square },
+  { id: "splitVertical", label: "左右分屏布局", title: "左右分屏", icon: Columns2 },
+  { id: "splitHorizontal", label: "上下分屏布局", title: "上下分屏", icon: Rows2 },
+  { id: "grid2x2", label: "四宫格布局", title: "四宫格", icon: Grid2X2 },
+];
+
+function defaultCreateRendererAdapter(options: RendererAdapterOptions) {
+  return new XtermRendererAdapter(options);
+}
+
 export function TerminalPage({
   snapshot,
   api = terminalApi,
-  createRendererAdapter = (options) => new XtermRendererAdapter(options),
+  createRendererAdapter = defaultCreateRendererAdapter,
   onPreferencesChange,
   onOpenWindowMode,
 }: {
@@ -64,18 +97,36 @@ export function TerminalPage({
   }) => Promise<void>;
   onOpenWindowMode?: (mode: WindowMode) => Promise<void>;
 }) {
-  const terminalElementRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<RendererAdapter | null>(null);
-  const sessionRef = useRef<TerminalSessionProfile | null>(null);
-  const attachRequestIdRef = useRef(0);
+  const paneElementsRef = useRef<Record<PaneId, HTMLDivElement | null>>(
+    createEmptyPaneElementMap(),
+  );
+  const rendererRefs = useRef<Map<PaneId, RendererAdapter>>(new Map());
+  const attachRequestIdsRef = useRef<Map<PaneId, number>>(new Map());
+  const lastResizeKeyByPaneRef = useRef<Map<PaneId, string>>(new Map());
+  const tabsRef = useRef<TerminalTabProfile[]>([]);
+  const paneAssignmentsRef = useRef<PaneAssignments>(createEmptyPaneAssignments());
+  const sessionsRef = useRef<Map<string, TerminalSessionProfile>>(new Map());
+  const visiblePaneIdsRef = useRef<PaneId[]>(VISIBLE_PANES_BY_LAYOUT.single);
+  const focusedPaneIdRef = useRef<PaneId>("pane-1");
+
   const [tabs, setTabs] = useState<TerminalTabProfile[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [session, setSession] = useState<TerminalSessionProfile | null>(null);
+  const [sessionsById, setSessionsById] = useState<Record<string, TerminalSessionProfile>>({});
+  const [paneLayout, setPaneLayout] = useState<PaneLayout>("single");
+  const [paneAssignments, setPaneAssignments] = useState<PaneAssignments>(
+    createEmptyPaneAssignments,
+  );
+  const [focusedPaneId, setFocusedPaneId] = useState<PaneId>("pane-1");
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const workspace = snapshot?.activeWorkspace ?? null;
 
+  const visiblePaneIds = useMemo(
+    () => VISIBLE_PANES_BY_LAYOUT[paneLayout],
+    [paneLayout],
+  );
+  const visiblePaneKey = visiblePaneIds.join(",");
   const orderedTabs = useMemo(() => orderTabs(tabs), [tabs]);
   const openTabs = useMemo(
     () => orderedTabs.filter((tab) => tab.status === "open"),
@@ -95,6 +146,9 @@ export function TerminalPage({
     () => tabs.find((tab) => tab.tabId === activeTabId) ?? null,
     [activeTabId, tabs],
   );
+  const activeSession = activeTab
+    ? sessionsById[activeTab.terminalSessionId] ?? null
+    : null;
   const activeOpenTabIndex = openTabs.findIndex((tab) => tab.tabId === activeTabId);
   const recentClosedTab = closedTabs[0] ?? null;
   const searchResults = useMemo(
@@ -103,49 +157,145 @@ export function TerminalPage({
   );
 
   useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
+    tabsRef.current = tabs;
+  }, [tabs]);
 
-  const attachTab = useCallback(
-    async (tab: TerminalTabProfile) => {
-      if (tab.status !== "open") {
+  useEffect(() => {
+    paneAssignmentsRef.current = paneAssignments;
+  }, [paneAssignments]);
+
+  useEffect(() => {
+    visiblePaneIdsRef.current = visiblePaneIds;
+  }, [visiblePaneIds]);
+
+  useEffect(() => {
+    if (!visiblePaneIds.includes(focusedPaneId)) {
+      focusedPaneIdRef.current = visiblePaneIds[0];
+      setFocusedPaneId(visiblePaneIds[0]);
+    }
+  }, [focusedPaneId, visiblePaneIds, visiblePaneKey]);
+
+  useEffect(() => {
+    return () => {
+      rendererRefs.current.forEach((renderer) => renderer.dispose());
+      rendererRefs.current.clear();
+    };
+  }, []);
+
+  const storeTabs = useCallback((nextTabs: TerminalTabProfile[]) => {
+    tabsRef.current = nextTabs;
+    setTabs(nextTabs);
+  }, []);
+
+  const storeSession = useCallback((nextSession: TerminalSessionProfile) => {
+    sessionsRef.current.set(nextSession.terminalSessionId, nextSession);
+    setSessionsById((currentSessions) => ({
+      ...currentSessions,
+      [nextSession.terminalSessionId]: nextSession,
+    }));
+  }, []);
+
+  const storeSessionIfNotExited = useCallback((nextSession: TerminalSessionProfile) => {
+    const sessionId = nextSession.terminalSessionId;
+
+    setSessionsById((currentSessions) => {
+      const latestSession = sessionsRef.current.get(sessionId) ?? currentSessions[sessionId];
+
+      if (!latestSession || latestSession.status === "exited") {
+        return currentSessions;
+      }
+
+      sessionsRef.current.set(sessionId, nextSession);
+
+      return {
+        ...currentSessions,
+        [sessionId]: nextSession,
+      };
+    });
+  }, []);
+
+  const updatePaneAssignments = useCallback(
+    (updater: (currentAssignments: PaneAssignments) => PaneAssignments) => {
+      setPaneAssignments((currentAssignments) => {
+        const nextAssignments = updater(currentAssignments);
+        paneAssignmentsRef.current = nextAssignments;
+        return nextAssignments;
+      });
+    },
+    [],
+  );
+
+  const assignTabToPane = useCallback(
+    (paneId: PaneId, tabId: string | null) => {
+      updatePaneAssignments((currentAssignments) => {
+        const nextAssignments = { ...currentAssignments };
+
+        if (tabId) {
+          for (const candidatePaneId of PANE_IDS) {
+            if (nextAssignments[candidatePaneId] === tabId) {
+              nextAssignments[candidatePaneId] = null;
+            }
+          }
+        }
+
+        nextAssignments[paneId] = tabId;
+
+        return nextAssignments;
+      });
+    },
+    [updatePaneAssignments],
+  );
+
+  const resolveTargetPane = useCallback(
+    (paneId?: PaneId) => {
+      if (paneId && visiblePaneIdsRef.current.includes(paneId)) {
+        return paneId;
+      }
+
+      if (visiblePaneIdsRef.current.includes(focusedPaneIdRef.current)) {
+        return focusedPaneIdRef.current;
+      }
+
+      return visiblePaneIdsRef.current[0] ?? "pane-1";
+    },
+    [],
+  );
+
+  const bumpPaneAttachRequest = useCallback((paneId: PaneId) => {
+    const nextRequestId = (attachRequestIdsRef.current.get(paneId) ?? 0) + 1;
+    attachRequestIdsRef.current.set(paneId, nextRequestId);
+
+    return nextRequestId;
+  }, []);
+
+  const focusPane = useCallback((paneId: PaneId) => {
+    focusedPaneIdRef.current = paneId;
+    setFocusedPaneId(paneId);
+
+    const tab = getAssignedTab(
+      paneId,
+      paneAssignmentsRef.current,
+      tabsRef.current,
+    );
+
+    if (tab) {
+      setActiveTabId(tab.tabId);
+    }
+  }, []);
+
+  const handleTerminalInput = useCallback(
+    (paneId: PaneId, input: string) => {
+      const tab = getAssignedTab(
+        paneId,
+        paneAssignmentsRef.current,
+        tabsRef.current,
+      );
+
+      if (!tab || tab.status !== "open") {
         return;
       }
 
-      const requestId = attachRequestIdRef.current + 1;
-      attachRequestIdRef.current = requestId;
-      setActiveTabId(tab.tabId);
-      setIsLoading(true);
-
-      try {
-        const result = await api.attachTerminal({
-          terminalSessionId: tab.terminalSessionId,
-        });
-
-        if (attachRequestIdRef.current !== requestId) {
-          return;
-        }
-
-        sessionRef.current = result.session;
-        setSession(result.session);
-        setErrorMessage(null);
-      } catch (error) {
-        if (attachRequestIdRef.current === requestId) {
-          const appError = normalizeAppError(error);
-          setErrorMessage(appError.message);
-        }
-      } finally {
-        if (attachRequestIdRef.current === requestId) {
-          setIsLoading(false);
-        }
-      }
-    },
-    [api],
-  );
-
-  const handleTerminalInput = useCallback(
-    (input: string) => {
-      const currentSession = sessionRef.current;
+      const currentSession = sessionsRef.current.get(tab.terminalSessionId);
 
       if (!currentSession || currentSession.status === "exited") {
         return;
@@ -157,17 +307,7 @@ export function TerminalPage({
           input,
         })
         .then((result) => {
-          setSession((latestSession) => {
-            if (
-              latestSession?.terminalSessionId !== result.session.terminalSessionId ||
-              latestSession.status === "exited"
-            ) {
-              return latestSession;
-            }
-
-            sessionRef.current = result.session;
-            return result.session;
-          });
+          storeSessionIfNotExited(result.session);
           setErrorMessage(null);
         })
         .catch((error) => {
@@ -175,25 +315,77 @@ export function TerminalPage({
           setErrorMessage(appError.message);
         });
     },
-    [api],
+    [api, storeSessionIfNotExited],
   );
 
-  useEffect(() => {
-    const element = terminalElementRef.current;
+  const paneRefCallbacks = useMemo(() => {
+    const callbacks = {} as Record<PaneId, (element: HTMLDivElement | null) => void>;
 
-    if (!element) {
-      return;
+    for (const paneId of PANE_IDS) {
+      callbacks[paneId] = (element: HTMLDivElement | null) => {
+        paneElementsRef.current[paneId] = element;
+
+        if (!element) {
+          const existingRenderer = rendererRefs.current.get(paneId);
+          existingRenderer?.dispose();
+          rendererRefs.current.delete(paneId);
+          lastResizeKeyByPaneRef.current.delete(paneId);
+          return;
+        }
+
+        if (rendererRefs.current.has(paneId)) {
+          return;
+        }
+
+        const renderer = createRendererAdapter({
+          onInput: (input) => handleTerminalInput(paneId, input),
+        });
+        renderer.mount(element);
+        rendererRefs.current.set(paneId, renderer);
+      };
     }
 
-    const renderer = createRendererAdapter({ onInput: handleTerminalInput });
-    renderer.mount(element);
-    rendererRef.current = renderer;
-
-    return () => {
-      renderer.dispose();
-      rendererRef.current = null;
-    };
+    return callbacks;
   }, [createRendererAdapter, handleTerminalInput]);
+
+  const attachTab = useCallback(
+    async (tab: TerminalTabProfile, paneId?: PaneId) => {
+      if (tab.status !== "open") {
+        return;
+      }
+
+      const targetPaneId = resolveTargetPane(paneId);
+      const requestId = bumpPaneAttachRequest(targetPaneId);
+      assignTabToPane(targetPaneId, tab.tabId);
+      focusedPaneIdRef.current = targetPaneId;
+      setFocusedPaneId(targetPaneId);
+      setActiveTabId(tab.tabId);
+      setIsLoading(true);
+
+      try {
+        const result = await api.attachTerminal({
+          terminalSessionId: tab.terminalSessionId,
+        });
+
+        if (attachRequestIdsRef.current.get(targetPaneId) !== requestId) {
+          return;
+        }
+
+        storeSession(result.session);
+        setErrorMessage(null);
+      } catch (error) {
+        if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
+          const appError = normalizeAppError(error);
+          setErrorMessage(appError.message);
+        }
+      } finally {
+        if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [api, assignTabToPane, bumpPaneAttachRequest, resolveTargetPane, storeSession],
+  );
 
   useEffect(() => {
     let disposed = false;
@@ -208,7 +400,7 @@ export function TerminalPage({
           return;
         }
 
-        setTabs(result.tabs);
+        storeTabs(result.tabs);
         const nextTab =
           result.tabs.find(
             (tab) => tab.tabId === result.activeTabId && tab.status === "open",
@@ -217,10 +409,9 @@ export function TerminalPage({
           null;
 
         if (nextTab) {
-          await attachTab(nextTab);
+          await attachTab(nextTab, "pane-1");
         } else {
-          sessionRef.current = null;
-          setSession(null);
+          assignTabToPane("pane-1", null);
           setActiveTabId(null);
           setIsLoading(false);
         }
@@ -241,9 +432,11 @@ export function TerminalPage({
 
     return () => {
       disposed = true;
-      attachRequestIdRef.current += 1;
+      for (const paneId of PANE_IDS) {
+        bumpPaneAttachRequest(paneId);
+      }
     };
-  }, [api, attachTab]);
+  }, [api, assignTabToPane, attachTab, bumpPaneAttachRequest, storeTabs]);
 
   useEffect(() => {
     let unsubscribeOutput: (() => void) | null = null;
@@ -253,22 +446,28 @@ export function TerminalPage({
     async function subscribe() {
       try {
         unsubscribeOutput = await api.subscribeOutput((event) => {
-          const currentSession = sessionRef.current;
+          for (const paneId of visiblePaneIdsRef.current) {
+            const tab = getAssignedTab(
+              paneId,
+              paneAssignmentsRef.current,
+              tabsRef.current,
+            );
 
-          if (event.terminalSessionId === currentSession?.terminalSessionId) {
-            rendererRef.current?.write(event.chunk);
+            if (tab?.status !== "open" || tab.terminalSessionId !== event.terminalSessionId) {
+              continue;
+            }
+
+            rendererRefs.current.get(paneId)?.write(event.chunk);
           }
         });
         unsubscribeStatus = await api.subscribeStatus((event) => {
-          const currentSession = sessionRef.current;
+          setSessionsById((currentSessions) => {
+            const latestSession =
+              sessionsRef.current.get(event.terminalSessionId) ??
+              currentSessions[event.terminalSessionId];
 
-          if (event.terminalSessionId !== currentSession?.terminalSessionId) {
-            return;
-          }
-
-          setSession((latestSession) => {
-            if (!latestSession || latestSession.terminalSessionId !== event.terminalSessionId) {
-              return latestSession;
+            if (!latestSession) {
+              return currentSessions;
             }
 
             const nextSession = {
@@ -279,9 +478,12 @@ export function TerminalPage({
               rows: event.rows,
               updatedAtMs: event.emittedAtMs,
             };
-            sessionRef.current = nextSession;
+            sessionsRef.current.set(nextSession.terminalSessionId, nextSession);
 
-            return nextSession;
+            return {
+              ...currentSessions,
+              [nextSession.terminalSessionId]: nextSession,
+            };
           });
         });
       } catch (error) {
@@ -302,34 +504,40 @@ export function TerminalPage({
   }, [api]);
 
   useEffect(() => {
-    const element = terminalElementRef.current;
-
-    if (!element || !session || session.status === "exited") {
-      return;
-    }
-
     let disposed = false;
-    let lastSize = `${session.cols}x${session.rows}`;
 
-    function syncTerminalSize() {
-      if (disposed || !terminalElementRef.current) {
+    function syncPaneSize(paneId: PaneId) {
+      if (disposed) {
         return;
       }
 
-      const size = measureTerminalSize(terminalElementRef.current);
-      const sizeKey = `${size.cols}x${size.rows}`;
-      const currentSession = sessionRef.current;
+      const element = paneElementsRef.current[paneId];
+      const tab = getAssignedTab(
+        paneId,
+        paneAssignmentsRef.current,
+        tabsRef.current,
+      );
 
-      if (
-        !currentSession ||
-        currentSession.status === "exited" ||
-        sizeKey === lastSize
-      ) {
+      if (!element || !tab || tab.status !== "open") {
         return;
       }
 
-      lastSize = sizeKey;
-      rendererRef.current?.resize(size.cols, size.rows);
+      const currentSession = sessionsRef.current.get(tab.terminalSessionId);
+
+      if (!currentSession || currentSession.status === "exited") {
+        return;
+      }
+
+      const size = measureTerminalSize(element);
+      const resizeKey = `${currentSession.terminalSessionId}:${size.cols}x${size.rows}`;
+
+      if (lastResizeKeyByPaneRef.current.get(paneId) === resizeKey) {
+        return;
+      }
+
+      lastResizeKeyByPaneRef.current.set(paneId, resizeKey);
+      rendererRefs.current.get(paneId)?.resize(size.cols, size.rows);
+
       void api
         .resizeTerminal({
           terminalSessionId: currentSession.terminalSessionId,
@@ -337,17 +545,7 @@ export function TerminalPage({
           rows: size.rows,
         })
         .then((result) => {
-          setSession((latestSession) => {
-            if (
-              latestSession?.terminalSessionId !== result.session.terminalSessionId ||
-              latestSession.status === "exited"
-            ) {
-              return latestSession;
-            }
-
-            sessionRef.current = result.session;
-            return result.session;
-          });
+          storeSessionIfNotExited(result.session);
           setErrorMessage(null);
         })
         .catch((error) => {
@@ -356,11 +554,30 @@ export function TerminalPage({
         });
     }
 
-    syncTerminalSize();
+    for (const paneId of visiblePaneIds) {
+      syncPaneSize(paneId);
+    }
 
     if (typeof ResizeObserver !== "undefined") {
-      const resizeObserver = new ResizeObserver(syncTerminalSize);
-      resizeObserver.observe(element);
+      const resizeObserver = new ResizeObserver((entries) => {
+        const changedElements = new Set(entries.map((entry) => entry.target));
+
+        for (const paneId of visiblePaneIdsRef.current) {
+          const element = paneElementsRef.current[paneId];
+
+          if (element && changedElements.has(element)) {
+            syncPaneSize(paneId);
+          }
+        }
+      });
+
+      for (const paneId of visiblePaneIds) {
+        const element = paneElementsRef.current[paneId];
+
+        if (element) {
+          resizeObserver.observe(element);
+        }
+      }
 
       return () => {
         disposed = true;
@@ -368,29 +585,55 @@ export function TerminalPage({
       };
     }
 
-    window.addEventListener("resize", syncTerminalSize);
+    function syncAllPanes() {
+      for (const paneId of visiblePaneIdsRef.current) {
+        syncPaneSize(paneId);
+      }
+    }
+
+    window.addEventListener("resize", syncAllPanes);
 
     return () => {
       disposed = true;
-      window.removeEventListener("resize", syncTerminalSize);
+      window.removeEventListener("resize", syncAllPanes);
     };
-  }, [api, session?.cols, session?.rows, session?.status, session?.terminalSessionId]);
+  }, [
+    api,
+    paneAssignments,
+    sessionsById,
+    storeSessionIfNotExited,
+    visiblePaneIds,
+    visiblePaneKey,
+  ]);
 
-  async function handleCreateTab() {
+  async function handleCreateTab(paneId?: PaneId) {
+    const targetPaneId = resolveTargetPane(paneId);
+    const requestId = bumpPaneAttachRequest(targetPaneId);
+
     try {
       setIsLoading(true);
       const result = await api.createTab();
-      attachRequestIdRef.current += 1;
-      sessionRef.current = result.session;
-      setTabs(result.tabs);
+
+      if (attachRequestIdsRef.current.get(targetPaneId) !== requestId) {
+        return;
+      }
+
+      storeTabs(result.tabs);
+      storeSession(result.session);
+      assignTabToPane(targetPaneId, result.tab.tabId);
+      focusedPaneIdRef.current = targetPaneId;
+      setFocusedPaneId(targetPaneId);
       setActiveTabId(result.tab.tabId);
-      setSession(result.session);
       setErrorMessage(null);
     } catch (error) {
-      const appError = normalizeAppError(error);
-      setErrorMessage(appError.message);
+      if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
+        const appError = normalizeAppError(error);
+        setErrorMessage(appError.message);
+      }
     } finally {
-      setIsLoading(false);
+      if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
+        setIsLoading(false);
+      }
     }
   }
 
@@ -399,20 +642,34 @@ export function TerminalPage({
       return;
     }
 
+    const targetPaneId =
+      findAssignedPaneForTab(activeTab.tabId, paneAssignmentsRef.current) ??
+      resolveTargetPane();
+    bumpPaneAttachRequest(targetPaneId);
+
     try {
       const result = await api.closeTab({ tabId: activeTab.tabId });
       const nextOpenTab = orderTabs(result.tabs).find(
         (tab) => tab.status === "open" && tab.tabId !== activeTab.tabId,
       );
 
-      setTabs(result.tabs);
-      sessionRef.current = result.session;
-      setSession(result.session);
+      storeTabs(result.tabs);
+      storeSession(result.session);
       setErrorMessage(null);
 
       if (nextOpenTab) {
-        await attachTab(nextOpenTab);
+        const assignedPaneId = findAssignedPaneForTab(
+          nextOpenTab.tabId,
+          paneAssignmentsRef.current,
+        );
+        const nextPaneId =
+          assignedPaneId && visiblePaneIdsRef.current.includes(assignedPaneId)
+            ? assignedPaneId
+            : targetPaneId;
+
+        await attachTab(nextOpenTab, nextPaneId);
       } else {
+        assignTabToPane(targetPaneId, result.tab.tabId);
         setActiveTabId(result.tab.tabId);
       }
     } catch (error) {
@@ -421,26 +678,39 @@ export function TerminalPage({
     }
   }
 
-  async function handleRestoreTab(tab: TerminalTabProfile | null) {
+  async function handleRestoreTab(tab: TerminalTabProfile | null, paneId?: PaneId) {
     if (!tab) {
       return;
     }
 
+    const targetPaneId = resolveTargetPane(paneId);
+    const requestId = bumpPaneAttachRequest(targetPaneId);
+
     try {
       setIsLoading(true);
       const result = await api.restoreTab({ tabId: tab.tabId });
-      attachRequestIdRef.current += 1;
-      sessionRef.current = result.session;
-      setTabs(result.tabs);
+
+      if (attachRequestIdsRef.current.get(targetPaneId) !== requestId) {
+        return;
+      }
+
+      storeTabs(result.tabs);
+      storeSession(result.session);
+      assignTabToPane(targetPaneId, result.tab.tabId);
+      focusedPaneIdRef.current = targetPaneId;
+      setFocusedPaneId(targetPaneId);
       setActiveTabId(result.tab.tabId);
-      setSession(result.session);
       setSearchQuery("");
       setErrorMessage(null);
     } catch (error) {
-      const appError = normalizeAppError(error);
-      setErrorMessage(appError.message);
+      if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
+        const appError = normalizeAppError(error);
+        setErrorMessage(appError.message);
+      }
     } finally {
-      setIsLoading(false);
+      if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
+        setIsLoading(false);
+      }
     }
   }
 
@@ -453,7 +723,7 @@ export function TerminalPage({
       const result = await api.updateTab(tabUpdate(activeTab.tabId, {
         isPinned: !activeTab.isPinned,
       }));
-      setTabs(result.tabs);
+      storeTabs(result.tabs);
       setErrorMessage(null);
     } catch (error) {
       const appError = normalizeAppError(error);
@@ -481,7 +751,7 @@ export function TerminalPage({
       const second = await api.updateTab(tabUpdate(sibling.tabId, {
         sortIndex: currentTab.sortIndex,
       }));
-      setTabs(second.tabs.length ? second.tabs : first.tabs);
+      storeTabs(second.tabs.length ? second.tabs : first.tabs);
       setErrorMessage(null);
     } catch (error) {
       const appError = normalizeAppError(error);
@@ -490,17 +760,32 @@ export function TerminalPage({
   }
 
   async function handleSearchResultSelect(tab: TerminalTabProfile) {
+    const assignedPaneId = findAssignedPaneForTab(tab.tabId, paneAssignmentsRef.current);
+    const targetPaneId =
+      assignedPaneId && visiblePaneIdsRef.current.includes(assignedPaneId)
+        ? assignedPaneId
+        : resolveTargetPane();
+
     if (tab.status === "closed") {
-      await handleRestoreTab(tab);
+      await handleRestoreTab(tab, targetPaneId);
       return;
     }
 
     setSearchQuery("");
-    await attachTab(tab);
+    await attachTab(tab, targetPaneId);
   }
 
-  const title = activeTab?.label ?? session?.title ?? workspace?.metadata.name ?? "终端";
-  const terminalClosed = session?.status === "exited" || activeTab?.status === "closed";
+  function handlePaneKeyDown(event: React.KeyboardEvent<HTMLElement>, paneId: PaneId) {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+
+    event.preventDefault();
+    focusPane(paneId);
+  }
+
+  const title = activeTab?.label ?? activeSession?.title ?? workspace?.metadata.name ?? "终端";
+  const canAssignActiveTab = activeTab?.status === "open";
 
   return (
     <main className="min-h-screen bg-[#101511] text-[#dbe8d8]">
@@ -522,7 +807,7 @@ export function TerminalPage({
             </div>
             <div className="flex min-w-0 flex-wrap items-center justify-end gap-2 text-xs">
               <span className="rounded-md border border-[#334436] bg-[#1a231c] px-2.5 py-1 font-medium text-[#b8cbb3]">
-                {sessionStatusLabel(session)}
+                {sessionStatusLabel(activeSession)}
               </span>
               <div className="relative min-w-[12rem]">
                 <Search
@@ -633,6 +918,43 @@ export function TerminalPage({
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              <div
+                aria-label="终端窗格布局"
+                className="mr-1 flex items-center gap-1 rounded-md border border-[#2d3b30] bg-[#101511] p-0.5"
+              >
+                {PANE_LAYOUTS.map((layout) => {
+                  const LayoutIcon = layout.icon;
+
+                  return (
+                    <button
+                      key={layout.id}
+                      type="button"
+                      aria-label={layout.label}
+                      onClick={() => setPaneLayout(layout.id)}
+                      className={`flex h-7 w-7 items-center justify-center rounded text-[#b8cbb3] transition hover:bg-[#223024] hover:text-[#f1f7ef] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e] ${
+                        paneLayout === layout.id ? "bg-[#243527] text-[#f1f7ef]" : ""
+                      }`}
+                      title={layout.title}
+                    >
+                      <LayoutIcon aria-hidden="true" size={14} strokeWidth={2} />
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                type="button"
+                aria-label="将当前标签分配到聚焦窗格"
+                onClick={() => {
+                  if (activeTab) {
+                    void attachTab(activeTab, focusedPaneId);
+                  }
+                }}
+                disabled={!canAssignActiveTab}
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-[#3d503f] bg-[#1b241d] text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                title="分配到聚焦窗格"
+              >
+                <SquareArrowRight aria-hidden="true" size={14} strokeWidth={2} />
+              </button>
               <button
                 type="button"
                 aria-label="置顶当前终端标签"
@@ -685,19 +1007,86 @@ export function TerminalPage({
         ) : null}
 
         <section className="min-h-0 flex-1 bg-[#111712] p-3">
-          <div className="relative h-[calc(100vh-8.5rem)] min-h-[420px] w-full overflow-hidden rounded-md border border-[#2a372d] bg-[#111712] p-2">
+          <div className="relative h-[calc(100vh-8.5rem)] min-h-[420px] w-full overflow-auto rounded-md border border-[#2a372d] bg-[#111712] p-2">
             <div
-              ref={terminalElementRef}
-              aria-label="终端输出"
-              className="h-full w-full overflow-hidden"
-            />
-            {terminalClosed ? (
-              <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
-                <span className="rounded-md border border-[#334436] bg-[#1a231c] px-3 py-2 text-xs font-medium text-[#b8cbb3] shadow-lg">
-                  终端会话已关闭
-                </span>
-              </div>
-            ) : null}
+              className="grid min-h-full gap-2"
+              style={paneGridStyle(paneLayout)}
+            >
+              {visiblePaneIds.map((paneId) => {
+                const assignedTab = getAssignedTab(paneId, paneAssignments, tabs);
+                const paneSession = assignedTab
+                  ? sessionsById[assignedTab.terminalSessionId] ?? null
+                  : null;
+                const paneClosed =
+                  assignedTab?.status === "closed" || paneSession?.status === "exited";
+                const focused = focusedPaneId === paneId;
+
+                return (
+                  <section
+                    key={paneId}
+                    aria-label={`${paneLabel(paneId)} 终端窗格`}
+                    role="group"
+                    tabIndex={0}
+                    onClick={() => focusPane(paneId)}
+                    onKeyDown={(event) => handlePaneKeyDown(event, paneId)}
+                    className={`relative flex min-h-[12rem] min-w-[20rem] flex-col overflow-hidden rounded-md border bg-[#0f1511] transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e] ${
+                      focused
+                        ? "border-[#7daa75] shadow-[0_0_0_1px_rgba(157,208,142,0.25)]"
+                        : "border-[#263428]"
+                    }`}
+                  >
+                    <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-[#223024] bg-[#151c17] px-2.5 text-xs">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="shrink-0 font-medium text-[#9fd08e]">
+                          {paneLabel(paneId)}
+                        </span>
+                        <span
+                          className="min-w-0 truncate text-[#b8cbb3]"
+                          title={assignedTab?.label ?? "未分配标签"}
+                        >
+                          {assignedTab?.label ?? "未分配标签"}
+                        </span>
+                      </div>
+                      <span className="shrink-0 text-[#8fa08b]">
+                        {paneSession ? sessionStatusLabel(paneSession) : "空闲"}
+                      </span>
+                    </div>
+                    <div
+                      ref={paneRefCallbacks[paneId]}
+                      aria-label={`${paneLabel(paneId)} 终端输出`}
+                      className={`min-h-0 flex-1 overflow-hidden ${
+                        assignedTab ? "" : "opacity-40"
+                      }`}
+                    />
+                    {!assignedTab ? (
+                      <div className="absolute inset-x-4 top-1/2 flex -translate-y-1/2 justify-center">
+                        <div className="max-w-xs text-center text-xs text-[#9bad98]">
+                          <p className="leading-5">拖动标签到这里，或新建一个终端。</p>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void handleCreateTab(paneId);
+                            }}
+                            className="mt-3 inline-flex h-8 items-center gap-1.5 rounded-md border border-[#3d503f] bg-[#1b241d] px-2.5 font-medium text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                          >
+                            <Plus aria-hidden="true" size={14} strokeWidth={2} />
+                            新建终端
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                    {paneClosed ? (
+                      <div className="pointer-events-none absolute inset-x-0 top-12 flex justify-center">
+                        <span className="rounded-md border border-[#334436] bg-[#1a231c] px-3 py-2 text-xs font-medium text-[#b8cbb3] shadow-lg">
+                          终端会话已关闭
+                        </span>
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
+            </div>
           </div>
           {isLoading && !errorMessage ? (
             <div className="pointer-events-none fixed inset-x-0 top-28 flex justify-center">
@@ -711,6 +1100,83 @@ export function TerminalPage({
       </div>
     </main>
   );
+}
+
+function createEmptyPaneAssignments(): PaneAssignments {
+  return {
+    "pane-1": null,
+    "pane-2": null,
+    "pane-3": null,
+    "pane-4": null,
+  };
+}
+
+function createEmptyPaneElementMap(): Record<PaneId, HTMLDivElement | null> {
+  return {
+    "pane-1": null,
+    "pane-2": null,
+    "pane-3": null,
+    "pane-4": null,
+  };
+}
+
+function getAssignedTab(
+  paneId: PaneId,
+  paneAssignments: PaneAssignments,
+  tabs: TerminalTabProfile[],
+) {
+  const tabId = paneAssignments[paneId];
+
+  if (!tabId) {
+    return null;
+  }
+
+  return tabs.find((tab) => tab.tabId === tabId) ?? null;
+}
+
+function findAssignedPaneForTab(tabId: string, paneAssignments: PaneAssignments) {
+  return PANE_IDS.find((paneId) => paneAssignments[paneId] === tabId) ?? null;
+}
+
+function paneLabel(paneId: PaneId) {
+  switch (paneId) {
+    case "pane-1":
+      return "窗格 1";
+    case "pane-2":
+      return "窗格 2";
+    case "pane-3":
+      return "窗格 3";
+    case "pane-4":
+      return "窗格 4";
+    default:
+      return paneId;
+  }
+}
+
+function paneGridStyle(paneLayout: PaneLayout): React.CSSProperties {
+  switch (paneLayout) {
+    case "splitVertical":
+      return {
+        gridTemplateColumns: "repeat(2, minmax(20rem, 1fr))",
+        gridTemplateRows: "minmax(0, 1fr)",
+      };
+    case "splitHorizontal":
+      return {
+        gridTemplateColumns: "minmax(0, 1fr)",
+        gridTemplateRows: "repeat(2, minmax(12rem, 1fr))",
+      };
+    case "grid2x2":
+      return {
+        gridTemplateColumns: "repeat(2, minmax(20rem, 1fr))",
+        gridTemplateRows: "repeat(2, minmax(12rem, 1fr))",
+      };
+    case "single":
+    default:
+      return {
+        gridTemplateColumns: "minmax(0, 1fr)",
+        gridTemplateRows: "minmax(0, 1fr)",
+      };
+  }
 }
 
 function tabUpdate(

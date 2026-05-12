@@ -90,13 +90,15 @@ function terminalPageHarness(initialTabs = [terminalTab()]) {
   const outputHandlers: Array<(event: TerminalOutputEventPayload) => void> = [];
   const statusHandlers: Array<(event: TerminalStatusEventPayload) => void> = [];
   let currentTabs = initialTabs;
-  let inputHandler: ((input: string) => void) | null = null;
-  const renderer = {
+  const inputHandlers: Array<(input: string) => void> = [];
+  const createRenderer = () => ({
     mount: vi.fn(),
     write: vi.fn(),
     resize: vi.fn(),
     dispose: vi.fn(),
-  };
+  });
+  const renderer = createRenderer();
+  const renderers = [renderer];
   const sessionForTab = (tab: TerminalTabProfile, status: TerminalSessionProfile["status"] = "running") =>
     terminalSession({
       terminalSessionId: tab.terminalSessionId,
@@ -229,8 +231,11 @@ function terminalPageHarness(initialTabs = [terminalTab()]) {
       snapshot={snapshot()}
       api={api}
       createRendererAdapter={(options) => {
-        inputHandler = options.onInput;
-        return renderer;
+        const rendererIndex = inputHandlers.length;
+        inputHandlers.push(options.onInput);
+        const paneRenderer = renderers[rendererIndex] ?? createRenderer();
+        renderers[rendererIndex] = paneRenderer;
+        return paneRenderer;
       }}
     />,
   );
@@ -238,10 +243,31 @@ function terminalPageHarness(initialTabs = [terminalTab()]) {
   return {
     api,
     renderer,
+    renderers,
     outputHandlers,
     statusHandlers,
-    input: (value: string) => inputHandler?.(value),
+    input: (value: string, rendererIndex = 0) => inputHandlers[rendererIndex]?.(value),
   };
+}
+
+type HarnessRenderer = ReturnType<typeof terminalPageHarness>["renderer"];
+
+function rendererForPane(renderers: HarnessRenderer[], paneLabel: string) {
+  const renderer = renderers.find((candidate) =>
+    candidate.mount.mock.calls.some(([element]) => {
+      if (!(element instanceof HTMLElement)) {
+        return false;
+      }
+
+      return element.getAttribute("aria-label") === `${paneLabel} 终端输出`;
+    }),
+  );
+
+  if (!renderer) {
+    throw new Error(`renderer for ${paneLabel} was not mounted`);
+  }
+
+  return renderer;
 }
 
 describe("TerminalPage", () => {
@@ -258,8 +284,8 @@ describe("TerminalPage", () => {
       secondTab,
     ]);
 
-    expect(await screen.findByText("orchlet-demo")).toBeInTheDocument();
-    expect(screen.getByText("运行中")).toBeInTheDocument();
+    expect((await screen.findAllByText("orchlet-demo")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("运行中").length).toBeGreaterThan(0);
     expect(api.listTabs).toHaveBeenCalledTimes(1);
     expect(api.attachTerminal).toHaveBeenCalledWith({
       terminalSessionId: "01K00000000000000000000090",
@@ -314,14 +340,14 @@ describe("TerminalPage", () => {
       emittedAtMs: 1760000000004,
     });
 
-    expect(await screen.findByText("已退出")).toBeInTheDocument();
+    expect((await screen.findAllByText("已退出")).length).toBeGreaterThan(0);
     expect(screen.getByText("终端会话已关闭")).toBeInTheDocument();
   });
 
   it("forwards xterm input and calculated resize requests through the active tab session", async () => {
     const { api, renderer, input } = terminalPageHarness();
 
-    expect(await screen.findByText("orchlet-demo")).toBeInTheDocument();
+    expect((await screen.findAllByText("orchlet-demo")).length).toBeGreaterThan(0);
 
     input("pwd\n");
 
@@ -366,7 +392,7 @@ describe("TerminalPage", () => {
         tabId: "01K00000000000000000000080",
       });
     });
-    expect(await screen.findByText("已退出")).toBeInTheDocument();
+    expect((await screen.findAllByText("已退出")).length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole("button", { name: /恢复 orchlet-demo/ }));
 
@@ -442,7 +468,7 @@ describe("TerminalPage", () => {
     });
     const { api } = terminalPageHarness([terminalTab(), secondTab]);
 
-    await screen.findByText("orchlet-demo");
+    await screen.findAllByText("orchlet-demo");
     await user.click(screen.getByRole("button", { name: "向右移动当前终端标签" }));
 
     await waitFor(() => {
@@ -491,5 +517,166 @@ describe("TerminalPage", () => {
         terminalSessionId: "01K00000000000000000000091",
       });
     });
+  });
+
+  it("switches terminal pane layouts while keeping stable pane containers", async () => {
+    const user = userEvent.setup();
+    terminalPageHarness();
+
+    await screen.findAllByText("orchlet-demo");
+    expect(screen.getAllByLabelText(/窗格 \d 终端窗格/)).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "左右分屏布局" }));
+    expect(screen.getAllByLabelText(/窗格 \d 终端窗格/)).toHaveLength(2);
+    expect(screen.getByText("拖动标签到这里，或新建一个终端。")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "四宫格布局" }));
+    expect(screen.getAllByLabelText(/窗格 \d 终端窗格/)).toHaveLength(4);
+
+    await user.click(screen.getByRole("button", { name: "上下分屏布局" }));
+    expect(screen.getAllByLabelText(/窗格 \d 终端窗格/)).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: "单窗格布局" }));
+    expect(screen.getAllByLabelText(/窗格 \d 终端窗格/)).toHaveLength(1);
+  });
+
+  it("assigns a tab to the focused pane while keeping its backend session for output, input and resize", async () => {
+    const user = userEvent.setup();
+    const secondTab = terminalTab({
+      tabId: "01K00000000000000000000081",
+      terminalSessionId: "01K00000000000000000000091",
+      label: "Logs",
+      shell: "fish",
+      sortIndex: 1,
+    });
+    const { api, renderers, outputHandlers, input } = terminalPageHarness([
+      terminalTab(),
+      secondTab,
+    ]);
+
+    await screen.findAllByText("orchlet-demo");
+    await user.click(screen.getByRole("button", { name: "左右分屏布局" }));
+    await waitFor(() => {
+      expect(renderers.length).toBeGreaterThanOrEqual(2);
+    });
+
+    await user.click(screen.getByLabelText("窗格 2 终端窗格"));
+    await user.click(screen.getByRole("button", { name: "Logs" }));
+
+    await waitFor(() => {
+      expect(api.attachTerminal).toHaveBeenLastCalledWith({
+        terminalSessionId: "01K00000000000000000000091",
+      });
+    });
+
+    const outputHandler = outputHandlers[0];
+
+    if (!outputHandler) {
+      throw new Error("terminal output handler was not subscribed");
+    }
+
+    const paneOneRenderer = rendererForPane(renderers, "窗格 1");
+    const paneTwoRenderer = rendererForPane(renderers, "窗格 2");
+
+    paneOneRenderer.write.mockClear();
+    paneTwoRenderer.write.mockClear();
+    outputHandler({
+      schemaVersion: 1,
+      terminalSessionId: "01K00000000000000000000090",
+      workspaceId: "01K00000000000000000000000",
+      memberId: null,
+      seq: 1,
+      chunk: "workspace\n",
+      kind: "stdout",
+      emittedAtMs: 1760000000002,
+    });
+    outputHandler({
+      schemaVersion: 1,
+      terminalSessionId: "01K00000000000000000000091",
+      workspaceId: "01K00000000000000000000000",
+      memberId: null,
+      seq: 2,
+      chunk: "logs\n",
+      kind: "stdout",
+      emittedAtMs: 1760000000003,
+    });
+
+    expect(paneOneRenderer.write).toHaveBeenCalledWith("workspace\n");
+    expect(paneTwoRenderer.write).toHaveBeenCalledWith("logs\n");
+
+    const paneTwoInputIndex = renderers.indexOf(paneTwoRenderer);
+    input("tail -f app.log\n", paneTwoInputIndex);
+
+    await waitFor(() => {
+      expect(api.sendInput).toHaveBeenCalledWith({
+        terminalSessionId: "01K00000000000000000000091",
+        input: "tail -f app.log\n",
+      });
+    });
+    await waitFor(() => {
+      expect(api.resizeTerminal).toHaveBeenCalledWith({
+        terminalSessionId: "01K00000000000000000000091",
+        cols: 20,
+        rows: 5,
+      });
+    });
+    expect(paneTwoRenderer.resize).toHaveBeenCalledWith(20, 5);
+  });
+
+  it("does not route unassigned pane output to the wrong renderer", async () => {
+    const user = userEvent.setup();
+    const secondTab = terminalTab({
+      tabId: "01K00000000000000000000081",
+      terminalSessionId: "01K00000000000000000000091",
+      label: "Logs",
+      shell: "fish",
+      sortIndex: 1,
+    });
+    const { renderers, outputHandlers } = terminalPageHarness([terminalTab(), secondTab]);
+
+    await screen.findAllByText("orchlet-demo");
+    await user.click(screen.getByRole("button", { name: "左右分屏布局" }));
+    await waitFor(() => {
+      expect(renderers.length).toBeGreaterThanOrEqual(2);
+    });
+
+    const outputHandler = outputHandlers[0];
+
+    if (!outputHandler) {
+      throw new Error("terminal output handler was not subscribed");
+    }
+
+    const paneOneRenderer = rendererForPane(renderers, "窗格 1");
+    const paneTwoRenderer = rendererForPane(renderers, "窗格 2");
+
+    paneOneRenderer.write.mockClear();
+    paneTwoRenderer.write.mockClear();
+    outputHandler({
+      schemaVersion: 1,
+      terminalSessionId: "01K00000000000000000000091",
+      workspaceId: "01K00000000000000000000000",
+      memberId: null,
+      seq: 1,
+      chunk: "unassigned\n",
+      kind: "stdout",
+      emittedAtMs: 1760000000002,
+    });
+
+    expect(paneOneRenderer.write).not.toHaveBeenCalled();
+    expect(paneTwoRenderer.write).not.toHaveBeenCalled();
+  });
+
+  it("creates a terminal tab from an empty pane action", async () => {
+    const user = userEvent.setup();
+    const { api } = terminalPageHarness();
+
+    await screen.findAllByText("orchlet-demo");
+    await user.click(screen.getByRole("button", { name: "左右分屏布局" }));
+    await user.click(screen.getByRole("button", { name: "新建终端" }));
+
+    await waitFor(() => {
+      expect(api.createTab).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getAllByText("Build").length).toBeGreaterThan(0);
   });
 });
