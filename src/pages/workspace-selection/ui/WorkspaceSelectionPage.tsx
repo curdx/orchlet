@@ -115,7 +115,13 @@ type WorkspaceSelectionPageProps = {
   >;
   skillsApi?: Pick<
     SkillsApi,
-    "listSkills" | "importLocalFolder" | "listWorkspaceLinks" | "linkWorkspaceSkill" | "unlinkWorkspaceSkill"
+    | "listSkills"
+    | "importLocalFolder"
+    | "openSkillFolder"
+    | "deleteSkill"
+    | "listWorkspaceLinks"
+    | "linkWorkspaceSkill"
+    | "unlinkWorkspaceSkill"
   >;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
@@ -207,6 +213,8 @@ export function WorkspaceSelectionPage({
   const [isSyncActionPending, setIsSyncActionPending] = useState(false);
   const [isValidatingIntegrity, setIsValidatingIntegrity] = useState(false);
   const [isImportingSkill, setIsImportingSkill] = useState(false);
+  const [pendingSkillOpenId, setPendingSkillOpenId] = useState<string | null>(null);
+  const [pendingSkillDeleteId, setPendingSkillDeleteId] = useState<string | null>(null);
   const [pendingSkillLinkId, setPendingSkillLinkId] = useState<string | null>(null);
   const [pendingSkillUnlinkId, setPendingSkillUnlinkId] = useState<string | null>(null);
   const [isInvitingMember, setIsInvitingMember] = useState(false);
@@ -2051,6 +2059,64 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  async function handleOpenSkillFolder(skillId: string) {
+    setPendingSkillOpenId(skillId);
+
+    try {
+      const result = await localSkillsApi.openSkillFolder(skillId);
+
+      showToast({
+        tone: "info",
+        title: "技能文件夹已打开",
+        message: result.path,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "打开技能文件夹失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingSkillOpenId(null);
+    }
+  }
+
+  async function handleDeleteSkill(skillId: string) {
+    const confirmed = window.confirm("从技能库删除该技能？源文件夹不会被删除。");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingSkillDeleteId(skillId);
+
+    try {
+      const result = await localSkillsApi.deleteSkill(skillId, activeWorkspaceRoot);
+
+      queryClient.setQueryData(["skills-library"], { skills: result.skills });
+      queryClient.setQueryData(workspaceSkillLinksQueryKey, { skills: result.workspaceSkills });
+      showToast({
+        tone: "info",
+        title: "技能已从库中移除",
+        message: "源文件夹没有被删除。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "删除技能失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingSkillDeleteId(null);
+    }
+  }
+
   async function handleLinkWorkspaceSkill(skillId: string) {
     if (!activeWorkspaceRoot) {
       return;
@@ -2428,9 +2494,13 @@ export function WorkspaceSelectionPage({
                 isLoading={skillQuery.isLoading}
                 isLoadingLinks={workspaceSkillLinksQuery.isLoading}
                 isImporting={isImportingSkill}
+                pendingOpenId={pendingSkillOpenId}
+                pendingDeleteId={pendingSkillDeleteId}
                 pendingLinkId={pendingSkillLinkId}
                 pendingUnlinkId={pendingSkillUnlinkId}
                 onImport={() => void handleImportSkill()}
+                onOpen={(skillId) => void handleOpenSkillFolder(skillId)}
+                onDelete={(skillId) => void handleDeleteSkill(skillId)}
                 onLink={(skillId) => void handleLinkWorkspaceSkill(skillId)}
                 onUnlink={(skillId) => void handleUnlinkWorkspaceSkill(skillId)}
               />
@@ -2547,9 +2617,13 @@ function SkillLibraryPanel({
   isLoading,
   isLoadingLinks,
   isImporting,
+  pendingOpenId,
+  pendingDeleteId,
   pendingLinkId,
   pendingUnlinkId,
   onImport,
+  onOpen,
+  onDelete,
   onLink,
   onUnlink,
 }: {
@@ -2559,9 +2633,13 @@ function SkillLibraryPanel({
   isLoading: boolean;
   isLoadingLinks: boolean;
   isImporting: boolean;
+  pendingOpenId: string | null;
+  pendingDeleteId: string | null;
   pendingLinkId: string | null;
   pendingUnlinkId: string | null;
   onImport: () => void;
+  onOpen: (skillId: string) => void;
+  onDelete: (skillId: string) => void;
   onLink: (skillId: string) => void;
   onUnlink: (skillId: string) => void;
 }) {
@@ -2606,7 +2684,7 @@ function SkillLibraryPanel({
                   key={skill.skillId}
                   className="grid gap-2 rounded-md border border-[#d9e6d4] bg-white p-3"
                 >
-                  <div className="flex min-w-0 items-start gap-3">
+                  <div className="flex min-w-0 flex-wrap items-start gap-3">
                     <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
                       <Link2 aria-hidden="true" size={16} strokeWidth={2} />
                     </span>
@@ -2660,7 +2738,7 @@ function SkillLibraryPanel({
                 key={skill.skillId}
                 className="grid gap-2 rounded-md border border-[#e3eadf] bg-white p-3"
               >
-                <div className="flex min-w-0 items-start gap-3">
+                <div className="flex min-w-0 flex-wrap items-start gap-3">
                   <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
                     <FolderOpen aria-hidden="true" size={16} strokeWidth={2} />
                   </span>
@@ -2675,21 +2753,41 @@ function SkillLibraryPanel({
                       {skill.sourcePath}
                     </span>
                   </span>
-                  {linkedSkillIds.has(skill.skillId) ? (
-                    <span className="shrink-0 rounded-md border border-[#cfe0c9] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#37533e]">
-                      已关联
-                    </span>
-                  ) : (
+                  <span className="flex shrink-0 flex-wrap justify-end gap-1.5">
                     <button
                       type="button"
-                      disabled={pendingLinkId === skill.skillId}
-                      onClick={() => onLink(skill.skillId)}
-                      className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-[#cfe0c9] bg-[#f8fbf6] px-2.5 py-1.5 text-xs font-semibold text-[#37533e] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
+                      disabled={pendingOpenId === skill.skillId || pendingDeleteId === skill.skillId}
+                      onClick={() => onOpen(skill.skillId)}
+                      className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#cfe0c9] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#37533e] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
                     >
-                      <Link2 aria-hidden="true" size={13} strokeWidth={2} />
-                      {pendingLinkId === skill.skillId ? "关联中" : "关联"}
+                      <FolderOpen aria-hidden="true" size={13} strokeWidth={2} />
+                      {pendingOpenId === skill.skillId ? "打开中" : "打开文件夹"}
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      disabled={pendingDeleteId === skill.skillId}
+                      onClick={() => onDelete(skill.skillId)}
+                      className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#d7c8c5] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#6d3d38] transition hover:border-[#b9857f] hover:bg-[#fff5f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9d5e58] disabled:cursor-wait disabled:opacity-70"
+                    >
+                      <Trash2 aria-hidden="true" size={13} strokeWidth={2} />
+                      {pendingDeleteId === skill.skillId ? "删除中" : "删除技能"}
+                    </button>
+                    {linkedSkillIds.has(skill.skillId) ? (
+                      <span className="inline-flex min-h-8 items-center rounded-md border border-[#cfe0c9] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#37533e]">
+                        已关联
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={pendingLinkId === skill.skillId}
+                        onClick={() => onLink(skill.skillId)}
+                        className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#cfe0c9] bg-[#f8fbf6] px-2.5 py-1.5 text-xs font-semibold text-[#37533e] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
+                      >
+                        <Link2 aria-hidden="true" size={13} strokeWidth={2} />
+                        {pendingLinkId === skill.skillId ? "关联中" : "关联"}
+                      </button>
+                    )}
+                  </span>
                 </div>
               </li>
             ))}
@@ -2700,8 +2798,51 @@ function SkillLibraryPanel({
           </p>
         )}
         </div>
+
+        <div className="mt-5" aria-label="技能能力分类">
+          <h3 className="text-xs font-semibold text-[#3f4b41]">能力来源</h3>
+          <div className="mt-2 grid gap-2 md:grid-cols-3">
+            <CapabilityClassItem
+              title="本地技能"
+              badge="可用"
+              description="导入的本地文件夹，可打开、关联和删除库记录。"
+            />
+            <CapabilityClassItem
+              title="技能商店"
+              badge="占位"
+              description="远程技能安装尚未启用。"
+            />
+            <CapabilityClassItem
+              title="远程插件"
+              badge="未来"
+              description="插件 API 和权限模型将在后续故事中定义。"
+            />
+          </div>
+        </div>
       </div>
     </section>
+  );
+}
+
+function CapabilityClassItem({
+  title,
+  badge,
+  description,
+}: {
+  title: string;
+  badge: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-md border border-[#e3eadf] bg-white p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-[#263229]">{title}</span>
+        <span className="rounded-md border border-[#d8e4d3] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#526054]">
+          {badge}
+        </span>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-[#6a786c]">{description}</p>
+    </div>
   );
 }
 

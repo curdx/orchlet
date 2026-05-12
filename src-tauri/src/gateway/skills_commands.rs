@@ -1,16 +1,18 @@
 use crate::{
     app::skills::{
-        import_local_skill_folder, link_workspace_skill, list_skill_library,
-        list_workspace_skill_links, unlink_workspace_skill,
+        delete_skill, import_local_skill_folder, link_workspace_skill, list_skill_library,
+        list_workspace_skill_links, open_skill_folder, unlink_workspace_skill,
     },
     contracts::{
-        AppError, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
-        LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListWorkspaceSkillLinksRequest,
-        ListWorkspaceSkillLinksResult, SkillLibraryListRequest, SkillLibraryListResult,
+        AppError, DeleteSkillRequest, DeleteSkillResult, ImportLocalSkillFolderRequest,
+        ImportLocalSkillFolderResult, LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult,
+        ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult, OpenSkillFolderRequest,
+        OpenSkillFolderResult, SkillLibraryListRequest, SkillLibraryListResult,
         UnlinkWorkspaceSkillRequest, UnlinkWorkspaceSkillResult,
     },
 };
 use tauri::{AppHandle, Manager};
+use tauri_plugin_opener::OpenerExt;
 
 #[tauri::command]
 pub fn skills_library_list(
@@ -26,6 +28,26 @@ pub fn skills_import_folder(
     request: ImportLocalSkillFolderRequest,
 ) -> Result<ImportLocalSkillFolderResult, AppError> {
     import_local_skill_folder(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn skills_open_folder(
+    app: AppHandle,
+    request: OpenSkillFolderRequest,
+) -> Result<OpenSkillFolderResult, AppError> {
+    open_skill_folder(app_data_dir(&app)?, request, |path| {
+        app.opener()
+            .open_path(path.to_string_lossy().into_owned(), None::<&str>)
+            .map_err(|error| error.to_string())
+    })
+}
+
+#[tauri::command]
+pub fn skills_delete(
+    app: AppHandle,
+    request: DeleteSkillRequest,
+) -> Result<DeleteSkillResult, AppError> {
+    delete_skill(app_data_dir(&app)?, request)
 }
 
 #[tauri::command]

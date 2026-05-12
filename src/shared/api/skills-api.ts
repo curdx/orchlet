@@ -2,9 +2,11 @@ import { open } from "@tauri-apps/plugin-dialog";
 
 import type { AppError } from "../../contracts/generated/common";
 import type {
+  DeleteSkillResult,
   ImportLocalSkillFolderResult,
   LinkWorkspaceSkillResult,
   ListWorkspaceSkillLinksResult,
+  OpenSkillFolderResult,
   SkillLibraryListResult,
   UnlinkWorkspaceSkillResult,
 } from "../../contracts/generated/skill";
@@ -34,6 +36,8 @@ export type SkillsApi = {
   listSkills: () => Promise<SkillLibraryListResult>;
   importFolder: (path: string) => Promise<ImportLocalSkillFolderResult>;
   importLocalFolder: () => Promise<ImportLocalSkillFolderResult | null>;
+  openSkillFolder: (skillId: string) => Promise<OpenSkillFolderResult>;
+  deleteSkill: (skillId: string, workspaceRoot: string | null) => Promise<DeleteSkillResult>;
   listWorkspaceLinks: (workspaceRoot: string) => Promise<ListWorkspaceSkillLinksResult>;
   linkWorkspaceSkill: (
     workspaceRoot: string,
@@ -77,6 +81,18 @@ export const skillsApi: SkillsApi = {
     }
 
     return this.importFolder(selected);
+  },
+
+  openSkillFolder(skillId) {
+    return invokeCommand<OpenSkillFolderResult>("skills_open_folder", {
+      request: { skillId },
+    });
+  },
+
+  deleteSkill(skillId, workspaceRoot) {
+    return invokeCommand<DeleteSkillResult>("skills_delete", {
+      request: { skillId, workspaceRoot },
+    });
   },
 
   listWorkspaceLinks(workspaceRoot) {

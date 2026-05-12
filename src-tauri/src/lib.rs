@@ -40,6 +40,8 @@ pub fn run() {
             gateway::notification_commands::notification_ignore_all_unread,
             gateway::skills_commands::skills_library_list,
             gateway::skills_commands::skills_import_folder,
+            gateway::skills_commands::skills_open_folder,
+            gateway::skills_commands::skills_delete,
             gateway::skills_commands::workspace_skill_links_list,
             gateway::skills_commands::workspace_skill_link,
             gateway::skills_commands::workspace_skill_unlink,

@@ -30,6 +30,8 @@ const requiredCommands = new Set([
   "notification_ignore_all_unread",
   "skills_library_list",
   "skills_import_folder",
+  "skills_open_folder",
+  "skills_delete",
   "workspace_skill_links_list",
   "workspace_skill_link",
   "workspace_skill_unlink",

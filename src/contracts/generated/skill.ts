@@ -4,6 +4,10 @@ export type ImportLocalSkillFolderRequest = { path: string, };
 
 export type ImportLocalSkillFolderResult = { skill: SkillLibraryEntry, skills: Array<SkillLibraryEntry>, status: SkillImportStatus, };
 
+export type DeleteSkillRequest = { skillId: string, workspaceRoot: string | null, };
+
+export type DeleteSkillResult = { removedSkillId: string, skills: Array<SkillLibraryEntry>, workspaceSkills: Array<WorkspaceSkillLinkEntry>, };
+
 export type LinkWorkspaceSkillRequest = { workspaceRoot: string, skillId: string, };
 
 export type LinkWorkspaceSkillResult = { skill: WorkspaceSkillLinkEntry, skills: Array<WorkspaceSkillLinkEntry>, status: WorkspaceSkillLinkStatus, };
@@ -11,6 +15,10 @@ export type LinkWorkspaceSkillResult = { skill: WorkspaceSkillLinkEntry, skills:
 export type ListWorkspaceSkillLinksRequest = { workspaceRoot: string, };
 
 export type ListWorkspaceSkillLinksResult = { skills: Array<WorkspaceSkillLinkEntry>, };
+
+export type OpenSkillFolderRequest = { skillId: string, };
+
+export type OpenSkillFolderResult = { skillId: string, path: string, opened: boolean, };
 
 export type SkillImportStatus = "imported" | "updatedExisting";
 

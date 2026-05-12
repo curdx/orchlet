@@ -54,8 +54,10 @@ import type {
   SendMessageRequest,
   SendMessageResult,
   ImportLocalSkillFolderResult,
+  DeleteSkillResult,
   LinkWorkspaceSkillResult,
   ListWorkspaceSkillLinksResult,
+  OpenSkillFolderResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
   SkillLibraryEntry,
@@ -143,6 +145,8 @@ function renderWorkspaceSelection(api: {
   skillsApi?: Partial<{
     listSkills: () => Promise<SkillLibraryListResult>;
     importLocalFolder: () => Promise<ImportLocalSkillFolderResult | null>;
+    openSkillFolder: (skillId: string) => Promise<OpenSkillFolderResult>;
+    deleteSkill: (skillId: string, workspaceRoot: string | null) => Promise<DeleteSkillResult>;
     listWorkspaceLinks: (workspaceRoot: string) => Promise<ListWorkspaceSkillLinksResult>;
     linkWorkspaceSkill: (
       workspaceRoot: string,
@@ -239,6 +243,8 @@ function renderWorkspaceSelection(api: {
         skillsApi={{
           listSkills: () => Promise.resolve({ skills: [] }),
           importLocalFolder: () => Promise.reject(new Error("importLocalFolder mock missing")),
+          openSkillFolder: () => Promise.reject(new Error("openSkillFolder mock missing")),
+          deleteSkill: () => Promise.reject(new Error("deleteSkill mock missing")),
           listWorkspaceLinks: () => Promise.resolve({ skills: [] }),
           linkWorkspaceSkill: () => Promise.reject(new Error("linkWorkspaceSkill mock missing")),
           unlinkWorkspaceSkill: () =>
@@ -884,6 +890,97 @@ describe("App workspace entry", () => {
 
     const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
     expect(await within(skillsPanel).findByText(/清单链接：symlink unavailable/)).toBeInTheDocument();
+  });
+
+  it("opens a local skill folder from the skill library", async () => {
+    const user = userEvent.setup();
+    const librarySkill = skillLibraryEntry();
+    const openSkillFolder = vi.fn(() =>
+      Promise.resolve({
+        skillId: librarySkill.skillId,
+        path: librarySkill.sourcePath,
+        opened: true,
+      } satisfies OpenSkillFolderResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [librarySkill] }),
+        listWorkspaceLinks: () => Promise.resolve({ skills: [] }),
+        openSkillFolder,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
+    await user.click(await within(skillsPanel).findByRole("button", { name: "打开文件夹" }));
+
+    expect(openSkillFolder).toHaveBeenCalledWith(librarySkill.skillId);
+    expect(await screen.findByRole("status")).toHaveTextContent("技能文件夹已打开");
+    expect(screen.getByRole("status")).toHaveTextContent(librarySkill.sourcePath);
+  });
+
+  it("deletes a library skill and clears the current workspace link without deleting source folder", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const librarySkill = skillLibraryEntry();
+    const linkedSkill = workspaceSkillLinkEntry();
+    const deleteSkill = vi.fn(() =>
+      Promise.resolve({
+        removedSkillId: librarySkill.skillId,
+        skills: [],
+        workspaceSkills: [],
+      } satisfies DeleteSkillResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [librarySkill] }),
+        listWorkspaceLinks: () => Promise.resolve({ skills: [linkedSkill] }),
+        deleteSkill,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
+    await user.click(await within(skillsPanel).findByRole("button", { name: "删除技能" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("从技能库删除该技能？源文件夹不会被删除。");
+    expect(deleteSkill).toHaveBeenCalledWith(librarySkill.skillId, "/tmp/orchlet-demo");
+    expect(await within(skillsPanel).findByText("当前工作区还没有关联技能")).toBeInTheDocument();
+    expect(within(skillsPanel).getByText("我的技能库里暂无可用技能")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("源文件夹没有被删除");
+
+    confirmSpy.mockRestore();
+  });
+
+  it("distinguishes local skills, skill store placeholders and future remote plugins", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [skillLibraryEntry()] }),
+        listWorkspaceLinks: () => Promise.resolve({ skills: [] }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const classification = await screen.findByLabelText("技能能力分类");
+    expect(within(classification).getByText("本地技能")).toBeInTheDocument();
+    expect(within(classification).getByText("技能商店")).toBeInTheDocument();
+    expect(within(classification).getByText("远程插件")).toBeInTheDocument();
+    expect(within(classification).getByText("可用")).toBeInTheDocument();
+    expect(within(classification).getByText("占位")).toBeInTheDocument();
+    expect(within(classification).getByText("未来")).toBeInTheDocument();
   });
 
   it("loads conversations and creates then updates group membership", async () => {

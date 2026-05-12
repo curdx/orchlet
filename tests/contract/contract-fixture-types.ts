@@ -92,12 +92,16 @@ import type {
   DispatchTargetResolutionSource,
 } from "../../src/contracts/generated/orchestration";
 import type {
+  DeleteSkillRequest,
+  DeleteSkillResult,
   ImportLocalSkillFolderRequest,
   ImportLocalSkillFolderResult,
   LinkWorkspaceSkillRequest,
   LinkWorkspaceSkillResult,
   ListWorkspaceSkillLinksRequest,
   ListWorkspaceSkillLinksResult,
+  OpenSkillFolderRequest,
+  OpenSkillFolderResult,
   SkillImportStatus,
   SkillLibraryEntry,
   SkillLibraryListRequest,
@@ -237,9 +241,15 @@ import notificationUnreadEvent from "../../fixtures/contracts/notification/notif
 import skillImportFolderError from "../../fixtures/contracts/skill/skill-import-folder.error.json";
 import skillImportFolderRequest from "../../fixtures/contracts/skill/skill-import-folder.request.json";
 import skillImportFolderResult from "../../fixtures/contracts/skill/skill-import-folder.result.json";
+import skillDeleteError from "../../fixtures/contracts/skill/skill-delete.error.json";
+import skillDeleteRequest from "../../fixtures/contracts/skill/skill-delete.request.json";
+import skillDeleteResult from "../../fixtures/contracts/skill/skill-delete.result.json";
 import skillLibraryListError from "../../fixtures/contracts/skill/skill-library-list.error.json";
 import skillLibraryListRequest from "../../fixtures/contracts/skill/skill-library-list.request.json";
 import skillLibraryListResult from "../../fixtures/contracts/skill/skill-library-list.result.json";
+import skillOpenFolderError from "../../fixtures/contracts/skill/skill-open-folder.error.json";
+import skillOpenFolderRequest from "../../fixtures/contracts/skill/skill-open-folder.request.json";
+import skillOpenFolderResult from "../../fixtures/contracts/skill/skill-open-folder.result.json";
 import workspaceSkillLinkError from "../../fixtures/contracts/skill/workspace-skill-link.error.json";
 import workspaceSkillLinkRequest from "../../fixtures/contracts/skill/workspace-skill-link.request.json";
 import workspaceSkillLinkResult from "../../fixtures/contracts/skill/workspace-skill-link.result.json";
@@ -522,6 +532,16 @@ export const skillImportFolderResultFixture: ImportLocalSkillFolderResult = {
   status: skillImportStatus(skillImportFolderResult.status),
 };
 export const skillImportFolderErrorFixture: AppError = appError(skillImportFolderError);
+export const skillOpenFolderRequestFixture: OpenSkillFolderRequest = skillOpenFolderRequest;
+export const skillOpenFolderResultFixture: OpenSkillFolderResult = skillOpenFolderResult;
+export const skillOpenFolderErrorFixture: AppError = appError(skillOpenFolderError);
+export const skillDeleteRequestFixture: DeleteSkillRequest = skillDeleteRequest;
+export const skillDeleteResultFixture: DeleteSkillResult = {
+  removedSkillId: skillDeleteResult.removedSkillId,
+  skills: skillDeleteResult.skills.map(skillLibraryEntry),
+  workspaceSkills: skillDeleteResult.workspaceSkills.map(workspaceSkillLinkEntry),
+};
+export const skillDeleteErrorFixture: AppError = appError(skillDeleteError);
 export const workspaceSkillLinksListRequestFixture: ListWorkspaceSkillLinksRequest =
   workspaceSkillLinksListRequest;
 export const workspaceSkillLinksListResultFixture: ListWorkspaceSkillLinksResult = {
@@ -697,6 +717,8 @@ type ErrorJson =
   | typeof notificationIgnoreAllError
   | typeof skillLibraryListError
   | typeof skillImportFolderError
+  | typeof skillOpenFolderError
+  | typeof skillDeleteError
   | typeof workspaceSkillLinksListError
   | typeof workspaceSkillLinkError
   | typeof workspaceSkillUnlinkError
@@ -760,12 +782,14 @@ function notificationNavigationKind(value: string): NotificationNavigationKind {
 type SkillLibraryEntryJson =
   | (typeof skillLibraryListResult.skills)[number]
   | typeof skillImportFolderResult.skill
-  | (typeof skillImportFolderResult.skills)[number];
+  | (typeof skillImportFolderResult.skills)[number]
+  | (typeof skillDeleteResult.skills)[number];
 
 type WorkspaceSkillLinkEntryJson =
   | (typeof workspaceSkillLinksListResult.skills)[number]
   | typeof workspaceSkillLinkResult.skill
   | (typeof workspaceSkillLinkResult.skills)[number]
+  | (typeof skillDeleteResult.workspaceSkills)[number]
   | (typeof workspaceSkillUnlinkResult.skills)[number];
 
 function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {

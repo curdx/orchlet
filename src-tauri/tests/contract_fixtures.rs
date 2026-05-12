@@ -5,22 +5,23 @@ use orchlet_lib::contracts::{
     ConversationKind, ConversationParticipantKind, CreateContactRequest, CreateContactResult,
     CreateGroupConversationRequest, CreateGroupConversationResult, DataIntegrityValidateRequest,
     DataIntegrityValidateResult, DeleteContactRequest, DeleteContactResult,
-    DeleteConversationRequest, DeleteConversationResult, DispatchChatMessageRequest,
-    DispatchChatMessageResult, DispatchQueueResumeRequest, DispatchQueueResumeResult,
-    DispatchRequestStatus, DispatchTargetResolutionSource, ImportLocalSkillFolderRequest,
-    ImportLocalSkillFolderResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
-    LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult,
-    ListConversationsRequest, ListConversationsResult, ListMembersRequest, ListMembersResult,
-    ListMessagesRequest, ListMessagesResult, ListWorkspaceSkillLinksRequest,
-    ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind, MemberStatus,
-    NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
-    NotificationNavigationKind, NotificationNavigationPendingRequest,
+    DeleteConversationRequest, DeleteConversationResult, DeleteSkillRequest, DeleteSkillResult,
+    DispatchChatMessageRequest, DispatchChatMessageResult, DispatchQueueResumeRequest,
+    DispatchQueueResumeResult, DispatchRequestStatus, DispatchTargetResolutionSource,
+    ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult, InviteMemberRequest,
+    InviteMemberResult, InvitedMemberType, LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult,
+    ListContactsRequest, ListContactsResult, ListConversationsRequest, ListConversationsResult,
+    ListMembersRequest, ListMembersResult, ListMessagesRequest, ListMessagesResult,
+    ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind,
+    MemberStatus, NotificationIgnoreAllRequest, NotificationIgnoreAllResult,
+    NotificationNavigationAction, NotificationNavigationKind, NotificationNavigationPendingRequest,
     NotificationNavigationPendingResult, NotificationNavigationRequest,
     NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
     NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
-    NotificationUnreadUpdateResult, OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest,
-    RemoveMemberResult, SendMessageRequest, SendMessageResult, SkillImportStatus,
-    SkillLibraryListRequest, SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
+    NotificationUnreadUpdateResult, OpenSkillFolderRequest, OpenSkillFolderResult,
+    OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult,
+    SendMessageRequest, SendMessageResult, SkillImportStatus, SkillLibraryListRequest,
+    SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
     StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
     TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
     TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
@@ -527,6 +528,18 @@ fn skill_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/skill/skill-import-folder.result.json");
     let import_error: AppError =
         read_fixture("../fixtures/contracts/skill/skill-import-folder.error.json");
+    let open_request: OpenSkillFolderRequest =
+        read_fixture("../fixtures/contracts/skill/skill-open-folder.request.json");
+    let open_result: OpenSkillFolderResult =
+        read_fixture("../fixtures/contracts/skill/skill-open-folder.result.json");
+    let open_error: AppError =
+        read_fixture("../fixtures/contracts/skill/skill-open-folder.error.json");
+    let delete_request: DeleteSkillRequest =
+        read_fixture("../fixtures/contracts/skill/skill-delete.request.json");
+    let delete_result: DeleteSkillResult =
+        read_fixture("../fixtures/contracts/skill/skill-delete.result.json");
+    let delete_error: AppError =
+        read_fixture("../fixtures/contracts/skill/skill-delete.error.json");
     let links_request: ListWorkspaceSkillLinksRequest =
         read_fixture("../fixtures/contracts/skill/workspace-skill-links-list.request.json");
     let links_result: ListWorkspaceSkillLinksResult =
@@ -558,6 +571,18 @@ fn skill_contract_fixtures_deserialize_into_rust_dtos() {
     );
     assert_eq!(import_result.skills.len(), 1);
     assert_eq!(import_error.code, "skill.manifest.missing");
+    assert_eq!(open_request.skill_id, "01K00000000000000000000100");
+    assert!(open_result.opened);
+    assert_eq!(open_result.path, "/fixtures/skills/local-review");
+    assert_eq!(open_error.code, "skill.folder.openFailed");
+    assert_eq!(
+        delete_request.workspace_root.as_deref(),
+        Some("/fixtures/workspaces/alpha")
+    );
+    assert_eq!(delete_result.removed_skill_id, delete_request.skill_id);
+    assert!(delete_result.skills.is_empty());
+    assert!(delete_result.workspace_skills.is_empty());
+    assert_eq!(delete_error.code, "skill.library.notFound");
     assert_eq!(links_request.workspace_root, "/fixtures/workspaces/alpha");
     assert_eq!(links_result.skills.len(), 1);
     assert_eq!(

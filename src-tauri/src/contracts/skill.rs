@@ -79,6 +79,39 @@ pub struct ImportLocalSkillFolderResult {
     pub status: SkillImportStatus,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "skill.ts")]
+pub struct OpenSkillFolderRequest {
+    pub skill_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "skill.ts")]
+pub struct OpenSkillFolderResult {
+    pub skill_id: String,
+    pub path: String,
+    pub opened: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "skill.ts")]
+pub struct DeleteSkillRequest {
+    pub skill_id: String,
+    pub workspace_root: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "skill.ts")]
+pub struct DeleteSkillResult {
+    pub removed_skill_id: String,
+    pub skills: Vec<SkillLibraryEntry>,
+    pub workspace_skills: Vec<WorkspaceSkillLinkEntry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "skill.ts")]

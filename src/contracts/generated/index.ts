@@ -102,12 +102,16 @@ export type {
   DispatchTargetResolutionSource,
 } from "./orchestration";
 export type {
+  DeleteSkillRequest,
+  DeleteSkillResult,
   ImportLocalSkillFolderRequest,
   ImportLocalSkillFolderResult,
   LinkWorkspaceSkillRequest,
   LinkWorkspaceSkillResult,
   ListWorkspaceSkillLinksRequest,
   ListWorkspaceSkillLinksResult,
+  OpenSkillFolderRequest,
+  OpenSkillFolderResult,
   SkillImportStatus,
   SkillLibraryEntry,
   SkillLibraryListRequest,

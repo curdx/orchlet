@@ -299,6 +299,28 @@
     },
     {
       "domain": "skill",
+      "command": "skills_open_folder",
+      "requestFixture": "fixtures/contracts/skill/skill-open-folder.request.json",
+      "successResultFixture": "fixtures/contracts/skill/skill-open-folder.result.json",
+      "errorFixture": "fixtures/contracts/skill/skill-open-folder.error.json",
+      "rustRequestDto": "OpenSkillFolderRequest",
+      "rustSuccessDto": "OpenSkillFolderResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR56", "NFR8", "NFR14", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "skill",
+      "command": "skills_delete",
+      "requestFixture": "fixtures/contracts/skill/skill-delete.request.json",
+      "successResultFixture": "fixtures/contracts/skill/skill-delete.result.json",
+      "errorFixture": "fixtures/contracts/skill/skill-delete.error.json",
+      "rustRequestDto": "DeleteSkillRequest",
+      "rustSuccessDto": "DeleteSkillResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR56", "FR58", "FR60", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "skill",
       "command": "workspace_skill_links_list",
       "requestFixture": "fixtures/contracts/skill/workspace-skill-links-list.request.json",
       "successResultFixture": "fixtures/contracts/skill/workspace-skill-links-list.result.json",

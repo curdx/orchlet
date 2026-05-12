@@ -1,0 +1,9 @@
+{
+  "code": "skill.folder.openFailed",
+  "message": "无法打开技能文件夹。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "技能仍保留在库中；请检查系统文件管理器是否可用，或手动打开该路径。",
+  "details": "/fixtures/skills/local-review: opener unavailable",
+  "correlationId": null
+}

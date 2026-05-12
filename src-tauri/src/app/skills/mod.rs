@@ -7,12 +7,12 @@ use ulid::Ulid;
 
 use crate::{
     contracts::{
-        AppError, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
-        LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListWorkspaceSkillLinksRequest,
-        ListWorkspaceSkillLinksResult, SkillImportStatus, SkillLibraryEntry,
-        SkillLibraryListResult, SkillSource, UnlinkWorkspaceSkillRequest,
-        UnlinkWorkspaceSkillResult, WorkspaceSkillLinkEntry, WorkspaceSkillLinkMode,
-        WorkspaceSkillLinkStatus,
+        AppError, DeleteSkillRequest, DeleteSkillResult, ImportLocalSkillFolderRequest,
+        ImportLocalSkillFolderResult, LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult,
+        ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult, OpenSkillFolderRequest,
+        OpenSkillFolderResult, SkillImportStatus, SkillLibraryEntry, SkillLibraryListResult,
+        SkillSource, UnlinkWorkspaceSkillRequest, UnlinkWorkspaceSkillResult,
+        WorkspaceSkillLinkEntry, WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
     },
     domain::skill::{
         parse_local_skill_metadata, skill_name_from_path, workspace_skill_link_name,
@@ -131,6 +131,61 @@ pub fn validate_skill_library_store(app_data_dir: impl AsRef<Path>) -> Result<()
     load_skill_library(app_data_dir.as_ref()).map(|_| ())
 }
 
+pub fn open_skill_folder<F>(
+    app_data_dir: impl AsRef<Path>,
+    request: OpenSkillFolderRequest,
+    open_path: F,
+) -> Result<OpenSkillFolderResult, AppError>
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    let library = load_skill_library(app_data_dir.as_ref())?;
+    let skill = find_library_skill(&library.skills, &request.skill_id)?.clone();
+    let source_path = canonicalize_existing_skill_directory(&skill.source_path)?;
+
+    open_path(&source_path).map_err(|error| {
+        AppError::recoverable_error(
+            "skill.folder.openFailed",
+            "无法打开技能文件夹。",
+            "技能仍保留在库中；请检查系统文件管理器是否可用，或手动打开该路径。",
+            Some(format!("{}: {}", source_path.display(), error)),
+        )
+    })?;
+
+    Ok(OpenSkillFolderResult {
+        skill_id: skill.skill_id,
+        path: source_path.to_string_lossy().into_owned(),
+        opened: true,
+    })
+}
+
+pub fn delete_skill(
+    app_data_dir: impl AsRef<Path>,
+    request: DeleteSkillRequest,
+) -> Result<DeleteSkillResult, AppError> {
+    let mut library = load_skill_library(app_data_dir.as_ref())?;
+    let index = library
+        .skills
+        .iter()
+        .position(|skill| skill.skill_id == request.skill_id)
+        .ok_or_else(|| skill_not_found_error(&request.skill_id))?;
+    let removed = library.skills.remove(index);
+    let workspace_skills = if let Some(workspace_root) = request.workspace_root {
+        let workspace_root = canonicalize_existing_directory(workspace_root)?;
+        remove_workspace_link_if_present(&workspace_root, &removed.skill_id)?
+    } else {
+        Vec::new()
+    };
+
+    save_skill_library(app_data_dir.as_ref(), &library)?;
+
+    Ok(DeleteSkillResult {
+        removed_skill_id: removed.skill_id,
+        skills: sorted_skills(library.skills),
+        workspace_skills,
+    })
+}
+
 pub fn list_workspace_skill_links(
     request: ListWorkspaceSkillLinksRequest,
 ) -> Result<ListWorkspaceSkillLinksResult, AppError> {
@@ -148,19 +203,7 @@ pub fn link_workspace_skill(
 ) -> Result<LinkWorkspaceSkillResult, AppError> {
     let workspace_root = canonicalize_existing_directory(request.workspace_root)?;
     let library = load_skill_library(app_data_dir.as_ref())?;
-    let library_skill = library
-        .skills
-        .iter()
-        .find(|skill| skill.skill_id == request.skill_id)
-        .cloned()
-        .ok_or_else(|| {
-            AppError::recoverable_error(
-                "skill.library.notFound",
-                "技能库中找不到该技能。",
-                "请刷新技能库后重新选择要关联的技能。",
-                Some(request.skill_id.clone()),
-            )
-        })?;
+    let library_skill = find_library_skill(&library.skills, &request.skill_id)?.clone();
 
     let canonical_skill_path = canonicalize_existing_skill_directory(&library_skill.source_path)?;
     let mut links = load_workspace_skill_links(&workspace_root)?;
@@ -213,27 +256,12 @@ pub fn unlink_workspace_skill(
     request: UnlinkWorkspaceSkillRequest,
 ) -> Result<UnlinkWorkspaceSkillResult, AppError> {
     let workspace_root = canonicalize_existing_directory(request.workspace_root)?;
-    let mut links = load_workspace_skill_links(&workspace_root)?;
-    let index = links
-        .skills
-        .iter()
-        .position(|link| link.skill_id == request.skill_id)
-        .ok_or_else(|| {
-            AppError::recoverable_error(
-                "skill.workspaceLink.notFound",
-                "当前工作区未关联该技能。",
-                "请刷新当前工作区技能列表后重试。",
-                Some(request.skill_id.clone()),
-            )
-        })?;
-    let removed = links.skills.remove(index);
-
-    remove_workspace_link_artifact(&removed)?;
-    save_workspace_skill_links(&workspace_root, &links)?;
+    let (removed_skill_id, skills) =
+        remove_workspace_link_required(&workspace_root, &request.skill_id)?;
 
     Ok(UnlinkWorkspaceSkillResult {
-        removed_skill_id: removed.skill_id,
-        skills: sorted_workspace_links(links.skills),
+        removed_skill_id,
+        skills,
     })
 }
 
@@ -292,6 +320,70 @@ fn canonicalize_existing_skill_directory(
             Some(format!("{}: {}", path.display(), error)),
         )
     })
+}
+
+fn find_library_skill<'a>(
+    skills: &'a [SkillLibraryEntry],
+    skill_id: &str,
+) -> Result<&'a SkillLibraryEntry, AppError> {
+    skills
+        .iter()
+        .find(|skill| skill.skill_id == skill_id)
+        .ok_or_else(|| skill_not_found_error(skill_id))
+}
+
+fn skill_not_found_error(skill_id: &str) -> AppError {
+    AppError::recoverable_error(
+        "skill.library.notFound",
+        "技能库中找不到该技能。",
+        "请刷新技能库后重新选择技能。",
+        Some(skill_id.to_owned()),
+    )
+}
+
+fn remove_workspace_link_required(
+    workspace_root: &Path,
+    skill_id: &str,
+) -> Result<(String, Vec<WorkspaceSkillLinkEntry>), AppError> {
+    let mut links = load_workspace_skill_links(workspace_root)?;
+    let index = links
+        .skills
+        .iter()
+        .position(|link| link.skill_id == skill_id)
+        .ok_or_else(|| {
+            AppError::recoverable_error(
+                "skill.workspaceLink.notFound",
+                "当前工作区未关联该技能。",
+                "请刷新当前工作区技能列表后重试。",
+                Some(skill_id.to_owned()),
+            )
+        })?;
+    let removed = links.skills.remove(index);
+
+    remove_workspace_link_artifact(&removed)?;
+    save_workspace_skill_links(workspace_root, &links)?;
+
+    Ok((removed.skill_id, sorted_workspace_links(links.skills)))
+}
+
+fn remove_workspace_link_if_present(
+    workspace_root: &Path,
+    skill_id: &str,
+) -> Result<Vec<WorkspaceSkillLinkEntry>, AppError> {
+    let mut links = load_workspace_skill_links(workspace_root)?;
+    let Some(index) = links
+        .skills
+        .iter()
+        .position(|link| link.skill_id == skill_id)
+    else {
+        return Ok(sorted_workspace_links(links.skills));
+    };
+    let removed = links.skills.remove(index);
+
+    remove_workspace_link_artifact(&removed)?;
+    save_workspace_skill_links(workspace_root, &links)?;
+
+    Ok(sorted_workspace_links(links.skills))
 }
 
 struct WorkspaceLinkArtifact {
@@ -439,13 +531,13 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        import_local_skill_folder, link_workspace_skill, list_skill_library,
-        list_workspace_skill_links, unlink_workspace_skill,
+        delete_skill, import_local_skill_folder, link_workspace_skill, list_skill_library,
+        list_workspace_skill_links, open_skill_folder, unlink_workspace_skill,
     };
     use crate::contracts::{
-        ImportLocalSkillFolderRequest, LinkWorkspaceSkillRequest, ListWorkspaceSkillLinksRequest,
-        SkillImportStatus, UnlinkWorkspaceSkillRequest, WorkspaceSkillLinkMode,
-        WorkspaceSkillLinkStatus,
+        DeleteSkillRequest, ImportLocalSkillFolderRequest, LinkWorkspaceSkillRequest,
+        ListWorkspaceSkillLinksRequest, OpenSkillFolderRequest, SkillImportStatus,
+        UnlinkWorkspaceSkillRequest, WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
     };
     use crate::domain::skill::workspace_skill_link_name;
     use crate::infrastructure::persistence::json_store::skill_library_store::SkillLibraryDocument;
@@ -734,5 +826,89 @@ mod tests {
             save_workspace_skill_links(workspace.path(), &document).expect_err("duplicate link");
 
         assert_eq!(error.code, "skill.workspaceLinks.duplicateSkillId");
+    }
+
+    #[test]
+    fn opens_skill_folder_with_adapter() {
+        let app_data = tempdir().expect("app data");
+        let skill = tempdir().expect("skill");
+        fs::write(
+            skill.path().join("SKILL.md"),
+            "---\nname: Openable Skill\n---\n# Skill",
+        )
+        .expect("manifest");
+        let imported = import_local_skill_folder(
+            app_data.path(),
+            ImportLocalSkillFolderRequest {
+                path: skill.path().to_string_lossy().into_owned(),
+            },
+        )
+        .expect("import");
+
+        let result = open_skill_folder(
+            app_data.path(),
+            OpenSkillFolderRequest {
+                skill_id: imported.skill.skill_id.clone(),
+            },
+            |path| {
+                assert_eq!(
+                    path,
+                    skill.path().canonicalize().expect("canonical").as_path()
+                );
+                Ok(())
+            },
+        )
+        .expect("open");
+
+        assert_eq!(result.skill_id, imported.skill.skill_id);
+        assert!(result.opened);
+    }
+
+    #[test]
+    fn deleting_skill_preserves_source_folder_and_removes_current_workspace_link() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let skill = tempdir().expect("skill");
+        let manifest_path = skill.path().join("SKILL.md");
+        fs::write(&manifest_path, "---\nname: Delete Me\n---\n# Skill").expect("manifest");
+        let imported = import_local_skill_folder(
+            app_data.path(),
+            ImportLocalSkillFolderRequest {
+                path: skill.path().to_string_lossy().into_owned(),
+            },
+        )
+        .expect("import");
+        link_workspace_skill(
+            app_data.path(),
+            LinkWorkspaceSkillRequest {
+                workspace_root: workspace.path().to_string_lossy().into_owned(),
+                skill_id: imported.skill.skill_id.clone(),
+            },
+        )
+        .expect("link");
+
+        let result = delete_skill(
+            app_data.path(),
+            DeleteSkillRequest {
+                skill_id: imported.skill.skill_id.clone(),
+                workspace_root: Some(workspace.path().to_string_lossy().into_owned()),
+            },
+        )
+        .expect("delete");
+
+        assert_eq!(result.removed_skill_id, imported.skill.skill_id);
+        assert!(result.skills.is_empty());
+        assert!(result.workspace_skills.is_empty());
+        assert!(manifest_path.exists());
+        assert!(list_skill_library(app_data.path())
+            .expect("library")
+            .skills
+            .is_empty());
+        assert!(list_workspace_skill_links(ListWorkspaceSkillLinksRequest {
+            workspace_root: workspace.path().to_string_lossy().into_owned(),
+        })
+        .expect("links")
+        .skills
+        .is_empty());
     }
 }
