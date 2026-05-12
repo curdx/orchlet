@@ -3,10 +3,11 @@ use std::path::Path;
 use crate::{
     contracts::{
         AppError, InviteMemberRequest, InviteMemberResult, ListMembersRequest, ListMembersResult,
-        RemoveMemberRequest, RemoveMemberResult,
+        RemoveMemberRequest, RemoveMemberResult, UpdateMemberStatusRequest,
+        UpdateMemberStatusResult,
     },
     infrastructure::persistence::sqlite::member_repository::{
-        initialize_member_store, invite_member, remove_member,
+        initialize_member_store, invite_member, remove_member, update_member_status,
     },
 };
 
@@ -36,6 +37,13 @@ pub fn remove_workspace_member(
     request: RemoveMemberRequest,
 ) -> Result<RemoveMemberResult, AppError> {
     remove_member(app_data_dir.as_ref(), request)
+}
+
+pub fn update_workspace_member_status(
+    app_data_dir: impl AsRef<Path>,
+    request: UpdateMemberStatusRequest,
+) -> Result<UpdateMemberStatusResult, AppError> {
+    update_member_status(app_data_dir.as_ref(), request)
 }
 
 #[cfg(test)]

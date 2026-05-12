@@ -8,6 +8,8 @@ use super::TerminalSessionProfile;
 #[ts(export, export_to = "orchestration.ts")]
 pub enum DispatchRequestStatus {
     Pending,
+    Queued,
+    Skipped,
     Dispatched,
     Failed,
 }
@@ -79,4 +81,22 @@ pub struct DispatchChatMessageResult {
     pub dispatch: DispatchRequestProfile,
     pub terminal_session: Option<TerminalSessionProfile>,
     pub session_created: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "orchestration.ts")]
+pub struct DispatchQueueResumeRequest {
+    pub workspace_id: String,
+    pub member_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "orchestration.ts")]
+pub struct DispatchQueueResumeResult {
+    pub dispatch: Option<DispatchRequestProfile>,
+    pub terminal_session: Option<TerminalSessionProfile>,
+    pub session_created: bool,
+    pub queue_remaining: u32,
 }

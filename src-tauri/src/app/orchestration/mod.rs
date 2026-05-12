@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use crate::{
     app::terminal::{TerminalEventSink, TerminalRuntimeState, TerminalStatusSink},
     contracts::{
-        AppError, DispatchChatMessageRequest, DispatchChatMessageResult, OpenedWorkspace,
-        TerminalInputRequest, TerminalOpenRequest,
+        AppError, DispatchChatMessageRequest, DispatchChatMessageResult,
+        DispatchQueueResumeRequest, DispatchQueueResumeResult, DispatchRequestProfile,
+        MemberStatus, OpenedWorkspace, TerminalInputRequest, TerminalOpenRequest,
     },
     domain::orchestration::{
         normalize_dispatch_payload, resolve_dispatch_target, validate_dispatch_scope,
@@ -12,7 +13,9 @@ use crate::{
     infrastructure::persistence::sqlite::{
         conversation_repository::{conversation_by_id, message_by_id},
         dispatch_repository::{
-            create_pending_dispatch, mark_dispatch_dispatched, mark_dispatch_failed,
+            create_pending_dispatch, create_queued_dispatch, create_skipped_dispatch,
+            mark_dispatch_dispatched, mark_dispatch_failed, oldest_queued_dispatch_for_member,
+            queued_dispatch_count_for_member,
         },
         member_repository::initialize_member_store,
     },
@@ -50,6 +53,41 @@ pub fn dispatch_chat_message(
         &conversation,
         &members,
     )?;
+    let target_member = members
+        .iter()
+        .find(|member| member.member_id == target_resolution.member_id)
+        .expect("target resolution returns a member from members");
+
+    if target_member.status == MemberStatus::DoNotDisturb {
+        let dispatch = create_skipped_dispatch(
+            &app_data_dir,
+            &request.workspace_id,
+            &request.conversation_id,
+            &request.message_id,
+            &target_resolution,
+        )?;
+        return Ok(DispatchChatMessageResult {
+            dispatch,
+            terminal_session: None,
+            session_created: false,
+        });
+    }
+
+    if target_member.status == MemberStatus::Working {
+        let dispatch = create_queued_dispatch(
+            &app_data_dir,
+            &request.workspace_id,
+            &request.conversation_id,
+            &request.message_id,
+            &target_resolution,
+        )?;
+        return Ok(DispatchChatMessageResult {
+            dispatch,
+            terminal_session: None,
+            session_created: false,
+        });
+    }
+
     let dispatch = create_pending_dispatch(
         &app_data_dir,
         &request.workspace_id,
@@ -57,11 +95,117 @@ pub fn dispatch_chat_message(
         &request.message_id,
         &target_resolution,
     )?;
+    run_dispatch_payload(
+        app_data_dir,
+        workspace,
+        dispatch,
+        &message.body,
+        terminal_state,
+        event_sink,
+        status_sink,
+    )
+}
+
+pub fn resume_member_dispatch_queue(
+    app_data_dir: PathBuf,
+    workspace: &OpenedWorkspace,
+    request: DispatchQueueResumeRequest,
+    terminal_state: &TerminalRuntimeState,
+    event_sink: TerminalEventSink,
+    status_sink: TerminalStatusSink,
+) -> Result<DispatchQueueResumeResult, AppError> {
+    crate::domain::member::validate_workspace_id(&request.workspace_id)?;
+    if workspace.metadata.project_id != request.workspace_id {
+        return Err(AppError::recoverable_error(
+            "dispatch.workspace.mismatch",
+            "派发请求不属于当前工作区。",
+            "请刷新工作区上下文后重试。",
+            Some(format!(
+                "activeWorkspaceId={} requestWorkspaceId={}",
+                workspace.metadata.project_id, request.workspace_id
+            )),
+        ));
+    }
+    crate::domain::member::validate_member_id(&request.member_id)?;
+    let members = initialize_member_store(&app_data_dir, &request.workspace_id)?.members;
+    let member = members
+        .iter()
+        .find(|member| member.member_id == request.member_id)
+        .ok_or_else(|| {
+            AppError::recoverable_error(
+                "dispatch.queue.memberNotFound",
+                "未找到要恢复队列的成员。",
+                "请刷新成员列表后重试。",
+                Some(format!("memberId={}", request.member_id)),
+            )
+        })?;
+
+    if member.status == MemberStatus::Working || member.status == MemberStatus::DoNotDisturb {
+        return Ok(DispatchQueueResumeResult {
+            dispatch: None,
+            terminal_session: None,
+            session_created: false,
+            queue_remaining: queued_dispatch_count_for_member(
+                &app_data_dir,
+                &request.workspace_id,
+                &request.member_id,
+            )?,
+        });
+    }
+
+    let Some(dispatch) = oldest_queued_dispatch_for_member(
+        &app_data_dir,
+        &request.workspace_id,
+        &request.member_id,
+    )?
+    else {
+        return Ok(DispatchQueueResumeResult {
+            dispatch: None,
+            terminal_session: None,
+            session_created: false,
+            queue_remaining: 0,
+        });
+    };
+    let message = message_by_id(
+        &app_data_dir,
+        &dispatch.workspace_id,
+        &dispatch.conversation_id,
+        &dispatch.message_id,
+    )?;
+    let result = run_dispatch_payload(
+        app_data_dir.clone(),
+        workspace,
+        dispatch,
+        &message.body,
+        terminal_state,
+        event_sink,
+        status_sink,
+    )?;
+    let queue_remaining =
+        queued_dispatch_count_for_member(&app_data_dir, &request.workspace_id, &request.member_id)?;
+
+    Ok(DispatchQueueResumeResult {
+        dispatch: Some(result.dispatch),
+        terminal_session: result.terminal_session,
+        session_created: result.session_created,
+        queue_remaining,
+    })
+}
+
+fn run_dispatch_payload(
+    app_data_dir: PathBuf,
+    workspace: &OpenedWorkspace,
+    dispatch: DispatchRequestProfile,
+    body: &str,
+    terminal_state: &TerminalRuntimeState,
+    event_sink: TerminalEventSink,
+    status_sink: TerminalStatusSink,
+) -> Result<DispatchChatMessageResult, AppError> {
     let terminal_result = terminal_state.open_or_create_session(
         app_data_dir.clone(),
         workspace,
         TerminalOpenRequest {
-            member_id: Some(target_resolution.member_id.clone()),
+            member_id: Some(dispatch.member_id.clone()),
             attach_current: false,
         },
         event_sink,
@@ -90,7 +234,7 @@ pub fn dispatch_chat_message(
         });
     }
 
-    let input = normalize_dispatch_payload(&message.body);
+    let input = normalize_dispatch_payload(body);
     if let Err(error) = terminal_state.write_input(
         &workspace.metadata.project_id,
         TerminalInputRequest {
@@ -132,8 +276,8 @@ mod tests {
                 list_workspace_conversations, send_workspace_message,
                 start_workspace_private_conversation,
             },
-            members::invite_workspace_member,
-            orchestration::dispatch_chat_message,
+            members::{invite_workspace_member, update_workspace_member_status},
+            orchestration::{dispatch_chat_message, resume_member_dispatch_queue},
             terminal::{
                 TerminalEventSink, TerminalLaunchProfile, TerminalOutputHandler,
                 TerminalRuntimeState, TerminalSessionHandle, TerminalSessionLauncher,
@@ -141,12 +285,12 @@ mod tests {
             },
         },
         contracts::{
-            ConversationParticipantKind, DispatchChatMessageRequest, DispatchRequestStatus,
-            DispatchTargetResolutionSource, InviteMemberRequest, InvitedMemberType,
-            ListConversationsRequest, MemberRuntimeKind, MemberRuntimeProfile, OpenedWorkspace,
-            SendMessageRequest, StartPrivateConversationRequest, TerminalStreamKind,
-            WorkspaceAccessMode, WorkspaceMetadata, WorkspaceRegistryAction,
-            WorkspaceRegistryEntry,
+            ConversationParticipantKind, DispatchChatMessageRequest, DispatchQueueResumeRequest,
+            DispatchRequestStatus, DispatchTargetResolutionSource, InviteMemberRequest,
+            InvitedMemberType, ListConversationsRequest, MemberRuntimeKind, MemberRuntimeProfile,
+            MemberStatus, OpenedWorkspace, SendMessageRequest, StartPrivateConversationRequest,
+            TerminalStreamKind, UpdateMemberStatusRequest, WorkspaceAccessMode, WorkspaceMetadata,
+            WorkspaceRegistryAction, WorkspaceRegistryEntry,
         },
         infrastructure::persistence::sqlite::dispatch_repository::dispatches_for_message,
     };
@@ -464,6 +608,290 @@ mod tests {
         assert_eq!(
             result.dispatch.target_resolution.source,
             DispatchTargetResolutionSource::WorkspaceDefault
+        );
+    }
+
+    #[test]
+    fn dispatch_skips_do_not_disturb_member_without_launching_terminal() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Quiet Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        update_workspace_member_status(
+            app_data.path(),
+            UpdateMemberStatusRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_id: member.member_id.clone(),
+                status: MemberStatus::DoNotDisturb,
+            },
+        )
+        .expect("dnd status");
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Respect DND".to_owned(),
+                mentioned_member_ids: vec![member.member_id.clone()],
+            },
+        )
+        .expect("message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            DispatchChatMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                message_id: message.message_id.clone(),
+                member_id: None,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("dispatch");
+
+        assert_eq!(result.dispatch.status, DispatchRequestStatus::Skipped);
+        assert!(result.terminal_session.is_none());
+        assert!(!result.session_created);
+        assert!(launcher.launches.lock().expect("launches").is_empty());
+        assert_eq!(terminal_state.session_count(), 0);
+        let persisted = dispatches_for_message(
+            app_data.path(),
+            &workspace.metadata.project_id,
+            &conversation.conversation_id,
+            &message.message_id,
+        )
+        .expect("persisted dispatches");
+        assert_eq!(persisted[0].status, DispatchRequestStatus::Skipped);
+    }
+
+    #[test]
+    fn dispatch_queues_working_member_without_launching_terminal() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Busy Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        update_workspace_member_status(
+            app_data.path(),
+            UpdateMemberStatusRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_id: member.member_id.clone(),
+                status: MemberStatus::Working,
+            },
+        )
+        .expect("working status");
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Queue this".to_owned(),
+                mentioned_member_ids: vec![member.member_id.clone()],
+            },
+        )
+        .expect("message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            DispatchChatMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                message_id: message.message_id.clone(),
+                member_id: None,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("dispatch");
+
+        assert_eq!(result.dispatch.status, DispatchRequestStatus::Queued);
+        assert!(result.terminal_session.is_none());
+        assert!(!result.session_created);
+        assert!(launcher.launches.lock().expect("launches").is_empty());
+        assert_eq!(terminal_state.session_count(), 0);
+    }
+
+    #[test]
+    fn resume_member_dispatch_queue_runs_next_queued_dispatch_once() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Queued Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        update_workspace_member_status(
+            app_data.path(),
+            UpdateMemberStatusRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_id: member.member_id.clone(),
+                status: MemberStatus::Working,
+            },
+        )
+        .expect("working status");
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let first_message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "First queued task".to_owned(),
+                mentioned_member_ids: vec![member.member_id.clone()],
+            },
+        )
+        .expect("first message")
+        .message;
+        let second_message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Second queued task".to_owned(),
+                mentioned_member_ids: vec![member.member_id.clone()],
+            },
+        )
+        .expect("second message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+        let sink: TerminalEventSink = Arc::new(|_| {});
+        let status_sink: TerminalStatusSink = Arc::new(|_| {});
+
+        for message_id in [&first_message.message_id, &second_message.message_id] {
+            let result = dispatch_chat_message(
+                app_data.path().to_path_buf(),
+                &workspace,
+                DispatchChatMessageRequest {
+                    workspace_id: workspace.metadata.project_id.clone(),
+                    conversation_id: conversation.conversation_id.clone(),
+                    message_id: message_id.to_string(),
+                    member_id: None,
+                },
+                &terminal_state,
+                Arc::clone(&sink),
+                Arc::clone(&status_sink),
+            )
+            .expect("queue dispatch");
+            assert_eq!(result.dispatch.status, DispatchRequestStatus::Queued);
+        }
+
+        update_workspace_member_status(
+            app_data.path(),
+            UpdateMemberStatusRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_id: member.member_id.clone(),
+                status: MemberStatus::Online,
+            },
+        )
+        .expect("online status");
+        let resumed = resume_member_dispatch_queue(
+            app_data.path().to_path_buf(),
+            &workspace,
+            DispatchQueueResumeRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_id: member.member_id,
+            },
+            &terminal_state,
+            sink,
+            status_sink,
+        )
+        .expect("resume queue");
+
+        let dispatch = resumed.dispatch.expect("resumed dispatch");
+        assert_eq!(dispatch.message_id, first_message.message_id);
+        assert_eq!(dispatch.status, DispatchRequestStatus::Dispatched);
+        assert_eq!(resumed.queue_remaining, 1);
+        assert_eq!(launcher.launches.lock().expect("launches").len(), 1);
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            ["input:First queued task\n"]
         );
     }
 

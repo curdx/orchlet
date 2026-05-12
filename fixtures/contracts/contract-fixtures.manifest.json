@@ -57,6 +57,17 @@
       "requirements": ["FR17", "NFR35", "NFR36"]
     },
     {
+      "domain": "member",
+      "command": "member_status_update",
+      "requestFixture": "fixtures/contracts/member/member-status-update.request.json",
+      "successResultFixture": "fixtures/contracts/member/member-status-update.result.json",
+      "errorFixture": "fixtures/contracts/member/member-status-update.error.json",
+      "rustRequestDto": "UpdateMemberStatusRequest",
+      "rustSuccessDto": "UpdateMemberStatusResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR16", "FR47", "FR48", "NFR35", "NFR36"]
+    },
+    {
       "domain": "terminal",
       "command": "terminal_open",
       "requestFixture": "fixtures/contracts/terminal/terminal-open.request.json",
@@ -191,6 +202,17 @@
       "rustSuccessDto": "DispatchChatMessageResult",
       "rustErrorDto": "AppError",
       "requirements": ["FR45", "FR51", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "orchestration",
+      "command": "orchestration_resume_member_dispatch_queue",
+      "requestFixture": "fixtures/contracts/orchestration/dispatch-queue-resume.request.json",
+      "successResultFixture": "fixtures/contracts/orchestration/dispatch-queue-resume.result.json",
+      "errorFixture": "fixtures/contracts/orchestration/dispatch-queue-resume.error.json",
+      "rustRequestDto": "DispatchQueueResumeRequest",
+      "rustSuccessDto": "DispatchQueueResumeResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR48", "NFR12", "NFR35", "NFR36"]
     },
     {
       "domain": "contact",

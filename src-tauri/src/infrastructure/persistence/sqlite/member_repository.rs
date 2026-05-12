@@ -8,6 +8,7 @@ use crate::{
         AppError, InviteMemberRequest, InviteMemberResult, InvitedMemberType, ListMembersResult,
         MemberIsolation, MemberPermissions, MemberProfile, MemberRole, MemberRuntimeKind,
         MemberRuntimeProfile, MemberStatus, RemoveMemberRequest, RemoveMemberResult,
+        UpdateMemberStatusRequest, UpdateMemberStatusResult,
     },
     domain::member::{
         normalize_member_display_name, validate_instance_count, validate_member_id,
@@ -176,6 +177,48 @@ pub fn remove_member(
         removed_member_id: request.member_id,
         members,
     })
+}
+
+pub fn update_member_status(
+    app_data_dir: &Path,
+    request: UpdateMemberStatusRequest,
+) -> Result<UpdateMemberStatusResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    validate_member_id(&request.member_id)?;
+
+    let connection = open_workspace_database(app_data_dir, &request.workspace_id)?;
+    apply_member_migration(&connection)?;
+    ensure_default_owner(&connection, &request.workspace_id)?;
+    member_by_id(&connection, &request.workspace_id, &request.member_id)?;
+
+    let timestamp = now_ms();
+    let updated = connection
+        .execute(
+            "UPDATE members
+             SET status = ?1, updated_at_ms = ?2
+             WHERE workspace_id = ?3 AND id = ?4",
+            params![
+                status_to_str(&request.status),
+                timestamp as i64,
+                request.workspace_id,
+                request.member_id,
+            ],
+        )
+        .map_err(sqlite_error("member.status.updateFailed"))?;
+
+    if updated == 0 {
+        return Err(AppError::recoverable_error(
+            "member.status.notFound",
+            "未找到要更新状态的成员。",
+            "请刷新成员列表后重试。",
+            Some(format!("memberId={}", request.member_id)),
+        ));
+    }
+
+    let member = member_by_id(&connection, &request.workspace_id, &request.member_id)?;
+    let members = list_members_from_connection(&connection, &request.workspace_id)?.members;
+
+    Ok(UpdateMemberStatusResult { member, members })
 }
 
 pub fn validate_member_store(app_data_dir: &Path, workspace_id: &str) -> Result<(), AppError> {

@@ -5,6 +5,8 @@ import type {
   ListMembersResult,
   RemoveMemberRequest,
   RemoveMemberResult,
+  UpdateMemberStatusRequest,
+  UpdateMemberStatusResult,
 } from "../../contracts/generated/member";
 import { invokeCommand } from "./client";
 
@@ -12,6 +14,9 @@ export type MemberApi = {
   listMembers: (request: ListMembersRequest) => Promise<ListMembersResult>;
   inviteMember: (request: InviteMemberRequest) => Promise<InviteMemberResult>;
   removeMember: (request: RemoveMemberRequest) => Promise<RemoveMemberResult>;
+  updateMemberStatus: (
+    request: UpdateMemberStatusRequest,
+  ) => Promise<UpdateMemberStatusResult>;
 };
 
 export const memberApi: MemberApi = {
@@ -25,5 +30,9 @@ export const memberApi: MemberApi = {
 
   removeMember(request) {
     return invokeCommand<RemoveMemberResult>("member_remove", { request });
+  },
+
+  updateMemberStatus(request) {
+    return invokeCommand<UpdateMemberStatusResult>("member_status_update", { request });
   },
 };

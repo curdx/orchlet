@@ -1,8 +1,12 @@
 use crate::{
-    app::members::{invite_workspace_member, list_members, remove_workspace_member},
+    app::members::{
+        invite_workspace_member, list_members, remove_workspace_member,
+        update_workspace_member_status,
+    },
     contracts::{
         AppError, InviteMemberRequest, InviteMemberResult, ListMembersRequest, ListMembersResult,
-        RemoveMemberRequest, RemoveMemberResult,
+        RemoveMemberRequest, RemoveMemberResult, UpdateMemberStatusRequest,
+        UpdateMemberStatusResult,
     },
 };
 use tauri::{AppHandle, Manager};
@@ -29,6 +33,14 @@ pub fn member_remove(
     request: RemoveMemberRequest,
 ) -> Result<RemoveMemberResult, AppError> {
     remove_workspace_member(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn member_status_update(
+    app: AppHandle,
+    request: UpdateMemberStatusRequest,
+) -> Result<UpdateMemberStatusResult, AppError> {
+    update_workspace_member_status(app_data_dir(&app)?, request)
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, AppError> {

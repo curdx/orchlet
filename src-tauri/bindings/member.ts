@@ -27,3 +27,7 @@ export type MemberStatus = "online" | "offline" | "working" | "doNotDisturb";
 export type RemoveMemberRequest = { workspaceId: string, memberId: string, };
 
 export type RemoveMemberResult = { removedMemberId: string, members: Array<MemberProfile>, };
+
+export type UpdateMemberStatusRequest = { workspaceId: string, memberId: string, status: MemberStatus, };
+
+export type UpdateMemberStatusResult = { member: MemberProfile, members: Array<MemberProfile>, };

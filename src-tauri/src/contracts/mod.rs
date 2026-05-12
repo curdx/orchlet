@@ -33,11 +33,12 @@ pub use member::{
     InviteMemberRequest, InviteMemberResult, InvitedMemberType, ListMembersRequest,
     ListMembersResult, MemberIsolation, MemberPermissions, MemberProfile, MemberRole,
     MemberRuntimeKind, MemberRuntimeProfile, MemberStatus, RemoveMemberRequest, RemoveMemberResult,
+    UpdateMemberStatusRequest, UpdateMemberStatusResult,
 };
 pub use orchestration::{
     DispatchChatMessageRequest, DispatchChatMessageResult, DispatchFailureProfile,
-    DispatchRequestProfile, DispatchRequestStatus, DispatchTargetResolutionProfile,
-    DispatchTargetResolutionSource,
+    DispatchQueueResumeRequest, DispatchQueueResumeResult, DispatchRequestProfile,
+    DispatchRequestStatus, DispatchTargetResolutionProfile, DispatchTargetResolutionSource,
 };
 pub use terminal::{
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,

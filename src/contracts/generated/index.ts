@@ -70,13 +70,19 @@ export type {
   MemberStatus,
   RemoveMemberRequest,
   RemoveMemberResult,
+  UpdateMemberStatusRequest,
+  UpdateMemberStatusResult,
 } from "./member";
 export type {
   DispatchChatMessageRequest,
   DispatchChatMessageResult,
   DispatchFailureProfile,
+  DispatchQueueResumeRequest,
+  DispatchQueueResumeResult,
   DispatchRequestProfile,
   DispatchRequestStatus,
+  DispatchTargetResolutionProfile,
+  DispatchTargetResolutionSource,
 } from "./orchestration";
 export type {
   TerminalAttachRequest,

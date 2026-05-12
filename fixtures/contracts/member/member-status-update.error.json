@@ -1,0 +1,9 @@
+{
+  "code": "member.status.notFound",
+  "message": "未找到要更新状态的成员。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新成员列表后重试。",
+  "details": "memberId=01K00000000000000000000031",
+  "correlationId": null
+}

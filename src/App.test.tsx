@@ -24,6 +24,8 @@ import type {
   DeleteContactResult,
   DispatchChatMessageRequest,
   DispatchChatMessageResult,
+  DispatchQueueResumeRequest,
+  DispatchQueueResumeResult,
   InviteMemberRequest,
   InviteMemberResult,
   ListConversationsRequest,
@@ -49,6 +51,8 @@ import type {
   UpdateConversationSettingsRequest,
   UpdateConversationSettingsResult,
   UpdateGroupConversationMembersRequest,
+  UpdateMemberStatusRequest,
+  UpdateMemberStatusResult,
   UpdateGroupConversationMembersResult,
   UpdateReadPositionRequest,
   UpdateReadPositionResult,
@@ -82,6 +86,7 @@ function renderWorkspaceSelection(api: {
     listMembers: (request: ListMembersRequest) => Promise<ListMembersResult>;
     inviteMember: (request: InviteMemberRequest) => Promise<InviteMemberResult>;
     removeMember: (request: RemoveMemberRequest) => Promise<RemoveMemberResult>;
+    updateMemberStatus: (request: UpdateMemberStatusRequest) => Promise<UpdateMemberStatusResult>;
   }>;
   terminalApi?: Partial<{
     openTerminal: (request?: {
@@ -93,6 +98,9 @@ function renderWorkspaceSelection(api: {
     dispatchChatMessage: (
       request: DispatchChatMessageRequest,
     ) => Promise<DispatchChatMessageResult>;
+    resumeMemberDispatchQueue: (
+      request: DispatchQueueResumeRequest,
+    ) => Promise<DispatchQueueResumeResult>;
   }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
@@ -145,6 +153,8 @@ function renderWorkspaceSelection(api: {
           listMembers: () => Promise.resolve({ members: [] }),
           inviteMember: () => Promise.reject(new Error("inviteMember mock missing")),
           removeMember: () => Promise.reject(new Error("removeMember mock missing")),
+          updateMemberStatus: () =>
+            Promise.reject(new Error("updateMemberStatus mock missing")),
           ...memberApi,
         }}
         terminalApi={{
@@ -154,6 +164,8 @@ function renderWorkspaceSelection(api: {
         terminalDispatchApi={{
           dispatchChatMessage: () =>
             Promise.reject(new Error("dispatchChatMessage mock missing")),
+          resumeMemberDispatchQueue: () =>
+            Promise.reject(new Error("resumeMemberDispatchQueue mock missing")),
           ...terminalDispatchApi,
         }}
         contactApi={{
@@ -999,6 +1011,341 @@ describe("App workspace entry", () => {
     expect(await within(conversationPanel).findByText(/已派发到 Reviewer/))
       .toBeInTheDocument();
     expect(await screen.findByRole("status")).toHaveTextContent("消息已派发");
+  });
+
+  it("shows skipped dispatch state for a do-not-disturb member", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      status: "doNotDisturb",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel();
+    const message = chatMessage({
+      body: "@Reviewer please review",
+      mentionedMemberIds: [reviewer.memberId],
+    });
+    const dispatchChatMessage = vi.fn(() =>
+      Promise.resolve({
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: "01KDISPATCH00000000000005",
+          workspaceId: channel.workspaceId,
+          conversationId: channel.conversationId,
+          messageId: message.messageId,
+          memberId: reviewer.memberId,
+          targetResolution: {
+            memberId: reviewer.memberId,
+            source: "explicitMention",
+            reason: "消息明确提及 Reviewer。",
+          },
+          status: "skipped",
+          terminalSessionId: null,
+          failure: null,
+          createdAtMs: 1760000002000,
+          updatedAtMs: 1760000002001,
+        },
+        terminalSession: null,
+        sessionCreated: false,
+      } satisfies DispatchChatMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [message],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+        updateReadPosition: () =>
+          Promise.resolve({
+            readPosition: readPosition({
+              lastReadMessageId: message.messageId,
+            }),
+            conversation: channel,
+          }),
+      },
+      terminalDispatchApi: {
+        dispatchChatMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(await within(conversationPanel).findByRole("button", {
+      name: "派发到 Reviewer",
+    }));
+
+    expect(await within(conversationPanel).findAllByText(/已跳过/)).not.toHaveLength(0);
+    expect(
+      within(conversationPanel).getByText("Reviewer 正在请勿打扰，派发已跳过。"),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("派发已跳过");
+  });
+
+  it("shows queued dispatch state for a working member", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      status: "working",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel();
+    const message = chatMessage({
+      body: "@Reviewer please review",
+      mentionedMemberIds: [reviewer.memberId],
+    });
+    const dispatchChatMessage = vi.fn(() =>
+      Promise.resolve({
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: "01KDISPATCH00000000000006",
+          workspaceId: channel.workspaceId,
+          conversationId: channel.conversationId,
+          messageId: message.messageId,
+          memberId: reviewer.memberId,
+          targetResolution: {
+            memberId: reviewer.memberId,
+            source: "explicitMention",
+            reason: "消息明确提及 Reviewer。",
+          },
+          status: "queued",
+          terminalSessionId: null,
+          failure: null,
+          createdAtMs: 1760000002000,
+          updatedAtMs: 1760000002001,
+        },
+        terminalSession: null,
+        sessionCreated: false,
+      } satisfies DispatchChatMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [message],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+        updateReadPosition: () =>
+          Promise.resolve({
+            readPosition: readPosition({
+              lastReadMessageId: message.messageId,
+            }),
+            conversation: channel,
+          }),
+      },
+      terminalDispatchApi: {
+        dispatchChatMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(await within(conversationPanel).findByRole("button", {
+      name: "派发到 Reviewer",
+    }));
+
+    expect(await within(conversationPanel).findByText(/已排队/)).toBeInTheDocument();
+    expect(
+      within(conversationPanel).getByText("Reviewer 正在工作中，任务已加入队列。"),
+    ).toBeInTheDocument();
+    expect(
+      within(conversationPanel).getByText("成员设为在线后会继续下一条队列任务。"),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("任务已排队");
+  });
+
+  it("resumes one queued dispatch when a working member is set online", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      status: "working",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const onlineReviewer: MemberProfile = {
+      ...reviewer,
+      status: "online",
+      updatedAtMs: 1760000003000,
+    };
+    const channel = defaultChannel();
+    const message = chatMessage({
+      body: "@Reviewer please review",
+      mentionedMemberIds: [reviewer.memberId],
+    });
+    const dispatchChatMessage = vi.fn(() =>
+      Promise.resolve({
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: "01KDISPATCH00000000000007",
+          workspaceId: channel.workspaceId,
+          conversationId: channel.conversationId,
+          messageId: message.messageId,
+          memberId: reviewer.memberId,
+          targetResolution: {
+            memberId: reviewer.memberId,
+            source: "explicitMention",
+            reason: "消息明确提及 Reviewer。",
+          },
+          status: "queued",
+          terminalSessionId: null,
+          failure: null,
+          createdAtMs: 1760000002000,
+          updatedAtMs: 1760000002001,
+        },
+        terminalSession: null,
+        sessionCreated: false,
+      } satisfies DispatchChatMessageResult),
+    );
+    const updateMemberStatus = vi.fn(() =>
+      Promise.resolve({
+        member: onlineReviewer,
+        members: [onlineReviewer],
+      } satisfies UpdateMemberStatusResult),
+    );
+    const resumeMemberDispatchQueue = vi.fn(() =>
+      Promise.resolve({
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: "01KDISPATCH00000000000007",
+          workspaceId: channel.workspaceId,
+          conversationId: channel.conversationId,
+          messageId: message.messageId,
+          memberId: reviewer.memberId,
+          targetResolution: {
+            memberId: reviewer.memberId,
+            source: "explicitMention",
+            reason: "消息明确提及 Reviewer。",
+          },
+          status: "dispatched",
+          terminalSessionId: "01KTERMINAL00000000000013",
+          failure: null,
+          createdAtMs: 1760000002000,
+          updatedAtMs: 1760000003001,
+        },
+        terminalSession: terminalOpenResult({
+          session: {
+            ...terminalOpenResult().session,
+            terminalSessionId: "01KTERMINAL00000000000013",
+            memberId: reviewer.memberId,
+            title: "Reviewer",
+          },
+        }).session,
+        sessionCreated: true,
+        queueRemaining: 0,
+      } satisfies DispatchQueueResumeResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+        updateMemberStatus,
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [message],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+        updateReadPosition: () =>
+          Promise.resolve({
+            readPosition: readPosition({
+              lastReadMessageId: message.messageId,
+            }),
+            conversation: channel,
+          }),
+      },
+      terminalDispatchApi: {
+        dispatchChatMessage,
+        resumeMemberDispatchQueue,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(await within(conversationPanel).findByRole("button", {
+      name: "派发到 Reviewer",
+    }));
+    expect(await within(conversationPanel).findByText(/已排队/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reviewer 操作" }));
+    await user.click(screen.getByRole("menuitem", { name: "状态：在线" }));
+
+    expect(updateMemberStatus).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      memberId: reviewer.memberId,
+      status: "online",
+    });
+    expect(resumeMemberDispatchQueue).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      memberId: reviewer.memberId,
+    });
+    expect(await within(conversationPanel).findByText(/已派发到 Reviewer/))
+      .toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("队列已继续");
   });
 
   it("keeps recoverable dispatch failure visible on the message", async () => {

@@ -4,10 +4,14 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{
     app::{
-        orchestration::dispatch_chat_message, terminal::TerminalRuntimeState,
+        orchestration::{dispatch_chat_message, resume_member_dispatch_queue},
+        terminal::TerminalRuntimeState,
         window_context::WindowContextRuntimeState,
     },
-    contracts::{AppError, DispatchChatMessageRequest, DispatchChatMessageResult, OpenedWorkspace},
+    contracts::{
+        AppError, DispatchChatMessageRequest, DispatchChatMessageResult,
+        DispatchQueueResumeRequest, DispatchQueueResumeResult, OpenedWorkspace,
+    },
     domain::terminal::{TERMINAL_OUTPUT_EVENT, TERMINAL_STATUS_CHANGE_EVENT},
 };
 
@@ -20,6 +24,24 @@ pub fn orchestration_dispatch_chat_message(
 ) -> Result<DispatchChatMessageResult, AppError> {
     let workspace = active_workspace(&window_context_state)?;
     dispatch_chat_message(
+        app_data_dir(&app)?,
+        &workspace,
+        request,
+        &terminal_state,
+        terminal_output_sink(&app),
+        terminal_status_sink(&app),
+    )
+}
+
+#[tauri::command]
+pub fn orchestration_resume_member_dispatch_queue(
+    app: AppHandle,
+    window_context_state: State<'_, WindowContextRuntimeState>,
+    terminal_state: State<'_, TerminalRuntimeState>,
+    request: DispatchQueueResumeRequest,
+) -> Result<DispatchQueueResumeResult, AppError> {
+    let workspace = active_workspace(&window_context_state)?;
+    resume_member_dispatch_queue(
         app_data_dir(&app)?,
         &workspace,
         request,

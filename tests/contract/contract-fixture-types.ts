@@ -64,10 +64,14 @@ import type {
   MemberStatus,
   RemoveMemberRequest,
   RemoveMemberResult,
+  UpdateMemberStatusRequest,
+  UpdateMemberStatusResult,
 } from "../../src/contracts/generated/member";
 import type {
   DispatchChatMessageRequest,
   DispatchChatMessageResult,
+  DispatchQueueResumeRequest,
+  DispatchQueueResumeResult,
   DispatchRequestProfile,
   DispatchRequestStatus,
   DispatchTargetResolutionSource,
@@ -170,9 +174,15 @@ import listMembersResult from "../../fixtures/contracts/member/members-list.resu
 import removeMemberError from "../../fixtures/contracts/member/member-remove.error.json";
 import removeMemberRequest from "../../fixtures/contracts/member/member-remove.request.json";
 import removeMemberResult from "../../fixtures/contracts/member/member-remove.result.json";
+import updateMemberStatusError from "../../fixtures/contracts/member/member-status-update.error.json";
+import updateMemberStatusRequest from "../../fixtures/contracts/member/member-status-update.request.json";
+import updateMemberStatusResult from "../../fixtures/contracts/member/member-status-update.result.json";
 import dispatchChatMessageError from "../../fixtures/contracts/orchestration/dispatch-chat-message.error.json";
 import dispatchChatMessageRequest from "../../fixtures/contracts/orchestration/dispatch-chat-message.request.json";
 import dispatchChatMessageResult from "../../fixtures/contracts/orchestration/dispatch-chat-message.result.json";
+import dispatchQueueResumeError from "../../fixtures/contracts/orchestration/dispatch-queue-resume.error.json";
+import dispatchQueueResumeRequest from "../../fixtures/contracts/orchestration/dispatch-queue-resume.request.json";
+import dispatchQueueResumeResult from "../../fixtures/contracts/orchestration/dispatch-queue-resume.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -264,6 +274,16 @@ export const removeMemberResultFixture: RemoveMemberResult = {
   members: removeMemberResult.members.map(memberProfile),
 };
 export const removeMemberErrorFixture: AppError = appError(removeMemberError);
+
+export const updateMemberStatusRequestFixture: UpdateMemberStatusRequest = {
+  ...updateMemberStatusRequest,
+  status: memberStatus(updateMemberStatusRequest.status),
+};
+export const updateMemberStatusResultFixture: UpdateMemberStatusResult = {
+  member: memberProfile(updateMemberStatusResult.member),
+  members: updateMemberStatusResult.members.map(memberProfile),
+};
+export const updateMemberStatusErrorFixture: AppError = appError(updateMemberStatusError);
 
 export const terminalOpenRequestFixture: TerminalOpenRequest = terminalOpenRequest;
 export const terminalOpenResultFixture: TerminalOpenResult = {
@@ -360,6 +380,20 @@ export const dispatchChatMessageResultFixture: DispatchChatMessageResult = {
   sessionCreated: dispatchChatMessageResult.sessionCreated,
 };
 export const dispatchChatMessageErrorFixture: AppError = appError(dispatchChatMessageError);
+
+export const dispatchQueueResumeRequestFixture: DispatchQueueResumeRequest =
+  dispatchQueueResumeRequest;
+export const dispatchQueueResumeResultFixture: DispatchQueueResumeResult = {
+  dispatch: dispatchQueueResumeResult.dispatch
+    ? dispatchRequestProfile(dispatchQueueResumeResult.dispatch)
+    : null,
+  terminalSession: dispatchQueueResumeResult.terminalSession
+    ? terminalSessionProfile(dispatchQueueResumeResult.terminalSession)
+    : null,
+  sessionCreated: dispatchQueueResumeResult.sessionCreated,
+  queueRemaining: dispatchQueueResumeResult.queueRemaining,
+};
+export const dispatchQueueResumeErrorFixture: AppError = appError(dispatchQueueResumeError);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -494,6 +528,7 @@ type ErrorJson =
   | typeof listMembersError
   | typeof inviteMemberError
   | typeof removeMemberError
+  | typeof updateMemberStatusError
   | typeof terminalOpenError
   | typeof terminalAttachError
   | typeof terminalInputError
@@ -506,6 +541,7 @@ type ErrorJson =
   | typeof terminalTabRestoreError
   | typeof terminalTabUpdateError
   | typeof dispatchChatMessageError
+  | typeof dispatchQueueResumeError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -673,7 +709,13 @@ function storagePrivacyClass(value: string): StoragePrivacyClass {
   }
 }
 
-function memberProfile(member: (typeof inviteMemberResult.members)[number]): MemberProfile {
+type MemberJson =
+  | (typeof inviteMemberResult.members)[number]
+  | typeof inviteMemberResult.member
+  | typeof updateMemberStatusResult.member
+  | (typeof updateMemberStatusResult.members)[number];
+
+function memberProfile(member: MemberJson): MemberProfile {
   return {
     ...member,
     role: memberRole(member.role),
@@ -876,9 +918,11 @@ function terminalEnvironmentStatus(value: string): TerminalEnvironmentStatus {
   }
 }
 
-function dispatchRequestProfile(
-  dispatch: typeof dispatchChatMessageResult.dispatch,
-): DispatchRequestProfile {
+type DispatchRequestJson =
+  | typeof dispatchChatMessageResult.dispatch
+  | NonNullable<typeof dispatchQueueResumeResult.dispatch>;
+
+function dispatchRequestProfile(dispatch: DispatchRequestJson): DispatchRequestProfile {
   return {
     ...dispatch,
     targetResolution: {
@@ -894,6 +938,8 @@ function dispatchRequestProfile(
 function dispatchRequestStatus(value: string): DispatchRequestStatus {
   switch (value) {
     case "pending":
+    case "queued":
+    case "skipped":
     case "dispatched":
     case "failed":
       return value;

@@ -56,6 +56,7 @@ import type {
   ListMessagesResult,
 } from "../../../contracts/generated/chat";
 import type { ContactKind, ContactProfile } from "../../../contracts/generated/contact";
+import type { DispatchRequestProfile } from "../../../contracts/generated/orchestration";
 import type {
   InvitedMemberType,
   MemberProfile,
@@ -91,9 +92,12 @@ type WorkspaceSelectionPageProps = {
   }) => Promise<void>;
   onOpenWindowMode?: (mode: WindowMode) => Promise<void>;
   integrityApi?: Pick<DataIntegrityApi, "validate">;
-  memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember">;
+  memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember" | "updateMemberStatus">;
   terminalApi?: Pick<TerminalApi, "openTerminal">;
-  terminalDispatchApi?: Pick<TerminalDispatchApi, "dispatchChatMessage">;
+  terminalDispatchApi?: Pick<
+    TerminalDispatchApi,
+    "dispatchChatMessage" | "resumeMemberDispatchQueue"
+  >;
   contactApi?: Pick<ContactApi, "listContacts" | "createContact" | "updateContact" | "deleteContact">;
   chatApi?: Pick<
     ChatApi,
@@ -120,7 +124,7 @@ type DispatchTargetCandidate = {
   memberLabel: string;
 };
 type MessageDispatchState = {
-  status: "selecting" | "dispatching" | "dispatched" | "failed";
+  status: "selecting" | "dispatching" | "queued" | "skipped" | "dispatched" | "failed";
   dispatchRequestId?: string;
   memberId?: string;
   memberLabel?: string;
@@ -690,6 +694,66 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  async function handleUpdateMemberStatus(member: MemberProfile, status: MemberProfile["status"]) {
+    if (!activeWorkspaceId) {
+      return;
+    }
+
+    try {
+      const result = await membersApi.updateMemberStatus({
+        workspaceId: activeWorkspaceId,
+        memberId: member.memberId,
+        status,
+      });
+      queryClient.setQueryData(["members", activeWorkspaceId], { members: result.members });
+      setMemberActionMenuId(null);
+      showToast({
+        tone: "info",
+        title: "成员状态已更新",
+        message: `${result.member.instanceLabel} 已设为${memberStatusLabel(result.member.status)}。`,
+      });
+
+      if (status === "online") {
+        const resumed = await dispatchApi.resumeMemberDispatchQueue({
+          workspaceId: activeWorkspaceId,
+          memberId: member.memberId,
+        });
+
+        if (resumed.dispatch) {
+          const resumedMember =
+            result.members.find(
+              (item) => item.memberId === resumed.dispatch?.targetResolution.memberId,
+            ) ?? result.member;
+          setMessageDispatchStates((current) => ({
+            ...current,
+            [resumed.dispatch!.messageId]: stateForDispatchProfile(
+              resumed.dispatch!,
+              resumedMember,
+            ),
+          }));
+          showToast({
+            tone: resumed.dispatch.status === "failed" ? "error" : "info",
+            title: resumed.dispatch.status === "failed" ? "队列恢复失败" : "队列已继续",
+            message:
+              resumed.dispatch.status === "failed"
+                ? (resumed.dispatch.failure?.message ?? "队列任务未能启动。")
+                : `${resumedMember.instanceLabel} 已收到下一条队列任务。`,
+            action: resumed.queueRemaining > 0 ? `剩余 ${resumed.queueRemaining} 条` : undefined,
+          });
+        }
+      }
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法更新成员状态",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    }
+  }
+
   function handleMentionMember(member: MemberProfile) {
     if (!member.permissions.canMention) {
       return;
@@ -1195,17 +1259,43 @@ export function WorkspaceSelectionPage({
         return;
       }
 
-      setMessageDispatchStates((current) => ({
-        ...current,
+      if (result.dispatch.status === "queued" || result.dispatch.status === "skipped") {
+        const isQueued = result.dispatch.status === "queued";
+        const dispatchStatus: "queued" | "skipped" = isQueued ? "queued" : "skipped";
+        setMessageDispatchStates((current) => ({
+          ...current,
           [message.messageId]: {
-            status: "dispatched",
+            status: dispatchStatus,
             dispatchRequestId: result.dispatch.dispatchRequestId,
             memberId: resolvedMember.memberId,
             memberLabel: resolvedMember.instanceLabel,
-            terminalSessionId: result.dispatch.terminalSessionId,
-            message: result.dispatch.targetResolution.reason,
+            message: isQueued
+              ? `${resolvedMember.instanceLabel} 正在工作中，任务已加入队列。`
+              : `${resolvedMember.instanceLabel} 正在请勿打扰，派发已跳过。`,
+            userAction: isQueued ? "成员设为在线后会继续下一条队列任务。" : "成员可用后可重新派发。",
           },
         }));
+        showToast({
+          tone: isQueued ? "info" : "warning",
+          title: isQueued ? "任务已排队" : "派发已跳过",
+          message: isQueued
+            ? `${resolvedMember.instanceLabel} 正在工作中。`
+            : `${resolvedMember.instanceLabel} 正在请勿打扰。`,
+        });
+        return;
+      }
+
+      setMessageDispatchStates((current) => ({
+        ...current,
+        [message.messageId]: {
+          status: "dispatched",
+          dispatchRequestId: result.dispatch.dispatchRequestId,
+          memberId: resolvedMember.memberId,
+          memberLabel: resolvedMember.instanceLabel,
+          terminalSessionId: result.dispatch.terminalSessionId,
+          message: result.dispatch.targetResolution.reason,
+        },
+      }));
       showToast({
         tone: "info",
         title: "消息已派发",
@@ -1687,6 +1777,9 @@ export function WorkspaceSelectionPage({
                 }
                 onOpenMemberTerminal={(member) => void handleOpenMemberTerminal(member)}
                 onMentionMember={handleMentionMember}
+                onUpdateMemberStatus={(member, status) =>
+                  void handleUpdateMemberStatus(member, status)
+                }
                 onRemoveMember={(member) => void handleRemoveMember(member)}
                 onInvite={() => void handleInviteMember()}
               />
@@ -2687,6 +2780,53 @@ function messageStatusLabel(status: ChatMessageProfile["status"]) {
   return "sent";
 }
 
+function stateForDispatchProfile(
+  dispatch: DispatchRequestProfile,
+  member: MemberProfile,
+): MessageDispatchState {
+  if (dispatch.status === "failed") {
+    return {
+      status: "failed",
+      dispatchRequestId: dispatch.dispatchRequestId,
+      memberId: member.memberId,
+      memberLabel: member.instanceLabel,
+      message: dispatch.failure?.message ?? "派发未能启动。",
+      userAction: dispatch.failure?.userAction ?? "请修复问题后重试派发。",
+    };
+  }
+
+  if (dispatch.status === "queued") {
+    return {
+      status: "queued",
+      dispatchRequestId: dispatch.dispatchRequestId,
+      memberId: member.memberId,
+      memberLabel: member.instanceLabel,
+      message: `${member.instanceLabel} 正在工作中，任务已加入队列。`,
+      userAction: "成员设为在线后会继续下一条队列任务。",
+    };
+  }
+
+  if (dispatch.status === "skipped") {
+    return {
+      status: "skipped",
+      dispatchRequestId: dispatch.dispatchRequestId,
+      memberId: member.memberId,
+      memberLabel: member.instanceLabel,
+      message: `${member.instanceLabel} 正在请勿打扰，派发已跳过。`,
+      userAction: "成员可用后可重新派发。",
+    };
+  }
+
+  return {
+    status: "dispatched",
+    dispatchRequestId: dispatch.dispatchRequestId,
+    memberId: member.memberId,
+    memberLabel: member.instanceLabel,
+    terminalSessionId: dispatch.terminalSessionId,
+    message: dispatch.targetResolution.reason,
+  };
+}
+
 function DispatchStateBadge({
   state,
   onSelectTarget,
@@ -2716,6 +2856,40 @@ function DispatchStateBadge({
             </button>
           ))}
         </span>
+        {state.userAction ? <span>{state.userAction}</span> : null}
+      </span>
+    );
+  }
+
+  if (state.status === "queued") {
+    return (
+      <span
+        aria-label="派发状态"
+        className="grid gap-1 rounded-md border border-[#d6c48e] bg-[#fffaf0] px-2 py-1 text-[#6f5420]"
+      >
+        <span className="inline-flex items-center gap-1 font-semibold">
+          <History aria-hidden="true" size={12} strokeWidth={2} />
+          已排队
+          {state.memberLabel ? ` · ${state.memberLabel}` : ""}
+        </span>
+        {state.message ? <span>{state.message}</span> : null}
+        {state.userAction ? <span>{state.userAction}</span> : null}
+      </span>
+    );
+  }
+
+  if (state.status === "skipped") {
+    return (
+      <span
+        aria-label="派发状态"
+        className="grid gap-1 rounded-md border border-[#d7b9b9] bg-[#fff5f5] px-2 py-1 text-[#7a2f2f]"
+      >
+        <span className="inline-flex items-center gap-1 font-semibold">
+          <BellOff aria-hidden="true" size={12} strokeWidth={2} />
+          已跳过
+          {state.memberLabel ? ` · ${state.memberLabel}` : ""}
+        </span>
+        {state.message ? <span>{state.message}</span> : null}
         {state.userAction ? <span>{state.userAction}</span> : null}
       </span>
     );
@@ -2901,6 +3075,7 @@ function MembersPanel({
   onStartPrivateConversation,
   onOpenMemberTerminal,
   onMentionMember,
+  onUpdateMemberStatus,
   onRemoveMember,
   onInvite,
 }: {
@@ -2932,6 +3107,7 @@ function MembersPanel({
   onStartPrivateConversation: (member: MemberProfile) => void;
   onOpenMemberTerminal: (member: MemberProfile) => void;
   onMentionMember: (member: MemberProfile) => void;
+  onUpdateMemberStatus: (member: MemberProfile, status: MemberProfile["status"]) => void;
   onRemoveMember: (member: MemberProfile) => void;
   onInvite: () => void;
 }) {
@@ -2972,6 +3148,7 @@ function MembersPanel({
           onStartPrivateConversation={onStartPrivateConversation}
           onOpenMemberTerminal={onOpenMemberTerminal}
           onMentionMember={onMentionMember}
+          onUpdateMemberStatus={onUpdateMemberStatus}
           onRemoveMember={onRemoveMember}
         />
         <MemberGroup
@@ -2983,6 +3160,7 @@ function MembersPanel({
           onStartPrivateConversation={onStartPrivateConversation}
           onOpenMemberTerminal={onOpenMemberTerminal}
           onMentionMember={onMentionMember}
+          onUpdateMemberStatus={onUpdateMemberStatus}
           onRemoveMember={onRemoveMember}
         />
         <MemberGroup
@@ -2994,6 +3172,7 @@ function MembersPanel({
           onStartPrivateConversation={onStartPrivateConversation}
           onOpenMemberTerminal={onOpenMemberTerminal}
           onMentionMember={onMentionMember}
+          onUpdateMemberStatus={onUpdateMemberStatus}
           onRemoveMember={onRemoveMember}
         />
         <MemberGroup
@@ -3005,6 +3184,7 @@ function MembersPanel({
           onStartPrivateConversation={onStartPrivateConversation}
           onOpenMemberTerminal={onOpenMemberTerminal}
           onMentionMember={onMentionMember}
+          onUpdateMemberStatus={onUpdateMemberStatus}
           onRemoveMember={onRemoveMember}
         />
       </div>
@@ -3156,6 +3336,7 @@ function MemberGroup({
   onStartPrivateConversation,
   onOpenMemberTerminal,
   onMentionMember,
+  onUpdateMemberStatus,
   onRemoveMember,
 }: {
   title: string;
@@ -3166,6 +3347,7 @@ function MemberGroup({
   onStartPrivateConversation: (member: MemberProfile) => void;
   onOpenMemberTerminal: (member: MemberProfile) => void;
   onMentionMember: (member: MemberProfile) => void;
+  onUpdateMemberStatus: (member: MemberProfile, status: MemberProfile["status"]) => void;
   onRemoveMember: (member: MemberProfile) => void;
 }) {
   return (
@@ -3251,6 +3433,42 @@ function MemberGroup({
                         打开终端
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onUpdateMemberStatus(member, "online")}
+                      className="inline-flex items-center gap-2 rounded px-2 py-2 text-left text-[#263229] hover:bg-[#eef6ea]"
+                    >
+                      <CheckCircle2 aria-hidden="true" size={14} strokeWidth={2} />
+                      状态：在线
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onUpdateMemberStatus(member, "working")}
+                      className="inline-flex items-center gap-2 rounded px-2 py-2 text-left text-[#263229] hover:bg-[#eef6ea]"
+                    >
+                      <RefreshCw aria-hidden="true" size={14} strokeWidth={2} />
+                      状态：工作中
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onUpdateMemberStatus(member, "doNotDisturb")}
+                      className="inline-flex items-center gap-2 rounded px-2 py-2 text-left text-[#263229] hover:bg-[#eef6ea]"
+                    >
+                      <BellOff aria-hidden="true" size={14} strokeWidth={2} />
+                      状态：请勿打扰
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onUpdateMemberStatus(member, "offline")}
+                      className="inline-flex items-center gap-2 rounded px-2 py-2 text-left text-[#263229] hover:bg-[#eef6ea]"
+                    >
+                      <X aria-hidden="true" size={14} strokeWidth={2} />
+                      状态：离线
+                    </button>
                     {member.permissions.canRemove ? (
                       <button
                         type="button"

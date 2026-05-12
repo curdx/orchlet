@@ -136,3 +136,20 @@ pub struct RemoveMemberResult {
     pub removed_member_id: String,
     pub members: Vec<MemberProfile>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "member.ts")]
+pub struct UpdateMemberStatusRequest {
+    pub workspace_id: String,
+    pub member_id: String,
+    pub status: MemberStatus,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "member.ts")]
+pub struct UpdateMemberStatusResult {
+    pub member: MemberProfile,
+    pub members: Vec<MemberProfile>,
+}

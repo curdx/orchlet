@@ -229,6 +229,127 @@ fn insert_dispatch(
         .map_err(sqlite_error("dispatch.insert.failed"))
 }
 
+pub fn create_queued_dispatch(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    target_resolution: &DispatchTargetResolutionProfile,
+) -> Result<DispatchRequestProfile, AppError> {
+    create_dispatch_with_status(
+        app_data_dir,
+        workspace_id,
+        conversation_id,
+        message_id,
+        target_resolution,
+        DispatchRequestStatus::Queued,
+    )
+}
+
+pub fn create_skipped_dispatch(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    target_resolution: &DispatchTargetResolutionProfile,
+) -> Result<DispatchRequestProfile, AppError> {
+    create_dispatch_with_status(
+        app_data_dir,
+        workspace_id,
+        conversation_id,
+        message_id,
+        target_resolution,
+        DispatchRequestStatus::Skipped,
+    )
+}
+
+pub fn oldest_queued_dispatch_for_member(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    member_id: &str,
+) -> Result<Option<DispatchRequestProfile>, AppError> {
+    let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT id, workspace_id, conversation_id, message_id, member_id,
+                    target_source, target_reason, status,
+                    terminal_session_id, failure_code, failure_message,
+                    failure_user_action, failure_details, created_at_ms, updated_at_ms
+             FROM dispatch_requests
+             WHERE workspace_id = ?1 AND member_id = ?2 AND status = ?3
+             ORDER BY created_at_ms ASC, id ASC
+             LIMIT 1",
+        )
+        .map_err(sqlite_error("dispatch.queue.get.prepareFailed"))?;
+
+    match statement.query_row(
+        params![
+            workspace_id,
+            member_id,
+            dispatch_status_to_str(&DispatchRequestStatus::Queued)
+        ],
+        dispatch_from_row,
+    ) {
+        Ok(dispatch) => Ok(Some(dispatch)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(sqlite_error("dispatch.queue.get.queryFailed")(error)),
+    }
+}
+
+pub fn queued_dispatch_count_for_member(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    member_id: &str,
+) -> Result<u32, AppError> {
+    let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
+    let count = connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM dispatch_requests
+             WHERE workspace_id = ?1 AND member_id = ?2 AND status = ?3",
+            params![
+                workspace_id,
+                member_id,
+                dispatch_status_to_str(&DispatchRequestStatus::Queued)
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_err(sqlite_error("dispatch.queue.countFailed"))?;
+
+    Ok(count.max(0) as u32)
+}
+
+fn create_dispatch_with_status(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    target_resolution: &DispatchTargetResolutionProfile,
+    status: DispatchRequestStatus,
+) -> Result<DispatchRequestProfile, AppError> {
+    validate_workspace_id(workspace_id)?;
+    let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
+    let timestamp = now_ms();
+    let dispatch = DispatchRequestProfile {
+        schema_version: DISPATCH_SCHEMA_VERSION,
+        dispatch_request_id: Ulid::new().to_string(),
+        workspace_id: workspace_id.to_owned(),
+        conversation_id: conversation_id.to_owned(),
+        message_id: message_id.to_owned(),
+        member_id: target_resolution.member_id.clone(),
+        target_resolution: target_resolution.clone(),
+        status,
+        terminal_session_id: None,
+        failure: None,
+        created_at_ms: timestamp,
+        updated_at_ms: timestamp,
+    };
+
+    insert_dispatch(&connection, &dispatch)?;
+
+    Ok(dispatch)
+}
+
 fn dispatch_by_id(
     connection: &Connection,
     workspace_id: &str,
@@ -338,6 +459,8 @@ fn dispatch_column_exists(connection: &Connection, column_name: &str) -> Result<
 fn dispatch_status_to_str(status: &DispatchRequestStatus) -> &'static str {
     match status {
         DispatchRequestStatus::Pending => "pending",
+        DispatchRequestStatus::Queued => "queued",
+        DispatchRequestStatus::Skipped => "skipped",
         DispatchRequestStatus::Dispatched => "dispatched",
         DispatchRequestStatus::Failed => "failed",
     }
@@ -345,6 +468,8 @@ fn dispatch_status_to_str(status: &DispatchRequestStatus) -> &'static str {
 
 fn dispatch_status_from_str(value: &str) -> DispatchRequestStatus {
     match value {
+        "queued" => DispatchRequestStatus::Queued,
+        "skipped" => DispatchRequestStatus::Skipped,
         "dispatched" => DispatchRequestStatus::Dispatched,
         "failed" => DispatchRequestStatus::Failed,
         "pending" => DispatchRequestStatus::Pending,

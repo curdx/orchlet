@@ -6,24 +6,26 @@ use orchlet_lib::contracts::{
     CreateGroupConversationRequest, CreateGroupConversationResult, DataIntegrityValidateRequest,
     DataIntegrityValidateResult, DeleteContactRequest, DeleteContactResult,
     DeleteConversationRequest, DeleteConversationResult, DispatchChatMessageRequest,
-    DispatchChatMessageResult, DispatchRequestStatus, DispatchTargetResolutionSource,
-    InviteMemberRequest, InviteMemberResult, InvitedMemberType, ListContactsRequest,
-    ListContactsResult, ListConversationsRequest, ListConversationsResult, ListMembersRequest,
-    ListMembersResult, ListMessagesRequest, ListMessagesResult, MemberRole, MemberRuntimeKind,
-    MemberStatus, OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest,
-    RemoveMemberResult, SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
-    StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
-    TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
-    TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
-    TerminalInputResult, TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload,
-    TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus, TerminalStatusEventPayload,
-    TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
-    TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
-    TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    DispatchChatMessageResult, DispatchQueueResumeRequest, DispatchQueueResumeResult,
+    DispatchRequestStatus, DispatchTargetResolutionSource, InviteMemberRequest, InviteMemberResult,
+    InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
+    ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
+    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest,
+    OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
+    SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
+    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
+    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
+    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
+    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
+    TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
+    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
+    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
+    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
     TerminalTabsListResult, UpdateContactRequest, UpdateContactResult,
     UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
-    UpdateReadPositionRequest, UpdateReadPositionResult, WindowMode, WorkspaceOpenStatus,
+    UpdateMemberStatusRequest, UpdateMemberStatusResult, UpdateReadPositionRequest,
+    UpdateReadPositionResult, WindowMode, WorkspaceOpenStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -90,6 +92,12 @@ fn member_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/member/member-remove.result.json");
     let remove_error: AppError =
         read_fixture("../fixtures/contracts/member/member-remove.error.json");
+    let status_request: UpdateMemberStatusRequest =
+        read_fixture("../fixtures/contracts/member/member-status-update.request.json");
+    let status_result: UpdateMemberStatusResult =
+        read_fixture("../fixtures/contracts/member/member-status-update.result.json");
+    let status_error: AppError =
+        read_fixture("../fixtures/contracts/member/member-status-update.error.json");
 
     assert_eq!(list_request.workspace_id, "01K00000000000000000000000");
     assert_eq!(list_result.members.len(), 1);
@@ -107,6 +115,11 @@ fn member_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(remove_result.removed_member_id, remove_request.member_id);
     assert_eq!(remove_result.members.len(), 1);
     assert_eq!(remove_error.code, "member.remove.forbidden");
+    assert_eq!(status_request.member_id, "01K00000000000000000000031");
+    assert_eq!(status_request.status, MemberStatus::Working);
+    assert_eq!(status_result.member.status, MemberStatus::Working);
+    assert_eq!(status_result.members.len(), 2);
+    assert_eq!(status_error.code, "member.status.notFound");
 }
 
 #[test]
@@ -307,6 +320,12 @@ fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/orchestration/dispatch-chat-message.result.json");
     let error: AppError =
         read_fixture("../fixtures/contracts/orchestration/dispatch-chat-message.error.json");
+    let resume_request: DispatchQueueResumeRequest =
+        read_fixture("../fixtures/contracts/orchestration/dispatch-queue-resume.request.json");
+    let resume_result: DispatchQueueResumeResult =
+        read_fixture("../fixtures/contracts/orchestration/dispatch-queue-resume.result.json");
+    let resume_error: AppError =
+        read_fixture("../fixtures/contracts/orchestration/dispatch-queue-resume.error.json");
 
     assert_eq!(request.workspace_id, "01K00000000000000000000000");
     assert!(request.member_id.is_none());
@@ -335,6 +354,33 @@ fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
     );
     assert_eq!(error.code, "dispatch.target.ambiguous");
     assert!(error.recoverable);
+    assert_eq!(resume_request.member_id, "01K00000000000000000000031");
+    assert_eq!(
+        resume_result
+            .dispatch
+            .as_ref()
+            .expect("resumed dispatch")
+            .status,
+        DispatchRequestStatus::Dispatched
+    );
+    assert_eq!(resume_result.queue_remaining, 1);
+    assert_eq!(
+        resume_result
+            .terminal_session
+            .as_ref()
+            .expect("resumed terminal session")
+            .status,
+        TerminalSessionStatus::Running
+    );
+    assert_eq!(resume_error.code, "dispatch.queue.memberNotFound");
+    assert_eq!(
+        serde_json::to_value(DispatchRequestStatus::Queued).expect("queued status value"),
+        serde_json::json!("queued")
+    );
+    assert_eq!(
+        serde_json::to_value(DispatchRequestStatus::Skipped).expect("skipped status value"),
+        serde_json::json!("skipped")
+    );
 }
 
 #[test]

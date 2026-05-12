@@ -7,9 +7,13 @@ export type DispatchChatMessageResult = { dispatch: DispatchRequestProfile, term
 
 export type DispatchFailureProfile = { code: string, message: string, userAction: string, details: string | null, };
 
+export type DispatchQueueResumeRequest = { workspaceId: string, memberId: string, };
+
+export type DispatchQueueResumeResult = { dispatch: DispatchRequestProfile | null, terminalSession: TerminalSessionProfile | null, sessionCreated: boolean, queueRemaining: number, };
+
 export type DispatchRequestProfile = { schemaVersion: number, dispatchRequestId: string, workspaceId: string, conversationId: string, messageId: string, memberId: string, targetResolution: DispatchTargetResolutionProfile, status: DispatchRequestStatus, terminalSessionId: string | null, failure: DispatchFailureProfile | null, createdAtMs: number, updatedAtMs: number, };
 
-export type DispatchRequestStatus = "pending" | "dispatched" | "failed";
+export type DispatchRequestStatus = "pending" | "queued" | "skipped" | "dispatched" | "failed";
 
 export type DispatchTargetResolutionProfile = { memberId: string, source: DispatchTargetResolutionSource, reason: string, };
 
