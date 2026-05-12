@@ -34,8 +34,10 @@ pub use member::{
     MemberRuntimeKind, MemberRuntimeProfile, MemberStatus, RemoveMemberRequest, RemoveMemberResult,
 };
 pub use terminal::{
-    TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload, TerminalSessionProfile,
-    TerminalSessionStatus, TerminalStreamKind,
+    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
+    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
+    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult,
+    TerminalSessionProfile, TerminalSessionStatus, TerminalStatusEventPayload, TerminalStreamKind,
 };
 pub use workspace::{
     AppLanguage, AppPreferencesSnapshot, AppTheme, OpenWindowModeRequest, OpenWindowModeResult,

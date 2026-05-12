@@ -11,8 +11,10 @@ use orchlet_lib::contracts::{
     ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest,
     OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
     SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
-    TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload, TerminalSessionStatus,
-    TerminalStreamKind, UpdateContactRequest, UpdateContactResult,
+    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
+    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
+    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
+    TerminalStatusEventPayload, TerminalStreamKind, UpdateContactRequest, UpdateContactResult,
     UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
     UpdateReadPositionRequest, UpdateReadPositionResult, WindowMode, WorkspaceOpenStatus,
@@ -110,6 +112,32 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
     let error: AppError = read_fixture("../fixtures/contracts/terminal/terminal-open.error.json");
     let event: TerminalOutputEventPayload =
         read_fixture("../fixtures/contracts/terminal/terminal-output.event.json");
+    let attach_request: TerminalAttachRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-attach.request.json");
+    let attach_result: TerminalAttachResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-attach.result.json");
+    let attach_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-attach.error.json");
+    let input_request: TerminalInputRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-input.request.json");
+    let input_result: TerminalInputResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-input.result.json");
+    let input_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-input.error.json");
+    let resize_request: TerminalResizeRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-resize.request.json");
+    let resize_result: TerminalResizeResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-resize.result.json");
+    let resize_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-resize.error.json");
+    let close_request: TerminalCloseRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-close.request.json");
+    let close_result: TerminalCloseResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-close.result.json");
+    let close_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-close.error.json");
+    let status_event: TerminalStatusEventPayload =
+        read_fixture("../fixtures/contracts/terminal/terminal-status.event.json");
 
     assert_eq!(
         request.member_id.as_deref(),
@@ -131,6 +159,37 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(event.seq, 1);
     assert_eq!(event.kind, TerminalStreamKind::Stdout);
     assert_eq!(event.chunk, "ready\n");
+    assert_eq!(
+        attach_request.terminal_session_id.as_deref(),
+        Some("01K00000000000000000000090")
+    );
+    assert_eq!(attach_result.session.status, TerminalSessionStatus::Running);
+    assert_eq!(attach_error.code, "terminal.session.notFound");
+    assert_eq!(input_request.input, "pwd\n");
+    assert_eq!(
+        input_result.session.terminal_session_id,
+        input_request.terminal_session_id
+    );
+    assert_eq!(input_error.code, "terminal.input.writeFailed");
+    assert_eq!(resize_request.cols, 100);
+    assert_eq!(resize_request.rows, 32);
+    assert_eq!(resize_result.session.cols, resize_request.cols);
+    assert_eq!(resize_result.session.rows, resize_request.rows);
+    assert_eq!(resize_error.code, "terminal.resize.failed");
+    assert_eq!(
+        close_request.terminal_session_id,
+        resize_request.terminal_session_id
+    );
+    assert_eq!(close_result.session.status, TerminalSessionStatus::Exited);
+    assert_eq!(close_error.code, "terminal.close.failed");
+    assert_eq!(status_event.schema_version, 1);
+    assert_eq!(
+        status_event.terminal_session_id,
+        resize_request.terminal_session_id
+    );
+    assert_eq!(status_event.status, TerminalSessionStatus::Running);
+    assert_eq!(status_event.cols, 100);
+    assert_eq!(status_event.rows, 32);
 }
 
 #[test]

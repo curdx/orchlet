@@ -1,0 +1,9 @@
+{
+  "code": "terminal.resize.failed",
+  "message": "无法调整终端尺寸。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请重新打开终端会话后重试。",
+  "details": "io error",
+  "correlationId": null
+}

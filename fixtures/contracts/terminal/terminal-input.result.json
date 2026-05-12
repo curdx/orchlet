@@ -1,9 +1,4 @@
 {
-  "window": {
-    "label": "terminal",
-    "mode": "terminal"
-  },
-  "windowOpened": true,
   "session": {
     "schemaVersion": 1,
     "terminalSessionId": "01K00000000000000000000090",
@@ -14,7 +9,6 @@
     "cols": 120,
     "rows": 30,
     "createdAtMs": 1760000000000,
-    "updatedAtMs": 1760000000001
-  },
-  "sessionCreated": true
+    "updatedAtMs": 1760000000003
+  }
 }

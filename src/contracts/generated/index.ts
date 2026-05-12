@@ -72,11 +72,20 @@ export type {
   RemoveMemberResult,
 } from "./member";
 export type {
+  TerminalAttachRequest,
+  TerminalAttachResult,
+  TerminalCloseRequest,
+  TerminalCloseResult,
+  TerminalInputRequest,
+  TerminalInputResult,
   TerminalOpenRequest,
   TerminalOpenResult,
   TerminalOutputEventPayload,
+  TerminalResizeRequest,
+  TerminalResizeResult,
   TerminalSessionProfile,
   TerminalSessionStatus,
+  TerminalStatusEventPayload,
   TerminalStreamKind,
 } from "./terminal";
 export type {

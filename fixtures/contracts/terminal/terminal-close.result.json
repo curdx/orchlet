@@ -1,20 +1,14 @@
 {
-  "window": {
-    "label": "terminal",
-    "mode": "terminal"
-  },
-  "windowOpened": true,
   "session": {
     "schemaVersion": 1,
     "terminalSessionId": "01K00000000000000000000090",
     "workspaceId": "01K00000000000000000000000",
     "memberId": "01K00000000000000000000031",
     "title": "Codex Reviewer",
-    "status": "running",
-    "cols": 120,
-    "rows": 30,
+    "status": "exited",
+    "cols": 100,
+    "rows": 32,
     "createdAtMs": 1760000000000,
-    "updatedAtMs": 1760000000001
-  },
-  "sessionCreated": true
+    "updatedAtMs": 1760000000005
+  }
 }

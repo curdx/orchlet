@@ -70,6 +70,52 @@
       "requirements": ["FR17", "FR33", "FR40", "NFR35", "NFR36"]
     },
     {
+      "domain": "terminal",
+      "command": "terminal_attach",
+      "requestFixture": "fixtures/contracts/terminal/terminal-attach.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-attach.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-attach.error.json",
+      "rustRequestDto": "TerminalAttachRequest",
+      "rustSuccessDto": "TerminalAttachResult",
+      "rustErrorDto": "AppError",
+      "eventFixture": "fixtures/contracts/terminal/terminal-status.event.json",
+      "rustEventDto": "TerminalStatusEventPayload",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "terminal",
+      "command": "terminal_input",
+      "requestFixture": "fixtures/contracts/terminal/terminal-input.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-input.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-input.error.json",
+      "rustRequestDto": "TerminalInputRequest",
+      "rustSuccessDto": "TerminalInputResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "terminal",
+      "command": "terminal_resize",
+      "requestFixture": "fixtures/contracts/terminal/terminal-resize.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-resize.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-resize.error.json",
+      "rustRequestDto": "TerminalResizeRequest",
+      "rustSuccessDto": "TerminalResizeResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "terminal",
+      "command": "terminal_close",
+      "requestFixture": "fixtures/contracts/terminal/terminal-close.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-close.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-close.error.json",
+      "rustRequestDto": "TerminalCloseRequest",
+      "rustSuccessDto": "TerminalCloseResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

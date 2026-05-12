@@ -66,10 +66,20 @@ import type {
   RemoveMemberResult,
 } from "../../src/contracts/generated/member";
 import type {
+  TerminalAttachRequest,
+  TerminalAttachResult,
+  TerminalCloseRequest,
+  TerminalCloseResult,
+  TerminalInputRequest,
+  TerminalInputResult,
   TerminalOpenRequest,
   TerminalOpenResult,
   TerminalOutputEventPayload,
+  TerminalResizeRequest,
+  TerminalResizeResult,
+  TerminalSessionProfile,
   TerminalSessionStatus,
+  TerminalStatusEventPayload,
   TerminalStreamKind,
 } from "../../src/contracts/generated/terminal";
 import type {
@@ -139,6 +149,19 @@ import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.e
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
 import terminalOutputEvent from "../../fixtures/contracts/terminal/terminal-output.event.json";
+import terminalAttachError from "../../fixtures/contracts/terminal/terminal-attach.error.json";
+import terminalAttachRequest from "../../fixtures/contracts/terminal/terminal-attach.request.json";
+import terminalAttachResult from "../../fixtures/contracts/terminal/terminal-attach.result.json";
+import terminalCloseError from "../../fixtures/contracts/terminal/terminal-close.error.json";
+import terminalCloseRequest from "../../fixtures/contracts/terminal/terminal-close.request.json";
+import terminalCloseResult from "../../fixtures/contracts/terminal/terminal-close.result.json";
+import terminalInputError from "../../fixtures/contracts/terminal/terminal-input.error.json";
+import terminalInputRequest from "../../fixtures/contracts/terminal/terminal-input.request.json";
+import terminalInputResult from "../../fixtures/contracts/terminal/terminal-input.result.json";
+import terminalResizeError from "../../fixtures/contracts/terminal/terminal-resize.error.json";
+import terminalResizeRequest from "../../fixtures/contracts/terminal/terminal-resize.request.json";
+import terminalResizeResult from "../../fixtures/contracts/terminal/terminal-resize.result.json";
+import terminalStatusEvent from "../../fixtures/contracts/terminal/terminal-status.event.json";
 import workspaceError from "../../fixtures/contracts/workspace/workspace-open.error.json";
 import workspaceRequest from "../../fixtures/contracts/workspace/workspace-open.request.json";
 import workspaceResult from "../../fixtures/contracts/workspace/workspace-open.result.json";
@@ -203,15 +226,36 @@ export const terminalOpenResultFixture: TerminalOpenResult = {
     ...terminalOpenResult.window,
     mode: windowMode(terminalOpenResult.window.mode),
   },
-  session: {
-    ...terminalOpenResult.session,
-    status: terminalSessionStatus(terminalOpenResult.session.status),
-  },
+  session: terminalSessionProfile(terminalOpenResult.session),
 };
 export const terminalOpenErrorFixture: AppError = appError(terminalOpenError);
 export const terminalOutputEventFixture: TerminalOutputEventPayload = {
   ...terminalOutputEvent,
   kind: terminalStreamKind(terminalOutputEvent.kind),
+};
+export const terminalAttachRequestFixture: TerminalAttachRequest = terminalAttachRequest;
+export const terminalAttachResultFixture: TerminalAttachResult = {
+  session: terminalSessionProfile(terminalAttachResult.session),
+};
+export const terminalAttachErrorFixture: AppError = appError(terminalAttachError);
+export const terminalInputRequestFixture: TerminalInputRequest = terminalInputRequest;
+export const terminalInputResultFixture: TerminalInputResult = {
+  session: terminalSessionProfile(terminalInputResult.session),
+};
+export const terminalInputErrorFixture: AppError = appError(terminalInputError);
+export const terminalResizeRequestFixture: TerminalResizeRequest = terminalResizeRequest;
+export const terminalResizeResultFixture: TerminalResizeResult = {
+  session: terminalSessionProfile(terminalResizeResult.session),
+};
+export const terminalResizeErrorFixture: AppError = appError(terminalResizeError);
+export const terminalCloseRequestFixture: TerminalCloseRequest = terminalCloseRequest;
+export const terminalCloseResultFixture: TerminalCloseResult = {
+  session: terminalSessionProfile(terminalCloseResult.session),
+};
+export const terminalCloseErrorFixture: AppError = appError(terminalCloseError);
+export const terminalStatusEventFixture: TerminalStatusEventPayload = {
+  ...terminalStatusEvent,
+  status: terminalSessionStatus(terminalStatusEvent.status),
 };
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
@@ -348,6 +392,10 @@ type ErrorJson =
   | typeof inviteMemberError
   | typeof removeMemberError
   | typeof terminalOpenError
+  | typeof terminalAttachError
+  | typeof terminalInputError
+  | typeof terminalResizeError
+  | typeof terminalCloseError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -682,6 +730,24 @@ function terminalSessionStatus(value: string): TerminalSessionStatus {
     default:
       throw new Error(`Unknown terminal session status: ${value}`);
   }
+}
+
+function terminalSessionProfile(session: {
+  schemaVersion: number;
+  terminalSessionId: string;
+  workspaceId: string;
+  memberId: string | null;
+  title: string;
+  status: string;
+  cols: number;
+  rows: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+}): TerminalSessionProfile {
+  return {
+    ...session,
+    status: terminalSessionStatus(session.status),
+  };
 }
 
 function terminalStreamKind(value: string): TerminalStreamKind {

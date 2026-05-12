@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "terminalSessionId": "01K00000000000000000000090",
+  "workspaceId": "01K00000000000000000000000",
+  "memberId": "01K00000000000000000000031",
+  "title": "Codex Reviewer",
+  "status": "running",
+  "cols": 100,
+  "rows": 32,
+  "emittedAtMs": 1760000000006
+}

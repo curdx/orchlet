@@ -1,0 +1,9 @@
+{
+  "code": "terminal.session.notFound",
+  "message": "未找到终端会话。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新终端窗口或重新打开终端后重试。",
+  "details": "workspaceId=01K00000000000000000000000 terminalSessionId=01K00000000000000000000090",
+  "correlationId": null
+}

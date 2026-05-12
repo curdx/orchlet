@@ -1,5 +1,5 @@
 use std::{
-    io::Read,
+    io::{Read, Write},
     sync::Mutex,
     thread::{self, JoinHandle},
 };
@@ -25,8 +25,8 @@ impl TerminalSessionLauncher for PtyTerminalLauncher {
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
-                rows: 30,
-                cols: 120,
+                rows: profile.rows,
+                cols: profile.cols,
                 pixel_width: 0,
                 pixel_height: 0,
             })
@@ -35,6 +35,10 @@ impl TerminalSessionLauncher for PtyTerminalLauncher {
             .master
             .try_clone_reader()
             .map_err(pty_launch_error("cloneReader"))?;
+        let writer = pair
+            .master
+            .take_writer()
+            .map_err(pty_launch_error("takeWriter"))?;
         let mut command = command_builder(&profile);
         command.cwd(profile.cwd.as_os_str());
         let child = pair
@@ -46,6 +50,7 @@ impl TerminalSessionLauncher for PtyTerminalLauncher {
 
         Ok(Box::new(PtyTerminalSession {
             _master: pair.master,
+            writer: Mutex::new(writer),
             child: Mutex::new(child),
             _reader_thread: reader_thread,
         }))
@@ -54,8 +59,70 @@ impl TerminalSessionLauncher for PtyTerminalLauncher {
 
 struct PtyTerminalSession {
     _master: Box<dyn MasterPty + Send>,
+    writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
     _reader_thread: JoinHandle<()>,
+}
+
+impl TerminalSessionHandle for PtyTerminalSession {
+    fn write_input(&self, input: &str) -> Result<(), AppError> {
+        let mut writer = self.writer.lock().map_err(|_| {
+            AppError::recoverable_error(
+                "terminal.input.writeFailed",
+                "无法写入终端输入。",
+                "请重新打开终端会话后重试。",
+                Some("pty writer lock poisoned".to_owned()),
+            )
+        })?;
+        writer
+            .write_all(input.as_bytes())
+            .and_then(|_| writer.flush())
+            .map_err(|error| {
+                AppError::recoverable_error(
+                    "terminal.input.writeFailed",
+                    "无法写入终端输入。",
+                    "请重新打开终端会话后重试。",
+                    Some(error.to_string()),
+                )
+            })
+    }
+
+    fn resize(&self, cols: u16, rows: u16) -> Result<(), AppError> {
+        self._master
+            .resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .map_err(|error| {
+                AppError::recoverable_error(
+                    "terminal.resize.failed",
+                    "无法调整终端尺寸。",
+                    "请重新打开终端会话后重试。",
+                    Some(error.to_string()),
+                )
+            })
+    }
+
+    fn close(&self) -> Result<(), AppError> {
+        let mut child = self.child.lock().map_err(|_| {
+            AppError::recoverable_error(
+                "terminal.close.failed",
+                "无法关闭终端会话。",
+                "请重新打开终端窗口后重试。",
+                Some("pty child lock poisoned".to_owned()),
+            )
+        })?;
+        child.kill().map_err(|error| {
+            AppError::recoverable_error(
+                "terminal.close.failed",
+                "无法关闭终端会话。",
+                "请重新打开终端窗口后重试。",
+                Some(error.to_string()),
+            )
+        })
+    }
 }
 
 impl Drop for PtyTerminalSession {

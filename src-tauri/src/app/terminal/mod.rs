@@ -12,13 +12,17 @@ use ulid::Ulid;
 
 use crate::{
     contracts::{
-        AppError, MemberProfile, OpenedWorkspace, TerminalOpenRequest, TerminalOutputEventPayload,
-        TerminalSessionProfile, TerminalSessionStatus, TerminalStreamKind,
+        AppError, MemberProfile, OpenedWorkspace, TerminalAttachRequest, TerminalCloseRequest,
+        TerminalInputRequest, TerminalOpenRequest, TerminalOutputEventPayload,
+        TerminalResizeRequest, TerminalSessionProfile, TerminalSessionStatus,
+        TerminalStatusEventPayload, TerminalStreamKind,
     },
     domain::{
         member::validate_workspace_id,
         terminal::{
-            ensure_terminal_capable_member, validate_terminal_member_id, TERMINAL_SCHEMA_VERSION,
+            ensure_terminal_capable_member, validate_terminal_member_id,
+            validate_terminal_session_id, validate_terminal_size, TERMINAL_DEFAULT_COLS,
+            TERMINAL_DEFAULT_ROWS, TERMINAL_SCHEMA_VERSION,
         },
     },
     infrastructure::{
@@ -29,10 +33,13 @@ use crate::{
 
 pub type TerminalOutputHandler = Arc<dyn Fn(String, TerminalStreamKind) + Send + Sync + 'static>;
 pub type TerminalEventSink = Arc<dyn Fn(TerminalOutputEventPayload) + Send + Sync + 'static>;
+pub type TerminalStatusSink = Arc<dyn Fn(TerminalStatusEventPayload) + Send + Sync + 'static>;
 
-pub trait TerminalSessionHandle: Send {}
-
-impl<T> TerminalSessionHandle for T where T: Send {}
+pub trait TerminalSessionHandle: Send {
+    fn write_input(&self, input: &str) -> Result<(), AppError>;
+    fn resize(&self, cols: u16, rows: u16) -> Result<(), AppError>;
+    fn close(&self) -> Result<(), AppError>;
+}
 
 pub trait TerminalSessionLauncher: Send + Sync {
     fn spawn(
@@ -47,6 +54,8 @@ pub struct TerminalLaunchProfile {
     pub cwd: PathBuf,
     pub command: String,
     pub use_shell_wrapper: bool,
+    pub cols: u16,
+    pub rows: u16,
 }
 
 pub struct TerminalRuntimeState {
@@ -74,6 +83,7 @@ impl TerminalRuntimeState {
         workspace: &OpenedWorkspace,
         request: TerminalOpenRequest,
         event_sink: TerminalEventSink,
+        status_sink: TerminalStatusSink,
     ) -> Result<(TerminalSessionProfile, bool), AppError> {
         validate_workspace_id(&workspace.metadata.project_id)?;
         let member = resolve_member(app_data_dir, &workspace.metadata.project_id, &request)?;
@@ -83,14 +93,16 @@ impl TerminalRuntimeState {
         };
 
         if request.attach_current && request.member_id.is_none() {
-            if let Some(active_key) = self.active_key_for_workspace(&workspace.metadata.project_id)
+            if let Some(active_key) =
+                self.active_session_key_for_workspace(&workspace.metadata.project_id)
             {
                 key = active_key;
             }
         }
 
-        if let Some(profile) = self.session(&key) {
-            self.set_active_key(key);
+        if let Some(profile) = self.running_session_for_key(&key) {
+            self.set_active_session(profile.terminal_session_id.clone());
+            emit_status(&profile, status_sink);
             return Ok((profile, false));
         }
 
@@ -114,6 +126,8 @@ impl TerminalRuntimeState {
             member_id: key.member_id.clone(),
             title,
             status: TerminalSessionStatus::Starting,
+            cols: TERMINAL_DEFAULT_COLS,
+            rows: TERMINAL_DEFAULT_ROWS,
             created_at_ms: timestamp,
             updated_at_ms: timestamp,
         };
@@ -124,6 +138,8 @@ impl TerminalRuntimeState {
                 cwd: PathBuf::from(&workspace.root_path),
                 command,
                 use_shell_wrapper: key.member_id.is_some(),
+                cols: TERMINAL_DEFAULT_COLS,
+                rows: TERMINAL_DEFAULT_ROWS,
             },
             output_handler,
         )?;
@@ -135,40 +151,208 @@ impl TerminalRuntimeState {
             key,
             TerminalSessionEntry {
                 profile: running_profile.clone(),
-                _handle: handle,
+                handle,
             },
         );
+        emit_status(&running_profile, status_sink);
 
         Ok((running_profile, true))
     }
 
-    pub fn session_count(&self) -> usize {
-        self.state().sessions.len()
+    pub fn attach_session(
+        &self,
+        workspace_id: &str,
+        request: TerminalAttachRequest,
+        status_sink: TerminalStatusSink,
+    ) -> Result<TerminalSessionProfile, AppError> {
+        validate_workspace_id(workspace_id)?;
+        let terminal_session_id = match request.terminal_session_id {
+            Some(terminal_session_id) => {
+                validate_terminal_session_id(&terminal_session_id)?;
+                terminal_session_id
+            }
+            None => self
+                .active_session_id_for_workspace(workspace_id)
+                .ok_or_else(|| session_not_found("active", workspace_id))?,
+        };
+        let profile = self.session_by_id_for_workspace(&terminal_session_id, workspace_id)?;
+        self.set_active_session(terminal_session_id);
+        emit_status(&profile, status_sink);
+
+        Ok(profile)
     }
 
-    fn active_key_for_workspace(&self, workspace_id: &str) -> Option<TerminalSessionKey> {
-        self.state()
-            .active_key
+    pub fn write_input(
+        &self,
+        workspace_id: &str,
+        request: TerminalInputRequest,
+    ) -> Result<TerminalSessionProfile, AppError> {
+        validate_workspace_id(workspace_id)?;
+        validate_terminal_session_id(&request.terminal_session_id)?;
+
+        let mut state = self.state();
+        let entry = state
+            .sessions_by_id
+            .get_mut(&request.terminal_session_id)
+            .ok_or_else(|| session_not_found(&request.terminal_session_id, workspace_id))?;
+        ensure_session_workspace(&entry.profile, workspace_id)?;
+        ensure_session_running(&entry.profile)?;
+        entry.handle.write_input(&request.input)?;
+        entry.profile.updated_at_ms = now_ms().max(entry.profile.updated_at_ms);
+
+        Ok(entry.profile.clone())
+    }
+
+    pub fn resize_session(
+        &self,
+        workspace_id: &str,
+        request: TerminalResizeRequest,
+        status_sink: TerminalStatusSink,
+    ) -> Result<TerminalSessionProfile, AppError> {
+        validate_workspace_id(workspace_id)?;
+        validate_terminal_session_id(&request.terminal_session_id)?;
+        validate_terminal_size(request.cols, request.rows)?;
+
+        let profile = {
+            let mut state = self.state();
+            let entry = state
+                .sessions_by_id
+                .get_mut(&request.terminal_session_id)
+                .ok_or_else(|| session_not_found(&request.terminal_session_id, workspace_id))?;
+            ensure_session_workspace(&entry.profile, workspace_id)?;
+            ensure_session_running(&entry.profile)?;
+            entry.handle.resize(request.cols, request.rows)?;
+            entry.profile.cols = request.cols;
+            entry.profile.rows = request.rows;
+            entry.profile.updated_at_ms = now_ms().max(entry.profile.updated_at_ms);
+            entry.profile.clone()
+        };
+        emit_status(&profile, status_sink);
+
+        Ok(profile)
+    }
+
+    pub fn close_session(
+        &self,
+        workspace_id: &str,
+        request: TerminalCloseRequest,
+        status_sink: TerminalStatusSink,
+    ) -> Result<TerminalSessionProfile, AppError> {
+        validate_workspace_id(workspace_id)?;
+        validate_terminal_session_id(&request.terminal_session_id)?;
+
+        let profile = {
+            let mut state = self.state();
+            let key_to_remove = {
+                let entry = state
+                    .sessions_by_id
+                    .get_mut(&request.terminal_session_id)
+                    .ok_or_else(|| session_not_found(&request.terminal_session_id, workspace_id))?;
+                ensure_session_workspace(&entry.profile, workspace_id)?;
+                if entry.profile.status != TerminalSessionStatus::Exited {
+                    entry.handle.close()?;
+                }
+                entry.profile.status = TerminalSessionStatus::Exited;
+                entry.profile.updated_at_ms = now_ms().max(entry.profile.updated_at_ms);
+                TerminalSessionKey {
+                    workspace_id: entry.profile.workspace_id.clone(),
+                    member_id: entry.profile.member_id.clone(),
+                }
+            };
+            state.session_ids_by_key.remove(&key_to_remove);
+            if state.active_session_id.as_deref() == Some(request.terminal_session_id.as_str()) {
+                state.active_session_id = None;
+            }
+            state
+                .sessions_by_id
+                .get(&request.terminal_session_id)
+                .expect("session exists after close")
+                .profile
+                .clone()
+        };
+        emit_status(&profile, status_sink);
+
+        Ok(profile)
+    }
+
+    pub fn session_count(&self) -> usize {
+        self.state().sessions_by_id.len()
+    }
+
+    fn active_session_key_for_workspace(&self, workspace_id: &str) -> Option<TerminalSessionKey> {
+        let state = self.state();
+        let active_session_id = state.active_session_id.as_ref().filter(|session_id| {
+            state
+                .sessions_by_id
+                .get(*session_id)
+                .map(|entry| {
+                    entry.profile.workspace_id == workspace_id
+                        && entry.profile.status != TerminalSessionStatus::Exited
+                })
+                .unwrap_or(false)
+        })?;
+        state
+            .sessions_by_id
+            .get(active_session_id)
+            .map(|entry| TerminalSessionKey {
+                workspace_id: entry.profile.workspace_id.clone(),
+                member_id: entry.profile.member_id.clone(),
+            })
+    }
+
+    fn active_session_id_for_workspace(&self, workspace_id: &str) -> Option<String> {
+        let state = self.state();
+        state
+            .active_session_id
             .as_ref()
-            .filter(|key| key.workspace_id == workspace_id)
+            .filter(|session_id| {
+                state
+                    .sessions_by_id
+                    .get(*session_id)
+                    .map(|entry| entry.profile.workspace_id == workspace_id)
+                    .unwrap_or(false)
+            })
             .cloned()
     }
 
-    fn session(&self, key: &TerminalSessionKey) -> Option<TerminalSessionProfile> {
-        self.state()
-            .sessions
-            .get(key)
-            .map(|entry| entry.profile.clone())
+    fn running_session_for_key(&self, key: &TerminalSessionKey) -> Option<TerminalSessionProfile> {
+        let state = self.state();
+        let session_id = state.session_ids_by_key.get(key)?;
+        state.sessions_by_id.get(session_id).and_then(|entry| {
+            if entry.profile.status == TerminalSessionStatus::Exited {
+                None
+            } else {
+                Some(entry.profile.clone())
+            }
+        })
+    }
+
+    fn session_by_id_for_workspace(
+        &self,
+        terminal_session_id: &str,
+        workspace_id: &str,
+    ) -> Result<TerminalSessionProfile, AppError> {
+        let state = self.state();
+        let entry = state
+            .sessions_by_id
+            .get(terminal_session_id)
+            .ok_or_else(|| session_not_found(terminal_session_id, workspace_id))?;
+        ensure_session_workspace(&entry.profile, workspace_id)?;
+        Ok(entry.profile.clone())
     }
 
     fn insert_session(&self, key: TerminalSessionKey, entry: TerminalSessionEntry) {
         let mut state = self.state();
-        state.active_key = Some(key.clone());
-        state.sessions.insert(key, entry);
+        let terminal_session_id = entry.profile.terminal_session_id.clone();
+        state
+            .session_ids_by_key
+            .insert(key, terminal_session_id.clone());
+        state.active_session_id = Some(terminal_session_id.clone());
+        state.sessions_by_id.insert(terminal_session_id, entry);
     }
 
-    fn set_active_key(&self, key: TerminalSessionKey) {
-        self.state().active_key = Some(key);
+    fn set_active_session(&self, terminal_session_id: String) {
+        self.state().active_session_id = Some(terminal_session_id);
     }
 
     fn state(&self) -> MutexGuard<'_, TerminalState> {
@@ -180,13 +364,14 @@ impl TerminalRuntimeState {
 
 #[derive(Default)]
 struct TerminalState {
-    sessions: HashMap<TerminalSessionKey, TerminalSessionEntry>,
-    active_key: Option<TerminalSessionKey>,
+    sessions_by_id: HashMap<String, TerminalSessionEntry>,
+    session_ids_by_key: HashMap<TerminalSessionKey, String>,
+    active_session_id: Option<String>,
 }
 
 struct TerminalSessionEntry {
     profile: TerminalSessionProfile,
-    _handle: Box<dyn TerminalSessionHandle>,
+    handle: Box<dyn TerminalSessionHandle>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -245,6 +430,59 @@ fn output_handler_for(
     })
 }
 
+fn emit_status(profile: &TerminalSessionProfile, status_sink: TerminalStatusSink) {
+    status_sink(TerminalStatusEventPayload {
+        schema_version: TERMINAL_SCHEMA_VERSION,
+        terminal_session_id: profile.terminal_session_id.clone(),
+        workspace_id: profile.workspace_id.clone(),
+        member_id: profile.member_id.clone(),
+        title: profile.title.clone(),
+        status: profile.status.clone(),
+        cols: profile.cols,
+        rows: profile.rows,
+        emitted_at_ms: now_ms(),
+    });
+}
+
+fn ensure_session_workspace(
+    profile: &TerminalSessionProfile,
+    workspace_id: &str,
+) -> Result<(), AppError> {
+    if profile.workspace_id == workspace_id {
+        return Ok(());
+    }
+
+    Err(session_not_found(
+        &profile.terminal_session_id,
+        workspace_id,
+    ))
+}
+
+fn ensure_session_running(profile: &TerminalSessionProfile) -> Result<(), AppError> {
+    if profile.status != TerminalSessionStatus::Exited {
+        return Ok(());
+    }
+
+    Err(AppError::recoverable_error(
+        "terminal.session.closed",
+        "终端会话已关闭。",
+        "请重新打开终端会话后重试。",
+        Some(format!("terminalSessionId={}", profile.terminal_session_id)),
+    ))
+}
+
+fn session_not_found(terminal_session_id: &str, workspace_id: &str) -> AppError {
+    AppError::recoverable_error(
+        "terminal.session.notFound",
+        "未找到终端会话。",
+        "请刷新终端窗口或重新打开终端后重试。",
+        Some(format!(
+            "workspaceId={} terminalSessionId={}",
+            workspace_id, terminal_session_id
+        )),
+    )
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -260,21 +498,23 @@ mod tests {
 
     use super::{
         TerminalEventSink, TerminalLaunchProfile, TerminalOutputHandler, TerminalRuntimeState,
-        TerminalSessionHandle, TerminalSessionLauncher,
+        TerminalSessionHandle, TerminalSessionLauncher, TerminalStatusSink,
     };
     use crate::{
-        app::{members::invite_workspace_member, terminal::TerminalOpenRequest},
+        app::members::invite_workspace_member,
         contracts::{
             AppError, InviteMemberRequest, InvitedMemberType, MemberIsolation, MemberPermissions,
-            MemberRuntimeKind, MemberRuntimeProfile, OpenedWorkspace, TerminalStreamKind,
-            WorkspaceAccessMode, WorkspaceMetadata, WorkspaceRegistryAction,
-            WorkspaceRegistryEntry,
+            MemberRuntimeKind, MemberRuntimeProfile, OpenedWorkspace, TerminalAttachRequest,
+            TerminalCloseRequest, TerminalInputRequest, TerminalOpenRequest, TerminalResizeRequest,
+            TerminalSessionStatus, TerminalStreamKind, WorkspaceAccessMode, WorkspaceMetadata,
+            WorkspaceRegistryAction, WorkspaceRegistryEntry,
         },
     };
 
     #[derive(Default)]
     struct MockLauncher {
         launches: Mutex<Vec<TerminalLaunchProfile>>,
+        operations: Arc<Mutex<Vec<String>>>,
     }
 
     impl TerminalSessionLauncher for MockLauncher {
@@ -285,11 +525,41 @@ mod tests {
         ) -> Result<Box<dyn TerminalSessionHandle>, AppError> {
             self.launches.lock().expect("launches").push(profile);
             output_handler("ready".to_owned(), TerminalStreamKind::System);
-            Ok(Box::new(MockHandle))
+            Ok(Box::new(MockHandle {
+                operations: Arc::clone(&self.operations),
+            }))
         }
     }
 
-    struct MockHandle;
+    struct MockHandle {
+        operations: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl TerminalSessionHandle for MockHandle {
+        fn write_input(&self, input: &str) -> Result<(), AppError> {
+            self.operations
+                .lock()
+                .expect("operations")
+                .push(format!("input:{}", input));
+            Ok(())
+        }
+
+        fn resize(&self, cols: u16, rows: u16) -> Result<(), AppError> {
+            self.operations
+                .lock()
+                .expect("operations")
+                .push(format!("resize:{}x{}", cols, rows));
+            Ok(())
+        }
+
+        fn close(&self) -> Result<(), AppError> {
+            self.operations
+                .lock()
+                .expect("operations")
+                .push("close".to_owned());
+            Ok(())
+        }
+    }
 
     #[test]
     fn creates_and_reuses_workspace_session() {
@@ -302,6 +572,11 @@ mod tests {
             let events = Arc::clone(&events);
             Arc::new(move |event| events.lock().expect("events").push(event))
         };
+        let statuses = Arc::new(Mutex::new(Vec::new()));
+        let status_sink: TerminalStatusSink = {
+            let statuses = Arc::clone(&statuses);
+            Arc::new(move |event| statuses.lock().expect("statuses").push(event))
+        };
 
         let (first, first_created) = state
             .open_or_create_session(
@@ -312,6 +587,7 @@ mod tests {
                     attach_current: false,
                 },
                 Arc::clone(&sink),
+                Arc::clone(&status_sink),
             )
             .expect("first session");
         let (second, second_created) = state
@@ -323,6 +599,7 @@ mod tests {
                     attach_current: false,
                 },
                 sink,
+                status_sink,
             )
             .expect("second session");
 
@@ -332,6 +609,7 @@ mod tests {
         assert_eq!(state.session_count(), 1);
         assert_eq!(launcher.launches.lock().expect("launches").len(), 1);
         assert_eq!(events.lock().expect("events")[0].seq, 1);
+        assert_eq!(statuses.lock().expect("statuses").len(), 2);
     }
 
     #[test]
@@ -366,6 +644,7 @@ mod tests {
         let launcher = Arc::new(MockLauncher::default());
         let state = TerminalRuntimeState::with_launcher(launcher.clone());
         let sink: TerminalEventSink = Arc::new(|_| {});
+        let status_sink: TerminalStatusSink = Arc::new(|_| {});
 
         let (first, created) = state
             .open_or_create_session(
@@ -376,6 +655,7 @@ mod tests {
                     attach_current: false,
                 },
                 Arc::clone(&sink),
+                Arc::clone(&status_sink),
             )
             .expect("member session");
         let (second, reused_created) = state
@@ -387,6 +667,7 @@ mod tests {
                     attach_current: false,
                 },
                 sink,
+                status_sink,
             )
             .expect("reused member session");
 
@@ -406,6 +687,7 @@ mod tests {
         let workspace = workspace();
         let state = TerminalRuntimeState::with_launcher(Arc::new(MockLauncher::default()));
         let sink: TerminalEventSink = Arc::new(|_| {});
+        let status_sink: TerminalStatusSink = Arc::new(|_| {});
 
         let missing = state
             .open_or_create_session(
@@ -416,6 +698,7 @@ mod tests {
                     attach_current: false,
                 },
                 Arc::clone(&sink),
+                Arc::clone(&status_sink),
             )
             .expect_err("missing member rejected");
         assert_eq!(missing.code, "terminal.member.notFound");
@@ -437,12 +720,120 @@ mod tests {
                     attach_current: false,
                 },
                 sink,
+                status_sink,
             )
             .expect_err("non terminal member rejected");
         assert_eq!(
             non_terminal.code,
             "terminal.member.runtimeNotTerminalCapable"
         );
+    }
+
+    #[test]
+    fn attach_input_resize_and_close_session_by_id() {
+        let app_data = tempdir().expect("app data");
+        let launcher = Arc::new(MockLauncher::default());
+        let state = TerminalRuntimeState::with_launcher(launcher.clone());
+        let workspace = workspace();
+        let output_sink: TerminalEventSink = Arc::new(|_| {});
+        let statuses = Arc::new(Mutex::new(Vec::new()));
+        let status_sink: TerminalStatusSink = {
+            let statuses = Arc::clone(&statuses);
+            Arc::new(move |event| statuses.lock().expect("statuses").push(event))
+        };
+        let (session, _) = state
+            .open_or_create_session(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalOpenRequest {
+                    member_id: None,
+                    attach_current: false,
+                },
+                output_sink,
+                Arc::clone(&status_sink),
+            )
+            .expect("session");
+
+        let active_attach = state
+            .attach_session(
+                &workspace.metadata.project_id,
+                TerminalAttachRequest {
+                    terminal_session_id: None,
+                },
+                Arc::clone(&status_sink),
+            )
+            .expect("active attach");
+        let explicit_attach = state
+            .attach_session(
+                &workspace.metadata.project_id,
+                TerminalAttachRequest {
+                    terminal_session_id: Some(session.terminal_session_id.clone()),
+                },
+                Arc::clone(&status_sink),
+            )
+            .expect("explicit attach");
+
+        assert_eq!(
+            active_attach.terminal_session_id,
+            session.terminal_session_id
+        );
+        assert_eq!(
+            explicit_attach.terminal_session_id,
+            session.terminal_session_id
+        );
+
+        state
+            .write_input(
+                &workspace.metadata.project_id,
+                TerminalInputRequest {
+                    terminal_session_id: session.terminal_session_id.clone(),
+                    input: "pwd\n".to_owned(),
+                },
+            )
+            .expect("input");
+        let resized = state
+            .resize_session(
+                &workspace.metadata.project_id,
+                TerminalResizeRequest {
+                    terminal_session_id: session.terminal_session_id.clone(),
+                    cols: 100,
+                    rows: 32,
+                },
+                Arc::clone(&status_sink),
+            )
+            .expect("resize");
+        let closed = state
+            .close_session(
+                &workspace.metadata.project_id,
+                TerminalCloseRequest {
+                    terminal_session_id: session.terminal_session_id.clone(),
+                },
+                status_sink,
+            )
+            .expect("close");
+        let after_close = state
+            .write_input(
+                &workspace.metadata.project_id,
+                TerminalInputRequest {
+                    terminal_session_id: session.terminal_session_id,
+                    input: "echo no\n".to_owned(),
+                },
+            )
+            .expect_err("closed session rejects input");
+
+        assert_eq!(resized.cols, 100);
+        assert_eq!(resized.rows, 32);
+        assert_eq!(closed.status, TerminalSessionStatus::Exited);
+        assert_eq!(after_close.code, "terminal.session.closed");
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            ["input:pwd\n", "resize:100x32", "close"]
+        );
+        assert!(statuses
+            .lock()
+            .expect("statuses")
+            .iter()
+            .any(|event| event.status == TerminalSessionStatus::Exited));
     }
 
     fn workspace() -> OpenedWorkspace {

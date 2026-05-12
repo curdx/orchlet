@@ -244,6 +244,8 @@ function terminalOpenResult(overrides: Partial<TerminalOpenResult> = {}): Termin
       memberId: null,
       title: "orchlet-demo",
       status: "running",
+      cols: 120,
+      rows: 30,
       createdAtMs: 1760000000000,
       updatedAtMs: 1760000000001,
     },

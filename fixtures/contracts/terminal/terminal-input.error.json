@@ -1,0 +1,9 @@
+{
+  "code": "terminal.input.writeFailed",
+  "message": "无法写入终端输入。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请重新打开终端会话后重试。",
+  "details": "broken pipe",
+  "correlationId": null
+}

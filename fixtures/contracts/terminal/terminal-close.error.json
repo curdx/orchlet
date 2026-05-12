@@ -1,0 +1,9 @@
+{
+  "code": "terminal.close.failed",
+  "message": "无法关闭终端会话。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请重新打开终端窗口后重试。",
+  "details": "permission denied",
+  "correlationId": null
+}
