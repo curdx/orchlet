@@ -33,6 +33,8 @@ pub fn run() {
             gateway::member_commands::member_status_update,
             gateway::orchestration_commands::orchestration_dispatch_chat_message,
             gateway::orchestration_commands::orchestration_resume_member_dispatch_queue,
+            gateway::notification_commands::notification_preferences_get,
+            gateway::notification_commands::notification_preferences_update,
             gateway::notification_commands::notification_unread_summary_get,
             gateway::notification_commands::notification_unread_summary_update,
             gateway::notification_commands::notification_navigation_pending_get,

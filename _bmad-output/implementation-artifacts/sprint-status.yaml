@@ -97,7 +97,7 @@ development_status:
   7-1-profile-status-settings: done
   7-2-avatar-upload-delete-reset-presets: done
   7-3-theme-language-switching: done
-  7-4-notification-sound-preview-dnd-preferences: backlog
+  7-4-notification-sound-preview-dnd-preferences: done
   7-5-shortcut-configuration: backlog
   7-6-cli-custom-member-default-terminal-configuration: backlog
   7-7-chat-terminal-output-display-preferences: backlog

@@ -22,14 +22,16 @@ use orchlet_lib::contracts::{
     NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
     NotificationNavigationKind, NotificationNavigationPendingRequest,
     NotificationNavigationPendingResult, NotificationNavigationRequest,
-    NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
-    NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
-    NotificationUnreadUpdateResult, OpenSkillFolderRequest, OpenSkillFolderResult,
-    OpenWorkspaceRequest, OpenWorkspaceResult, ProfileAvatarKind, ProfileStatus,
-    RemoveMemberRequest, RemoveMemberResult, ResetProfileAvatarRequest, ResetProfileAvatarResult,
-    RoadmapTaskStatus, SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
-    SendMessageRequest, SendMessageResult, SkillImportStatus, SkillLibraryListRequest,
-    SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
+    NotificationNavigationResult, NotificationPermissionState, NotificationPreferencesGetRequest,
+    NotificationPreferencesGetResult, NotificationPreferencesSnapshot,
+    NotificationPreferencesUpdateRequest, NotificationPreferencesUpdateResult,
+    NotificationUnreadSummary, NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
+    NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenSkillFolderRequest,
+    OpenSkillFolderResult, OpenWorkspaceRequest, OpenWorkspaceResult, ProfileAvatarKind,
+    ProfileStatus, RemoveMemberRequest, RemoveMemberResult, ResetProfileAvatarRequest,
+    ResetProfileAvatarResult, RoadmapTaskStatus, SelectProfileAvatarPresetRequest,
+    SelectProfileAvatarPresetResult, SendMessageRequest, SendMessageResult, SkillImportStatus,
+    SkillLibraryListRequest, SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
     StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
     TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
     TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
@@ -507,6 +509,24 @@ fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
 
 #[test]
 fn notification_contract_fixtures_deserialize_into_rust_dtos() {
+    let _preferences_get_request: NotificationPreferencesGetRequest = read_fixture(
+        "../fixtures/contracts/notification/notification-preferences-get.request.json",
+    );
+    let preferences_get_result: NotificationPreferencesGetResult =
+        read_fixture("../fixtures/contracts/notification/notification-preferences-get.result.json");
+    let preferences_get_error: AppError =
+        read_fixture("../fixtures/contracts/notification/notification-preferences-get.error.json");
+    let preferences_update_request: NotificationPreferencesUpdateRequest = read_fixture(
+        "../fixtures/contracts/notification/notification-preferences-update.request.json",
+    );
+    let preferences_update_result: NotificationPreferencesUpdateResult = read_fixture(
+        "../fixtures/contracts/notification/notification-preferences-update.result.json",
+    );
+    let preferences_update_error: AppError = read_fixture(
+        "../fixtures/contracts/notification/notification-preferences-update.error.json",
+    );
+    let preferences_event: NotificationPreferencesSnapshot =
+        read_fixture("../fixtures/contracts/notification/notification-preferences.event.json");
     let _get_request: NotificationUnreadSummaryRequest = read_fixture(
         "../fixtures/contracts/notification/notification-unread-summary-get.request.json",
     );
@@ -556,6 +576,27 @@ fn notification_contract_fixtures_deserialize_into_rust_dtos() {
     let ignore_event: NotificationUnreadSummary =
         read_fixture("../fixtures/contracts/notification/notification-ignore-all.event.json");
 
+    assert_eq!(
+        preferences_get_result.preferences.permission.state,
+        NotificationPermissionState::Unavailable
+    );
+    assert!(preferences_get_result.preferences.mentions_only);
+    assert_eq!(
+        preferences_get_error.code,
+        "notification.preferences.invalidJson"
+    );
+    assert_eq!(preferences_update_request.dnd_start_minutes, Some(1260));
+    assert_eq!(preferences_update_request.dnd_end_minutes, Some(450));
+    assert!(
+        !preferences_update_result
+            .preferences
+            .desktop_notifications_enabled
+    );
+    assert_eq!(
+        preferences_update_error.code,
+        "notification.preferences.invalidDndTime"
+    );
+    assert_eq!(preferences_event.updated_at_ms, 1_760_000_068_000);
     assert_eq!(get_result.summary.total_unread_count, 3);
     assert_eq!(get_result.summary.tray.badge_label.as_deref(), Some("3"));
     assert_eq!(get_result.summary.conversations.len(), 2);

@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=18"
+      "details": "entries=19"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -41,6 +41,16 @@
       "severity": "info",
       "message": "App preferences are readable when initialized.",
       "affectedPaths": ["/fixtures/app-data/settings/preferences.json"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "settings.notifications.load_validate",
+      "category": "notificationPreferences",
+      "status": "passed",
+      "severity": "info",
+      "message": "Notification preferences are readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/settings/notifications.json"],
       "userAction": null,
       "details": null
     },
@@ -195,8 +205,8 @@
       "details": null
     }
   ],
-  "totalChecks": 19,
-  "passedChecks": 7,
+  "totalChecks": 20,
+  "passedChecks": 8,
   "failedChecks": 1,
   "skippedChecks": 11,
   "hasFailures": true,

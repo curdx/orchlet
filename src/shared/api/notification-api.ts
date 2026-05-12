@@ -8,6 +8,10 @@ import type {
   NotificationNavigationPendingResult,
   NotificationNavigationRequest,
   NotificationNavigationResult,
+  NotificationPreferencesGetResult,
+  NotificationPreferencesSnapshot,
+  NotificationPreferencesUpdateRequest,
+  NotificationPreferencesUpdateResult,
   NotificationUnreadSummary,
   NotificationUnreadSummaryResult,
   NotificationUnreadUpdateRequest,
@@ -17,8 +21,13 @@ import { invokeCommand, isTauriRuntime } from "./client";
 
 export const NOTIFICATION_UNREAD_CHANGED_EVENT = "notification-unread-changed";
 export const NOTIFICATION_NAVIGATION_REQUESTED_EVENT = "notification-navigation-requested";
+export const NOTIFICATION_PREFERENCES_CHANGED_EVENT = "notification-preferences-changed";
 
 export type NotificationApi = {
+  getNotificationPreferences: () => Promise<NotificationPreferencesGetResult>;
+  updateNotificationPreferences: (
+    request: NotificationPreferencesUpdateRequest,
+  ) => Promise<NotificationPreferencesUpdateResult>;
   getUnreadSummary: () => Promise<NotificationUnreadSummaryResult>;
   updateUnreadSummary: (
     request: NotificationUnreadUpdateRequest,
@@ -37,12 +46,57 @@ export type NotificationApi = {
 };
 
 let browserUnreadSummary = createEmptyUnreadSummary();
+let browserUnreadSource: NotificationUnreadUpdateRequest = {
+  workspaceId: null,
+  workspaceName: null,
+  conversations: [],
+  sourceWindowLabel: null,
+};
+let browserNotificationPreferences = createDefaultNotificationPreferences();
 let browserNavigationAction: NotificationNavigationAction | null = null;
 const browserIgnoredConversations = new Map<string, number>();
 const browserUnreadHandlers = new Set<(summary: NotificationUnreadSummary) => void>();
 const browserNavigationHandlers = new Set<(action: NotificationNavigationAction) => void>();
 
 export const notificationApi: NotificationApi = {
+  async getNotificationPreferences() {
+    if (!isTauriRuntime()) {
+      return { preferences: browserNotificationPreferences };
+    }
+
+    return invokeCommand<NotificationPreferencesGetResult>("notification_preferences_get", {
+      request: {},
+    });
+  },
+
+  async updateNotificationPreferences(request) {
+    if (!isTauriRuntime()) {
+      browserNotificationPreferences = {
+        ...browserNotificationPreferences,
+        desktopNotificationsEnabled:
+          request.desktopNotificationsEnabled ??
+          browserNotificationPreferences.desktopNotificationsEnabled,
+        soundEnabled: request.soundEnabled ?? browserNotificationPreferences.soundEnabled,
+        mentionsOnly: request.mentionsOnly ?? browserNotificationPreferences.mentionsOnly,
+        messagePreviewEnabled:
+          request.messagePreviewEnabled ?? browserNotificationPreferences.messagePreviewEnabled,
+        dndEnabled: request.dndEnabled ?? browserNotificationPreferences.dndEnabled,
+        dndStartMinutes:
+          request.dndStartMinutes ?? browserNotificationPreferences.dndStartMinutes,
+        dndEndMinutes: request.dndEndMinutes ?? browserNotificationPreferences.dndEndMinutes,
+        updatedAtMs: Date.now(),
+      };
+      browserUnreadSummary = buildBrowserUnreadSummary(browserUnreadSource);
+      browserUnreadHandlers.forEach((handler) => handler(browserUnreadSummary));
+
+      return { preferences: browserNotificationPreferences };
+    }
+
+    return invokeCommand<NotificationPreferencesUpdateResult>("notification_preferences_update", {
+      request,
+    });
+  },
+
   async getUnreadSummary() {
     if (!isTauriRuntime()) {
       return { summary: browserUnreadSummary };
@@ -55,28 +109,8 @@ export const notificationApi: NotificationApi = {
 
   async updateUnreadSummary(request) {
     if (!isTauriRuntime()) {
-      const conversations = filterBrowserIgnoredConversations(
-        request.workspaceId,
-        request.conversations,
-      );
-      const totalUnreadCount = conversations.reduce(
-        (total, conversation) => total + conversation.unreadCount,
-        0,
-      );
-      browserUnreadSummary = {
-        schemaVersion: 1,
-        workspaceId: request.workspaceId,
-        workspaceName: request.workspaceName,
-        totalUnreadCount,
-        conversations,
-        tray: {
-          unreadCount: totalUnreadCount,
-          badgeLabel: totalUnreadCount > 0 ? unreadBadgeLabel(totalUnreadCount) : null,
-          hasUnread: totalUnreadCount > 0,
-        },
-        updatedAtMs: Date.now(),
-        sourceWindowLabel: request.sourceWindowLabel,
-      };
+      browserUnreadSource = request;
+      browserUnreadSummary = buildBrowserUnreadSummary(request);
       browserUnreadHandlers.forEach((handler) => handler(browserUnreadSummary));
 
       return { summary: browserUnreadSummary };
@@ -102,26 +136,8 @@ export const notificationApi: NotificationApi = {
         });
       }
 
-      const conversations = filterBrowserIgnoredConversations(
-        browserUnreadSummary.workspaceId,
-        browserUnreadSummary.conversations,
-      );
-      const totalUnreadCount = conversations.reduce(
-        (total, conversation) => total + conversation.unreadCount,
-        0,
-      );
-      browserUnreadSummary = {
-        ...browserUnreadSummary,
-        totalUnreadCount,
-        conversations,
-        tray: {
-          unreadCount: totalUnreadCount,
-          badgeLabel: totalUnreadCount > 0 ? unreadBadgeLabel(totalUnreadCount) : null,
-          hasUnread: totalUnreadCount > 0,
-        },
-        updatedAtMs: Date.now(),
-        sourceWindowLabel: request.sourceWindowLabel,
-      };
+      browserUnreadSource = { ...browserUnreadSource, sourceWindowLabel: request.sourceWindowLabel };
+      browserUnreadSummary = buildBrowserUnreadSummary(browserUnreadSource);
       browserUnreadHandlers.forEach((handler) => handler(browserUnreadSummary));
 
       return {
@@ -213,8 +229,91 @@ function createEmptyUnreadSummary(): NotificationUnreadSummary {
   };
 }
 
+function createDefaultNotificationPreferences(): NotificationPreferencesSnapshot {
+  const timestamp = Date.now();
+
+  return {
+    schemaVersion: 1,
+    desktopNotificationsEnabled: true,
+    soundEnabled: true,
+    mentionsOnly: false,
+    messagePreviewEnabled: true,
+    dndEnabled: false,
+    dndStartMinutes: 22 * 60,
+    dndEndMinutes: 8 * 60,
+    permission: {
+      state: "unavailable",
+      message: "系统通知权限适配器当前不可用。",
+      userAction: "当前版本仍会保存本地通知偏好；启用系统通知需要后续平台适配。",
+    },
+    createdAtMs: timestamp,
+    updatedAtMs: timestamp,
+  };
+}
+
+function buildBrowserUnreadSummary(request: NotificationUnreadUpdateRequest): NotificationUnreadSummary {
+  const conversations = filterBrowserIgnoredConversations(
+    request.workspaceId,
+    request.conversations,
+  )
+    .filter((conversation) => {
+      return (
+        !browserNotificationPreferences.mentionsOnly ||
+        (conversation.lastMessagePreview ?? "").includes("@")
+      );
+    })
+    .map((conversation) => ({
+      ...conversation,
+      lastMessagePreview: browserNotificationPreferences.messagePreviewEnabled
+        ? conversation.lastMessagePreview
+        : null,
+    }));
+  const totalUnreadCount = conversations.reduce(
+    (total, conversation) => total + conversation.unreadCount,
+    0,
+  );
+  const dndActive = isBrowserDndActive();
+
+  return {
+    schemaVersion: 1,
+    workspaceId: request.workspaceId,
+    workspaceName: request.workspaceName,
+    totalUnreadCount,
+    conversations,
+    tray: {
+      unreadCount: totalUnreadCount,
+      badgeLabel: totalUnreadCount > 0 ? unreadBadgeLabel(totalUnreadCount) : null,
+      hasUnread:
+        totalUnreadCount > 0 &&
+        browserNotificationPreferences.desktopNotificationsEnabled &&
+        !dndActive,
+    },
+    updatedAtMs: Date.now(),
+    sourceWindowLabel: request.sourceWindowLabel,
+  };
+}
+
 function unreadBadgeLabel(count: number) {
   return count > 99 ? "99+" : String(count);
+}
+
+function isBrowserDndActive() {
+  if (!browserNotificationPreferences.dndEnabled) {
+    return false;
+  }
+
+  const now = new Date();
+  const currentMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+  const start = browserNotificationPreferences.dndStartMinutes;
+  const end = browserNotificationPreferences.dndEndMinutes;
+
+  if (start === end) {
+    return false;
+  }
+
+  return start < end
+    ? currentMinutes >= start && currentMinutes < end
+    : currentMinutes >= start || currentMinutes < end;
 }
 
 function filterBrowserIgnoredConversations(

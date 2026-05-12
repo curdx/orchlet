@@ -216,6 +216,30 @@
     },
     {
       "domain": "notification",
+      "command": "notification_preferences_get",
+      "requestFixture": "fixtures/contracts/notification/notification-preferences-get.request.json",
+      "successResultFixture": "fixtures/contracts/notification/notification-preferences-get.result.json",
+      "errorFixture": "fixtures/contracts/notification/notification-preferences-get.error.json",
+      "rustRequestDto": "NotificationPreferencesGetRequest",
+      "rustSuccessDto": "NotificationPreferencesGetResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR66", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "notification",
+      "command": "notification_preferences_update",
+      "requestFixture": "fixtures/contracts/notification/notification-preferences-update.request.json",
+      "successResultFixture": "fixtures/contracts/notification/notification-preferences-update.result.json",
+      "errorFixture": "fixtures/contracts/notification/notification-preferences-update.error.json",
+      "rustRequestDto": "NotificationPreferencesUpdateRequest",
+      "rustSuccessDto": "NotificationPreferencesUpdateResult",
+      "rustErrorDto": "AppError",
+      "eventFixture": "fixtures/contracts/notification/notification-preferences.event.json",
+      "rustEventDto": "NotificationPreferencesSnapshot",
+      "requirements": ["FR66", "NFR12", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "notification",
       "command": "notification_unread_summary_get",
       "requestFixture": "fixtures/contracts/notification/notification-unread-summary-get.request.json",
       "successResultFixture": "fixtures/contracts/notification/notification-unread-summary-get.result.json",

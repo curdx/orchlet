@@ -43,6 +43,9 @@ import type {
   NotificationNavigationPendingResult,
   NotificationNavigationRequest,
   NotificationNavigationResult,
+  NotificationPreferencesSnapshot,
+  NotificationPreferencesUpdateRequest,
+  NotificationPreferencesUpdateResult,
   NotificationUnreadConversation,
   NotificationUnreadSummary,
   NotificationUnreadUpdateRequest,
@@ -148,6 +151,10 @@ function renderWorkspaceSelection(api: {
     ) => Promise<DispatchQueueResumeResult>;
   }>;
   notificationApi?: Partial<{
+    getNotificationPreferences: () => Promise<{ preferences: NotificationPreferencesSnapshot }>;
+    updateNotificationPreferences: (
+      request: NotificationPreferencesUpdateRequest,
+    ) => Promise<NotificationPreferencesUpdateResult>;
     updateUnreadSummary: (
       request: NotificationUnreadUpdateRequest,
     ) => Promise<NotificationUnreadUpdateResult>;
@@ -290,6 +297,21 @@ function renderWorkspaceSelection(api: {
           ...terminalApi,
         }}
         notificationApi={{
+          getNotificationPreferences: () =>
+            Promise.resolve({ preferences: notificationPreferencesSnapshot() }),
+          updateNotificationPreferences: (request) =>
+            Promise.resolve({
+              preferences: notificationPreferencesSnapshot({
+                desktopNotificationsEnabled:
+                  request.desktopNotificationsEnabled ?? undefined,
+                soundEnabled: request.soundEnabled ?? undefined,
+                mentionsOnly: request.mentionsOnly ?? undefined,
+                messagePreviewEnabled: request.messagePreviewEnabled ?? undefined,
+                dndEnabled: request.dndEnabled ?? undefined,
+                dndStartMinutes: request.dndStartMinutes ?? undefined,
+                dndEndMinutes: request.dndEndMinutes ?? undefined,
+              }),
+            }),
           updateUnreadSummary: (request) =>
             Promise.resolve({ summary: notificationSummary({ request }) }),
           ignoreAllUnread: () =>
@@ -650,6 +672,29 @@ function profileSettingsSnapshot(
   };
 }
 
+function notificationPreferencesSnapshot(
+  overrides: Partial<NotificationPreferencesSnapshot> = {},
+): NotificationPreferencesSnapshot {
+  return {
+    schemaVersion: 1,
+    desktopNotificationsEnabled: true,
+    soundEnabled: true,
+    mentionsOnly: false,
+    messagePreviewEnabled: true,
+    dndEnabled: false,
+    dndStartMinutes: 22 * 60,
+    dndEndMinutes: 8 * 60,
+    permission: {
+      state: "unavailable",
+      message: "系统通知权限适配器当前不可用。",
+      userAction: "当前版本仍会保存本地通知偏好；启用系统通知需要后续平台适配。",
+    },
+    createdAtMs: 1760000060000,
+    updatedAtMs: 1760000060000,
+    ...overrides,
+  };
+}
+
 function profileAvatarSnapshot(
   overrides: Partial<ProfileAvatarSnapshot> = {},
 ): ProfileAvatarSnapshot {
@@ -942,6 +987,97 @@ describe("App workspace entry", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("显示名称不能为空。");
     expect(within(form).getByLabelText("显示名称")).toHaveValue("Draft Name");
     expect(within(form).getByText("显示名称不能为空。")).toBeInTheDocument();
+  });
+
+  it("saves notification preferences from settings controls", async () => {
+    const user = userEvent.setup();
+    const updateNotificationPreferences = vi.fn(
+      (request: NotificationPreferencesUpdateRequest) =>
+        Promise.resolve({
+          preferences: notificationPreferencesSnapshot({
+            desktopNotificationsEnabled: request.desktopNotificationsEnabled ?? true,
+            soundEnabled: request.soundEnabled ?? true,
+            mentionsOnly: request.mentionsOnly ?? false,
+            messagePreviewEnabled: request.messagePreviewEnabled ?? true,
+            dndEnabled: request.dndEnabled ?? false,
+            dndStartMinutes: request.dndStartMinutes ?? 22 * 60,
+            dndEndMinutes: request.dndEndMinutes ?? 8 * 60,
+            updatedAtMs: 1760000061000,
+          }),
+        } satisfies NotificationPreferencesUpdateResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      notificationApi: { updateNotificationPreferences },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.click(within(form).getByLabelText("桌面通知"));
+    await user.click(within(form).getByLabelText("声音提醒"));
+    await user.click(within(form).getByLabelText("仅提及我"));
+    await user.click(within(form).getByLabelText("显示消息预览"));
+    await user.click(within(form).getByLabelText("免打扰时段"));
+    fireEvent.change(within(form).getByLabelText("免打扰开始时间"), {
+      target: { value: "09:00" },
+    });
+    fireEvent.change(within(form).getByLabelText("免打扰结束时间"), {
+      target: { value: "17:30" },
+    });
+    await user.click(within(form).getByRole("button", { name: "保存通知" }));
+
+    expect(updateNotificationPreferences).toHaveBeenCalledWith({
+      desktopNotificationsEnabled: false,
+      soundEnabled: false,
+      mentionsOnly: true,
+      messagePreviewEnabled: false,
+      dndEnabled: true,
+      dndStartMinutes: 9 * 60,
+      dndEndMinutes: 17 * 60 + 30,
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("通知设置已保存");
+    expect(within(form).getByLabelText("免打扰开始时间")).toHaveValue("09:00");
+  });
+
+  it("restores notification preferences and shows unavailable permission action", async () => {
+    const user = userEvent.setup();
+    const savedPreferences = notificationPreferencesSnapshot({
+      desktopNotificationsEnabled: false,
+      soundEnabled: false,
+      mentionsOnly: true,
+      messagePreviewEnabled: false,
+      dndEnabled: true,
+      dndStartMinutes: 21 * 60 + 15,
+      dndEndMinutes: 7 * 60 + 45,
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      notificationApi: {
+        getNotificationPreferences: () => Promise.resolve({ preferences: savedPreferences }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    expect(within(form).getByLabelText("桌面通知")).not.toBeChecked();
+    expect(within(form).getByLabelText("声音提醒")).not.toBeChecked();
+    expect(within(form).getByLabelText("仅提及我")).toBeChecked();
+    expect(within(form).getByLabelText("显示消息预览")).not.toBeChecked();
+    expect(within(form).getByLabelText("免打扰时段")).toBeChecked();
+    expect(within(form).getByLabelText("免打扰开始时间")).toHaveValue("21:15");
+    expect(within(form).getByLabelText("免打扰结束时间")).toHaveValue("07:45");
+    expect(within(form).getByText("系统通知权限适配器当前不可用。")).toBeInTheDocument();
+    expect(
+      within(form).getByText("当前版本仍会保存本地通知偏好；启用系统通知需要后续平台适配。"),
+    ).toBeInTheDocument();
   });
 
   it("restores saved profile values into settings and member surfaces", async () => {

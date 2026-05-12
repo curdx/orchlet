@@ -43,7 +43,10 @@ pub use notification::{
     NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
     NotificationNavigationKind, NotificationNavigationPendingRequest,
     NotificationNavigationPendingResult, NotificationNavigationRequest,
-    NotificationNavigationResult, NotificationTrayState, NotificationUnreadConversation,
+    NotificationNavigationResult, NotificationPermissionSnapshot, NotificationPermissionState,
+    NotificationPreferencesGetRequest, NotificationPreferencesGetResult,
+    NotificationPreferencesSnapshot, NotificationPreferencesUpdateRequest,
+    NotificationPreferencesUpdateResult, NotificationTrayState, NotificationUnreadConversation,
     NotificationUnreadSummary, NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
     NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult,
 };

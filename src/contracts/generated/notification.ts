@@ -16,6 +16,20 @@ export type NotificationNavigationRequest = { kind: NotificationNavigationKind, 
 
 export type NotificationNavigationResult = { action: NotificationNavigationAction, };
 
+export type NotificationPermissionSnapshot = { state: NotificationPermissionState, message: string, userAction: string, };
+
+export type NotificationPermissionState = "granted" | "denied" | "prompt" | "unavailable";
+
+export type NotificationPreferencesGetRequest = Record<symbol, never>;
+
+export type NotificationPreferencesGetResult = { preferences: NotificationPreferencesSnapshot, };
+
+export type NotificationPreferencesSnapshot = { schemaVersion: number, desktopNotificationsEnabled: boolean, soundEnabled: boolean, mentionsOnly: boolean, messagePreviewEnabled: boolean, dndEnabled: boolean, dndStartMinutes: number, dndEndMinutes: number, permission: NotificationPermissionSnapshot, createdAtMs: number, updatedAtMs: number, };
+
+export type NotificationPreferencesUpdateRequest = { desktopNotificationsEnabled: boolean | null, soundEnabled: boolean | null, mentionsOnly: boolean | null, messagePreviewEnabled: boolean | null, dndEnabled: boolean | null, dndStartMinutes: number | null, dndEndMinutes: number | null, };
+
+export type NotificationPreferencesUpdateResult = { preferences: NotificationPreferencesSnapshot, };
+
 export type NotificationTrayState = { unreadCount: number, badgeLabel: string | null, hasUnread: boolean, };
 
 export type NotificationUnreadConversation = { conversationId: string, title: string, unreadCount: number, lastMessagePreview: string | null, terminalMemberId: string | null, updatedAtMs: number, };

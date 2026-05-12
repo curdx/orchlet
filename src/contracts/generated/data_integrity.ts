@@ -12,7 +12,7 @@ export type DataIntegrityValidateRequest = { workspaceRoot: string | null, };
 
 export type DataIntegrityValidateResult = { report: DataIntegrityReport, };
 
-export type StorageCategory = "storageManifest" | "workspaceMetadata" | "workspaceRegistry" | "workspaceFallbacks" | "appPreferences" | "profileSettings" | "avatarLibrary" | "memberProfiles" | "contactProfiles" | "conversationRecords" | "conversationMembers" | "messageRecords" | "messageMentions" | "conversationReadPositions" | "privateConversations" | "terminalTabs" | "skillLibrary" | "workspaceSkillLinks" | "roadmapTasks" | "roadmapGoals";
+export type StorageCategory = "storageManifest" | "workspaceMetadata" | "workspaceRegistry" | "workspaceFallbacks" | "appPreferences" | "notificationPreferences" | "profileSettings" | "avatarLibrary" | "memberProfiles" | "contactProfiles" | "conversationRecords" | "conversationMembers" | "messageRecords" | "messageMentions" | "conversationReadPositions" | "privateConversations" | "terminalTabs" | "skillLibrary" | "workspaceSkillLinks" | "roadmapTasks" | "roadmapGoals";
 
 export type StorageFormat = "json" | "binary" | "sqlite";
 

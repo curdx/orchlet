@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    path::Path,
     sync::{Mutex, MutexGuard},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -7,13 +8,93 @@ use std::{
 use crate::contracts::{
     AppError, NotificationIgnoreAllRequest, NotificationIgnoreAllResult,
     NotificationNavigationAction, NotificationNavigationKind, NotificationNavigationRequest,
+    NotificationPreferencesGetResult, NotificationPreferencesSnapshot,
+    NotificationPreferencesUpdateRequest, NotificationPreferencesUpdateResult,
     NotificationTrayState, NotificationUnreadConversation, NotificationUnreadSummary,
     NotificationUnreadUpdateRequest,
+};
+use crate::{
+    domain::notification::is_dnd_active_at_minute,
+    infrastructure::persistence::json_store::{
+        notification_preferences_store::{
+            default_notification_preferences, load_notification_preferences,
+            save_notification_preferences, unavailable_permission_snapshot,
+            validate_notification_preferences_store,
+        },
+        workspace_registry_store::now_ms as store_now_ms,
+    },
 };
 
 pub const NOTIFICATION_UNREAD_SCHEMA_VERSION: u32 = 1;
 pub const NOTIFICATION_UNREAD_CHANGED_EVENT: &str = "notification-unread-changed";
 pub const NOTIFICATION_NAVIGATION_CHANGED_EVENT: &str = "notification-navigation-requested";
+pub const NOTIFICATION_PREFERENCES_CHANGED_EVENT: &str = "notification-preferences-changed";
+
+pub fn get_notification_preferences(
+    app_data_dir: impl AsRef<Path>,
+) -> Result<NotificationPreferencesGetResult, AppError> {
+    Ok(NotificationPreferencesGetResult {
+        preferences: load_notification_preferences(app_data_dir.as_ref())?,
+    })
+}
+
+pub fn update_notification_preferences(
+    app_data_dir: impl AsRef<Path>,
+    request: NotificationPreferencesUpdateRequest,
+) -> Result<NotificationPreferencesUpdateResult, AppError> {
+    let app_data_dir = app_data_dir.as_ref();
+    let mut preferences = load_notification_preferences(app_data_dir)?;
+    let mut changed = false;
+
+    macro_rules! apply_bool {
+        ($field:ident, $value:expr) => {
+            if let Some(value) = $value {
+                if preferences.$field != value {
+                    preferences.$field = value;
+                    changed = true;
+                }
+            }
+        };
+    }
+
+    apply_bool!(
+        desktop_notifications_enabled,
+        request.desktop_notifications_enabled
+    );
+    apply_bool!(sound_enabled, request.sound_enabled);
+    apply_bool!(mentions_only, request.mentions_only);
+    apply_bool!(message_preview_enabled, request.message_preview_enabled);
+    apply_bool!(dnd_enabled, request.dnd_enabled);
+
+    if let Some(minutes) = request.dnd_start_minutes {
+        if preferences.dnd_start_minutes != minutes {
+            preferences.dnd_start_minutes = minutes;
+            changed = true;
+        }
+    }
+
+    if let Some(minutes) = request.dnd_end_minutes {
+        if preferences.dnd_end_minutes != minutes {
+            preferences.dnd_end_minutes = minutes;
+            changed = true;
+        }
+    }
+
+    if changed {
+        preferences.updated_at_ms = store_now_ms().max(preferences.updated_at_ms + 1);
+    }
+
+    preferences.permission = unavailable_permission_snapshot();
+    save_notification_preferences(app_data_dir, &preferences)?;
+
+    Ok(NotificationPreferencesUpdateResult { preferences })
+}
+
+pub fn validate_notification_preferences_store_for_app_data(
+    app_data_dir: impl AsRef<Path>,
+) -> Result<(), AppError> {
+    validate_notification_preferences_store(app_data_dir.as_ref())
+}
 
 #[derive(Default)]
 pub struct NotificationRuntimeState {
@@ -22,34 +103,40 @@ pub struct NotificationRuntimeState {
 
 impl NotificationRuntimeState {
     pub fn unread_summary(&self) -> NotificationUnreadSummary {
-        self.state().summary.clone()
+        let preferences = default_notification_preferences();
+        self.unread_summary_with_preferences(&preferences)
+    }
+
+    pub fn unread_summary_with_preferences(
+        &self,
+        preferences: &NotificationPreferencesSnapshot,
+    ) -> NotificationUnreadSummary {
+        let mut state = self.state();
+        state.rebuild_summary(preferences);
+        state.summary.clone()
     }
 
     pub fn update_unread_summary(
         &self,
         request: NotificationUnreadUpdateRequest,
     ) -> NotificationUnreadSummary {
-        let mut state = self.state();
-        let workspace_id = request.workspace_id;
-        let conversations = filter_ignored_conversations(
-            &mut state.ignored_conversations,
-            workspace_id.as_deref(),
-            request.conversations,
-        );
-        let total_unread_count = total_unread_count(&conversations);
-        let updated_at_ms = now_ms().max(state.summary.updated_at_ms + 1);
-        let tray = tray_state_for(total_unread_count);
+        let preferences = default_notification_preferences();
+        self.update_unread_summary_with_preferences(request, &preferences)
+    }
 
-        state.summary = NotificationUnreadSummary {
-            schema_version: NOTIFICATION_UNREAD_SCHEMA_VERSION,
-            workspace_id,
+    pub fn update_unread_summary_with_preferences(
+        &self,
+        request: NotificationUnreadUpdateRequest,
+        preferences: &NotificationPreferencesSnapshot,
+    ) -> NotificationUnreadSummary {
+        let mut state = self.state();
+        state.source = NotificationSourceState {
+            workspace_id: request.workspace_id,
             workspace_name: request.workspace_name,
-            total_unread_count,
-            conversations,
-            tray,
-            updated_at_ms,
+            conversations: request.conversations,
             source_window_label: request.source_window_label,
         };
+        state.rebuild_summary(preferences);
 
         state.summary.clone()
     }
@@ -57,6 +144,15 @@ impl NotificationRuntimeState {
     pub fn ignore_all_unread(
         &self,
         request: NotificationIgnoreAllRequest,
+    ) -> NotificationIgnoreAllResult {
+        let preferences = default_notification_preferences();
+        self.ignore_all_unread_with_preferences(request, &preferences)
+    }
+
+    pub fn ignore_all_unread_with_preferences(
+        &self,
+        request: NotificationIgnoreAllRequest,
+        preferences: &NotificationPreferencesSnapshot,
     ) -> NotificationIgnoreAllResult {
         let mut state = self.state();
         let target_workspace_id = request
@@ -88,31 +184,22 @@ impl NotificationRuntimeState {
             0
         };
 
-        let workspace_id = state.summary.workspace_id.clone();
-        let current_conversations = state.summary.conversations.clone();
-        let conversations = filter_ignored_conversations(
-            &mut state.ignored_conversations,
-            workspace_id.as_deref(),
-            current_conversations,
-        );
-        let total_unread_count = total_unread_count(&conversations);
-        let updated_at_ms = now_ms().max(state.summary.updated_at_ms + 1);
-
-        state.summary = NotificationUnreadSummary {
-            schema_version: NOTIFICATION_UNREAD_SCHEMA_VERSION,
-            workspace_id,
-            workspace_name: state.summary.workspace_name.clone(),
-            total_unread_count,
-            conversations,
-            tray: tray_state_for(total_unread_count),
-            updated_at_ms,
-            source_window_label: request.source_window_label,
-        };
+        state.source.source_window_label = request.source_window_label;
+        state.rebuild_summary(preferences);
 
         NotificationIgnoreAllResult {
             summary: state.summary.clone(),
             ignored_count,
         }
+    }
+
+    pub fn apply_preferences(
+        &self,
+        preferences: &NotificationPreferencesSnapshot,
+    ) -> NotificationUnreadSummary {
+        let mut state = self.state();
+        state.rebuild_summary(preferences);
+        state.summary.clone()
     }
 
     pub fn pending_navigation_action(&self) -> Option<NotificationNavigationAction> {
@@ -156,12 +243,14 @@ impl NotificationRuntimeState {
 
 struct NotificationState {
     summary: NotificationUnreadSummary,
+    source: NotificationSourceState,
     navigation_action: Option<NotificationNavigationAction>,
     ignored_conversations: HashMap<String, u64>,
 }
 
 impl Default for NotificationState {
     fn default() -> Self {
+        let source = NotificationSourceState::default();
         Self {
             summary: NotificationUnreadSummary {
                 schema_version: NOTIFICATION_UNREAD_SCHEMA_VERSION,
@@ -169,14 +258,68 @@ impl Default for NotificationState {
                 workspace_name: None,
                 total_unread_count: 0,
                 conversations: Vec::new(),
-                tray: tray_state_for(0),
+                tray: default_tray_state_for(0),
                 updated_at_ms: now_ms(),
                 source_window_label: None,
             },
+            source,
             navigation_action: None,
             ignored_conversations: HashMap::new(),
         }
     }
+}
+
+#[derive(Default)]
+struct NotificationSourceState {
+    workspace_id: Option<String>,
+    workspace_name: Option<String>,
+    conversations: Vec<NotificationUnreadConversation>,
+    source_window_label: Option<String>,
+}
+
+impl NotificationState {
+    fn rebuild_summary(&mut self, preferences: &NotificationPreferencesSnapshot) {
+        let conversations = apply_notification_preferences(
+            &mut self.ignored_conversations,
+            self.source.workspace_id.as_deref(),
+            self.source.conversations.clone(),
+            preferences,
+        );
+        let total_unread_count = total_unread_count(&conversations);
+        let updated_at_ms = now_ms().max(self.summary.updated_at_ms + 1);
+
+        self.summary = NotificationUnreadSummary {
+            schema_version: NOTIFICATION_UNREAD_SCHEMA_VERSION,
+            workspace_id: self.source.workspace_id.clone(),
+            workspace_name: self.source.workspace_name.clone(),
+            total_unread_count,
+            conversations,
+            tray: tray_state_for(total_unread_count, preferences),
+            updated_at_ms,
+            source_window_label: self.source.source_window_label.clone(),
+        };
+    }
+}
+
+fn apply_notification_preferences(
+    ignored_conversations: &mut HashMap<String, u64>,
+    workspace_id: Option<&str>,
+    conversations: Vec<NotificationUnreadConversation>,
+    preferences: &NotificationPreferencesSnapshot,
+) -> Vec<NotificationUnreadConversation> {
+    let conversations =
+        filter_ignored_conversations(ignored_conversations, workspace_id, conversations);
+
+    conversations
+        .into_iter()
+        .filter(|conversation| !preferences.mentions_only || conversation_has_mention(conversation))
+        .map(|mut conversation| {
+            if !preferences.message_preview_enabled {
+                conversation.last_message_preview = None;
+            }
+            conversation
+        })
+        .collect()
 }
 
 fn filter_ignored_conversations(
@@ -198,6 +341,13 @@ fn filter_ignored_conversations(
             }
         })
         .collect()
+}
+
+fn conversation_has_mention(conversation: &NotificationUnreadConversation) -> bool {
+    conversation
+        .last_message_preview
+        .as_deref()
+        .is_some_and(|preview| preview.contains('@'))
 }
 
 fn ignored_key(workspace_id: Option<&str>, conversation_id: &str) -> String {
@@ -231,7 +381,13 @@ fn validate_navigation_request(request: &NotificationNavigationRequest) -> Resul
     }
 }
 
-fn tray_state_for(unread_count: u32) -> NotificationTrayState {
+fn tray_state_for(
+    unread_count: u32,
+    preferences: &NotificationPreferencesSnapshot,
+) -> NotificationTrayState {
+    let dnd_active = is_dnd_active_at_minute(preferences, current_day_minute_utc());
+    let can_interrupt = preferences.desktop_notifications_enabled && !dnd_active;
+
     NotificationTrayState {
         unread_count,
         badge_label: if unread_count > 0 {
@@ -243,8 +399,12 @@ fn tray_state_for(unread_count: u32) -> NotificationTrayState {
         } else {
             None
         },
-        has_unread: unread_count > 0,
+        has_unread: unread_count > 0 && can_interrupt,
     }
+}
+
+fn default_tray_state_for(unread_count: u32) -> NotificationTrayState {
+    tray_state_for(unread_count, &default_notification_preferences())
 }
 
 fn now_ms() -> u64 {
@@ -254,13 +414,18 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+fn current_day_minute_utc() -> u16 {
+    ((now_ms() / 1_000 / 60) % 1_440_u64) as u16
+}
+
 #[cfg(test)]
 mod tests {
-    use super::NotificationRuntimeState;
+    use super::{current_day_minute_utc, NotificationRuntimeState};
     use crate::contracts::{
         NotificationIgnoreAllRequest, NotificationNavigationKind, NotificationNavigationRequest,
         NotificationUnreadConversation, NotificationUnreadUpdateRequest,
     };
+    use crate::infrastructure::persistence::json_store::notification_preferences_store::default_notification_preferences;
 
     #[test]
     fn aggregates_unread_count_and_tray_badge() {
@@ -409,5 +574,88 @@ mod tests {
 
         assert_eq!(newer.total_unread_count, 3);
         assert_eq!(newer.conversations.len(), 1);
+    }
+
+    #[test]
+    fn dnd_preferences_suppress_tray_interruption_without_dropping_unread_count() {
+        let state = NotificationRuntimeState::default();
+        let mut preferences = default_notification_preferences();
+        let current_minute = current_day_minute_utc();
+        preferences.dnd_enabled = true;
+        preferences.dnd_start_minutes = current_minute;
+        preferences.dnd_end_minutes = (current_minute + 1) % 1440;
+
+        let summary = state
+            .update_unread_summary_with_preferences(unread_request("build ready"), &preferences);
+
+        assert_eq!(summary.total_unread_count, 2);
+        assert_eq!(summary.tray.unread_count, 2);
+        assert_eq!(summary.tray.badge_label.as_deref(), Some("2"));
+        assert!(!summary.tray.has_unread);
+    }
+
+    #[test]
+    fn disabled_message_preview_hides_conversation_previews() {
+        let state = NotificationRuntimeState::default();
+        let mut preferences = default_notification_preferences();
+        preferences.message_preview_enabled = false;
+
+        let summary = state
+            .update_unread_summary_with_preferences(unread_request("build ready"), &preferences);
+
+        assert_eq!(summary.total_unread_count, 2);
+        assert_eq!(summary.conversations.len(), 1);
+        assert_eq!(summary.conversations[0].last_message_preview, None);
+    }
+
+    #[test]
+    fn mentions_only_filters_non_mention_conversations() {
+        let state = NotificationRuntimeState::default();
+        let mut preferences = default_notification_preferences();
+        preferences.mentions_only = true;
+
+        let summary = state.update_unread_summary_with_preferences(
+            NotificationUnreadUpdateRequest {
+                workspace_id: Some("workspace-1".to_owned()),
+                workspace_name: Some("alpha".to_owned()),
+                conversations: vec![
+                    unread_conversation("conversation-1", "no direct ping", 1),
+                    unread_conversation("conversation-2", "@owner please review", 3),
+                ],
+                source_window_label: Some("main".to_owned()),
+            },
+            &preferences,
+        );
+
+        assert_eq!(summary.total_unread_count, 3);
+        assert_eq!(summary.conversations.len(), 1);
+        assert_eq!(
+            summary.conversations[0].conversation_id.as_str(),
+            "conversation-2"
+        );
+    }
+
+    fn unread_request(preview: &str) -> NotificationUnreadUpdateRequest {
+        NotificationUnreadUpdateRequest {
+            workspace_id: Some("workspace-1".to_owned()),
+            workspace_name: Some("alpha".to_owned()),
+            conversations: vec![unread_conversation("conversation-1", preview, 2)],
+            source_window_label: Some("main".to_owned()),
+        }
+    }
+
+    fn unread_conversation(
+        conversation_id: &str,
+        preview: &str,
+        unread_count: u32,
+    ) -> NotificationUnreadConversation {
+        NotificationUnreadConversation {
+            conversation_id: conversation_id.to_owned(),
+            title: "General".to_owned(),
+            unread_count,
+            last_message_preview: Some(preview.to_owned()),
+            terminal_member_id: None,
+            updated_at_ms: 10,
+        }
     }
 }

@@ -23,6 +23,8 @@ const requiredCommands = new Set([
   "terminal_tab_update",
   "orchestration_dispatch_chat_message",
   "orchestration_resume_member_dispatch_queue",
+  "notification_preferences_get",
+  "notification_preferences_update",
   "notification_unread_summary_get",
   "notification_unread_summary_update",
   "notification_navigation_pending_get",

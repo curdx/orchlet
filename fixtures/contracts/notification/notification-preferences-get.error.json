@@ -1,0 +1,9 @@
+{
+  "code": "notification.preferences.invalidJson",
+  "message": "通知偏好设置不是有效 JSON。",
+  "userAction": "请先备份或修复 settings/notifications.json 后重试。",
+  "details": "/fixtures/app-data/settings/notifications.json: expected value",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "error"
+}

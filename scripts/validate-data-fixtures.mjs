@@ -9,6 +9,8 @@ validateWorkspaceRegistry("fixtures/data-integrity/valid-json-stores/app-data/wo
 validateWorkspaceFallbacks("fixtures/data-integrity/valid-json-stores/app-data/workspace-fallbacks.json");
 validateAppPreferences("fixtures/schema/settings-v1/app-preferences.json");
 validateAppPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/preferences.json");
+validateNotificationPreferences("fixtures/schema/settings-v1/notification-preferences.json");
+validateNotificationPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/notifications.json");
 validateProfileSettings("fixtures/schema/settings-v1/profile-settings.json");
 validateProfileSettings("fixtures/data-integrity/valid-json-stores/app-data/settings/profile.json");
 validateSqliteScaffold("fixtures/schema/sqlite-workspace-v1/schema-manifest.json");
@@ -113,6 +115,45 @@ function validateAppPreferences(path) {
   assert(preferences.schemaVersion === 1, `${path} schemaVersion must be 1`);
   assert(["system", "light", "dark"].includes(preferences.theme), `${path}.theme invalid`);
   assert(["zh-CN", "en-US"].includes(preferences.language), `${path}.language invalid`);
+  assertPositiveTimestamp(preferences.createdAtMs, `${path}.createdAtMs`);
+  assert(
+    preferences.updatedAtMs >= preferences.createdAtMs,
+    `${path}.updatedAtMs must be >= createdAtMs`,
+  );
+}
+
+function validateNotificationPreferences(path) {
+  const preferences = readJson(path);
+  assert(preferences.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(
+    typeof preferences.desktopNotificationsEnabled === "boolean",
+    `${path}.desktopNotificationsEnabled must be boolean`,
+  );
+  assert(typeof preferences.soundEnabled === "boolean", `${path}.soundEnabled must be boolean`);
+  assert(typeof preferences.mentionsOnly === "boolean", `${path}.mentionsOnly must be boolean`);
+  assert(
+    typeof preferences.messagePreviewEnabled === "boolean",
+    `${path}.messagePreviewEnabled must be boolean`,
+  );
+  assert(typeof preferences.dndEnabled === "boolean", `${path}.dndEnabled must be boolean`);
+  assertDndMinutes(preferences.dndStartMinutes, `${path}.dndStartMinutes`);
+  assertDndMinutes(preferences.dndEndMinutes, `${path}.dndEndMinutes`);
+  if (preferences.dndEnabled) {
+    assert(
+      preferences.dndStartMinutes !== preferences.dndEndMinutes,
+      `${path}.dndStartMinutes and dndEndMinutes must differ when DND is enabled`,
+    );
+  }
+  assert(
+    typeof preferences.permission === "object" && preferences.permission !== null,
+    `${path}.permission must be an object`,
+  );
+  assert(
+    ["granted", "denied", "prompt", "unavailable"].includes(preferences.permission.state),
+    `${path}.permission.state invalid`,
+  );
+  assertNonEmptyString(preferences.permission.message, `${path}.permission.message`);
+  assertNonEmptyString(preferences.permission.userAction, `${path}.permission.userAction`);
   assertPositiveTimestamp(preferences.createdAtMs, `${path}.createdAtMs`);
   assert(
     preferences.updatedAtMs >= preferences.createdAtMs,
@@ -615,6 +656,10 @@ function assertNonEmptyString(value, path) {
 
 function assertPositiveTimestamp(value, path) {
   assert(Number.isInteger(value) && value > 0, `${path} must be a positive integer timestamp`);
+}
+
+function assertDndMinutes(value, path) {
+  assert(Number.isInteger(value) && value >= 0 && value < 24 * 60, `${path} must be minutes in a day`);
 }
 
 function assertValidUlid(value, path) {

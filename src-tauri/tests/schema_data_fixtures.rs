@@ -7,14 +7,16 @@ use orchlet_lib::{
         AppLanguage, AppPreferencesSettingsSnapshot, AppTheme, ChatMessageProfile,
         ChatMessageStatus, ContactProfile, ConversationKind, ConversationProfile,
         ConversationReadPositionProfile, DataIntegrityReport, DataIntegrityStatus, MemberProfile,
-        ProfileAvatarKind, ProfileAvatarSnapshot, ProfileSettingsSnapshot, ProfileStatus,
-        RoadmapGoalEntry, RoadmapTaskEntry, RoadmapTaskStatus, SkillLibraryEntry,
-        TerminalTabProfile, TerminalTabStatus, WorkspaceMetadata, WorkspaceSkillLinkEntry,
-        WorkspaceSkillLinkMode,
+        NotificationPreferencesSnapshot, ProfileAvatarKind, ProfileAvatarSnapshot,
+        ProfileSettingsSnapshot, ProfileStatus, RoadmapGoalEntry, RoadmapTaskEntry,
+        RoadmapTaskStatus, SkillLibraryEntry, TerminalTabProfile, TerminalTabStatus,
+        WorkspaceMetadata, WorkspaceSkillLinkEntry, WorkspaceSkillLinkMode,
     },
     domain::workspace::validate_workspace_metadata,
     infrastructure::persistence::json_store::{
-        app_preferences_store::load_app_preferences, profile_settings_store::load_profile_settings,
+        app_preferences_store::load_app_preferences,
+        notification_preferences_store::load_notification_preferences,
+        profile_settings_store::load_profile_settings,
         workspace_fallback_store::load_workspace_fallbacks,
         workspace_registry_store::load_workspace_registry,
     },
@@ -167,6 +169,13 @@ struct AppPreferencesFixture {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct NotificationPreferencesFixture {
+    #[serde(flatten)]
+    preferences: NotificationPreferencesSnapshot,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TerminalStreamFixture {
     schema_version: u32,
     case: String,
@@ -224,6 +233,16 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
     .expect("fallbacks copied");
     fs::create_dir_all(app_data.join("settings")).expect("settings dir");
     fs::copy(
+        fixture_app_data.join("settings/preferences.json"),
+        app_data.join("settings/preferences.json"),
+    )
+    .expect("app preferences copied");
+    fs::copy(
+        fixture_app_data.join("settings/notifications.json"),
+        app_data.join("settings/notifications.json"),
+    )
+    .expect("notification preferences copied");
+    fs::copy(
         fixture_app_data.join("settings/profile.json"),
         app_data.join("settings/profile.json"),
     )
@@ -270,11 +289,12 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
     load_workspace_registry(&app_data).expect("registry fixture loads");
     load_workspace_fallbacks(&app_data).expect("fallback fixture loads");
     load_app_preferences(&app_data).expect("app preferences fixture loads");
+    load_notification_preferences(&app_data).expect("notification preferences fixture loads");
     load_profile_settings(&app_data).expect("profile settings fixture loads");
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 19);
+    assert_eq!(report.total_checks, 20);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -288,7 +308,7 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 19);
+    assert_eq!(report.total_checks, 20);
     assert_eq!(report.failed_checks, 1);
     assert_eq!(report.skipped_checks, 11);
     assert!(report.has_failures);
@@ -688,6 +708,27 @@ fn app_preferences_fixture_covers_theme_and_language() {
     assert!(fixture.updated_at_ms >= fixture.created_at_ms);
     assert_eq!(snapshot.theme, AppTheme::Dark);
     assert_eq!(snapshot.language, AppLanguage::EnUs);
+}
+
+#[test]
+fn notification_preferences_fixture_covers_local_notification_controls() {
+    let fixture: NotificationPreferencesFixture =
+        read_fixture("../fixtures/schema/settings-v1/notification-preferences.json");
+    let preferences = fixture.preferences;
+
+    assert_eq!(preferences.schema_version, 1);
+    assert!(preferences.desktop_notifications_enabled);
+    assert!(!preferences.sound_enabled);
+    assert!(preferences.mentions_only);
+    assert!(!preferences.message_preview_enabled);
+    assert!(preferences.dnd_enabled);
+    assert_eq!(preferences.dnd_start_minutes, 1260);
+    assert_eq!(preferences.dnd_end_minutes, 450);
+    assert_eq!(
+        preferences.permission.state,
+        orchlet_lib::contracts::NotificationPermissionState::Unavailable
+    );
+    assert!(preferences.updated_at_ms >= preferences.created_at_ms);
 }
 
 #[test]

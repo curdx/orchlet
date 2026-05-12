@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   AtSign,
+  Bell,
   BellOff,
   Bot,
   CheckCircle2,
   Edit3,
   Eraser,
+  Eye,
   FolderOpen,
   Hash,
   History,
   Image as ImageIcon,
+  Info,
   Link2,
   ListTodo,
   MessageSquare,
   MoreVertical,
+  Moon,
   Pin,
   Plus,
   RefreshCw,
@@ -86,6 +90,7 @@ import type {
   AppLanguage,
   AppTheme,
   NotificationNavigationAction,
+  NotificationPreferencesSnapshot,
   OpenWorkspaceResult,
   OpenedWorkspace,
   WindowContextSnapshot,
@@ -130,7 +135,11 @@ type WorkspaceSelectionPageProps = {
   memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember" | "updateMemberStatus">;
   notificationApi?: Pick<
     NotificationApi,
-    "updateUnreadSummary" | "getPendingNavigation" | "subscribeNavigation"
+    | "getNotificationPreferences"
+    | "updateNotificationPreferences"
+    | "updateUnreadSummary"
+    | "getPendingNavigation"
+    | "subscribeNavigation"
   >;
   skillsApi?: Pick<
     SkillsApi,
@@ -237,6 +246,15 @@ type ProfileSettingsDraft = {
 };
 type ProfileSettingsField = keyof ProfileSettingsDraft;
 type ProfileAvatarAction = "upload" | "preset" | "reset" | "delete";
+type NotificationPreferencesDraft = {
+  desktopNotificationsEnabled: boolean;
+  soundEnabled: boolean;
+  mentionsOnly: boolean;
+  messagePreviewEnabled: boolean;
+  dndEnabled: boolean;
+  dndStartTime: string;
+  dndEndTime: string;
+};
 
 const MESSAGE_PAGE_LIMIT = 30;
 const RECENT_EMOJI_STORAGE_KEY = "orchlet.chat.recentEmojis";
@@ -275,6 +293,23 @@ const DEFAULT_PROFILE_SETTINGS: ProfileSettingsSnapshot = {
     sizeBytes: null,
     libraryRelativePath: null,
     updatedAtMs: 1,
+  },
+  createdAtMs: 1,
+  updatedAtMs: 1,
+};
+const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferencesSnapshot = {
+  schemaVersion: 1,
+  desktopNotificationsEnabled: true,
+  soundEnabled: true,
+  mentionsOnly: false,
+  messagePreviewEnabled: true,
+  dndEnabled: false,
+  dndStartMinutes: 22 * 60,
+  dndEndMinutes: 8 * 60,
+  permission: {
+    state: "unavailable",
+    message: "系统通知权限适配器当前不可用。",
+    userAction: "当前版本仍会保存本地通知偏好；启用系统通知需要后续平台适配。",
   },
   createdAtMs: 1,
   updatedAtMs: 1,
@@ -388,6 +423,14 @@ export function WorkspaceSelectionPage({
     field: ProfileSettingsField;
     message: string;
   } | null>(null);
+  const [notificationPreferencesDraft, setNotificationPreferencesDraft] =
+    useState<NotificationPreferencesDraft>(
+      notificationPreferencesToDraft(DEFAULT_NOTIFICATION_PREFERENCES),
+    );
+  const [notificationPreferencesError, setNotificationPreferencesError] = useState<string | null>(
+    null,
+  );
+  const [isSavingNotificationPreferences, setIsSavingNotificationPreferences] = useState(false);
   const [isInvitingMember, setIsInvitingMember] = useState(false);
   const [openedWorkspace, setOpenedWorkspace] = useState<OpenedWorkspace | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
@@ -533,6 +576,13 @@ export function WorkspaceSelectionPage({
     retry: false,
   });
   const profileSettings = profileSettingsQuery.data?.profile ?? DEFAULT_PROFILE_SETTINGS;
+  const notificationPreferencesQuery = useQuery({
+    queryKey: ["notification-preferences"],
+    queryFn: notificationsApi.getNotificationPreferences,
+    retry: false,
+  });
+  const notificationPreferences =
+    notificationPreferencesQuery.data?.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
   const profiledMembers = useMemo(
     () => applyProfileSettingsToOwnerMembers(members, profileSettings),
     [members, profileSettings],
@@ -743,13 +793,30 @@ export function WorkspaceSelectionPage({
   }, [profileSettingsQuery.error, showToast]);
 
   useEffect(() => {
+    if (!notificationPreferencesQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(notificationPreferencesQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载通知设置",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [notificationPreferencesQuery.error, showToast]);
+
+  useEffect(() => {
     if (isProfileSettingsOpen) {
       return;
     }
 
     setProfileSettingsDraft(profileSnapshotToDraft(profileSettings));
     setProfileSettingsFieldError(null);
-  }, [isProfileSettingsOpen, profileSettings]);
+    setNotificationPreferencesDraft(notificationPreferencesToDraft(notificationPreferences));
+    setNotificationPreferencesError(null);
+  }, [isProfileSettingsOpen, notificationPreferences, profileSettings]);
 
   useEffect(() => {
     membersRef.current = profiledMembers;
@@ -2694,6 +2761,8 @@ export function WorkspaceSelectionPage({
   function openProfileSettings() {
     setProfileSettingsDraft(profileSnapshotToDraft(profileSettings));
     setProfileSettingsFieldError(null);
+    setNotificationPreferencesDraft(notificationPreferencesToDraft(notificationPreferences));
+    setNotificationPreferencesError(null);
     setIsProfileSettingsOpen(true);
   }
 
@@ -2728,6 +2797,54 @@ export function WorkspaceSelectionPage({
       });
     } finally {
       setIsSavingProfileSettings(false);
+    }
+  }
+
+  async function handleSaveNotificationPreferences() {
+    setIsSavingNotificationPreferences(true);
+    setNotificationPreferencesError(null);
+
+    const dndStartMinutes = timeInputToMinutes(notificationPreferencesDraft.dndStartTime);
+    const dndEndMinutes = timeInputToMinutes(notificationPreferencesDraft.dndEndTime);
+
+    if (dndStartMinutes === null || dndEndMinutes === null) {
+      setNotificationPreferencesError("请输入有效的静默时段。");
+      setIsSavingNotificationPreferences(false);
+      return;
+    }
+
+    try {
+      const result = await notificationsApi.updateNotificationPreferences({
+        desktopNotificationsEnabled: notificationPreferencesDraft.desktopNotificationsEnabled,
+        soundEnabled: notificationPreferencesDraft.soundEnabled,
+        mentionsOnly: notificationPreferencesDraft.mentionsOnly,
+        messagePreviewEnabled: notificationPreferencesDraft.messagePreviewEnabled,
+        dndEnabled: notificationPreferencesDraft.dndEnabled,
+        dndStartMinutes,
+        dndEndMinutes,
+      });
+
+      queryClient.setQueryData(["notification-preferences"], {
+        preferences: result.preferences,
+      });
+      setNotificationPreferencesDraft(notificationPreferencesToDraft(result.preferences));
+      showToast({
+        tone: "info",
+        title: "通知设置已保存",
+        message: result.preferences.dndEnabled ? "静默时段已生效。" : "通知偏好已应用。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setNotificationPreferencesError(appError.message);
+      showToast({
+        tone: appError.severity,
+        title: "通知设置保存失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSavingNotificationPreferences(false);
     }
   }
 
@@ -3191,17 +3308,24 @@ export function WorkspaceSelectionPage({
               <ProfileSettingsModal
                 draft={profileSettingsDraft}
                 savedProfile={profileSettings}
+                notificationDraft={notificationPreferencesDraft}
+                savedNotificationPreferences={notificationPreferences}
                 fieldError={profileSettingsFieldError}
+                notificationError={notificationPreferencesError}
                 isLoading={profileSettingsQuery.isLoading}
                 isSaving={isSavingProfileSettings}
+                isNotificationLoading={notificationPreferencesQuery.isLoading}
+                isNotificationSaving={isSavingNotificationPreferences}
                 pendingAvatarAction={pendingProfileAvatarAction}
                 onDraftChange={setProfileSettingsDraft}
+                onNotificationDraftChange={setNotificationPreferencesDraft}
                 onUploadAvatar={() => void handleUploadProfileAvatar()}
                 onSelectAvatarPreset={(presetId) => void handleSelectProfileAvatarPreset(presetId)}
                 onResetAvatar={() => void handleResetProfileAvatar()}
                 onDeleteUploadedAvatar={() => void handleDeleteUploadedProfileAvatar()}
                 onClose={() => setIsProfileSettingsOpen(false)}
                 onSave={() => void handleSaveProfileSettings()}
+                onSaveNotifications={() => void handleSaveNotificationPreferences()}
               />
             ) : null}
 
@@ -3551,35 +3675,54 @@ function SkillLibraryPanel({
 function ProfileSettingsModal({
   draft,
   savedProfile,
+  notificationDraft,
+  savedNotificationPreferences,
   fieldError,
+  notificationError,
   isLoading,
   isSaving,
+  isNotificationLoading,
+  isNotificationSaving,
   pendingAvatarAction,
   onDraftChange,
+  onNotificationDraftChange,
   onUploadAvatar,
   onSelectAvatarPreset,
   onResetAvatar,
   onDeleteUploadedAvatar,
   onClose,
   onSave,
+  onSaveNotifications,
 }: {
   draft: ProfileSettingsDraft;
   savedProfile: ProfileSettingsSnapshot;
+  notificationDraft: NotificationPreferencesDraft;
+  savedNotificationPreferences: NotificationPreferencesSnapshot;
   fieldError: { field: ProfileSettingsField; message: string } | null;
+  notificationError: string | null;
   isLoading: boolean;
   isSaving: boolean;
+  isNotificationLoading: boolean;
+  isNotificationSaving: boolean;
   pendingAvatarAction: ProfileAvatarAction | null;
   onDraftChange: (draft: ProfileSettingsDraft) => void;
+  onNotificationDraftChange: (draft: NotificationPreferencesDraft) => void;
   onUploadAvatar: () => void;
   onSelectAvatarPreset: (presetId: string) => void;
   onResetAvatar: () => void;
   onDeleteUploadedAvatar: () => void;
   onClose: () => void;
   onSave: () => void;
+  onSaveNotifications: () => void;
 }) {
   const canSave = draft.displayName.trim().length > 0 && draft.timezone.trim().length > 0;
   const selectedPresetId = savedProfile.avatar?.kind === "preset" ? savedProfile.avatar.presetId : null;
   const avatarControlsDisabled = pendingAvatarAction !== null;
+  const canSaveNotifications =
+    !isNotificationSaving &&
+    notificationDraft.dndStartTime.length === 5 &&
+    notificationDraft.dndEndTime.length === 5;
+  const permissionUnavailable = savedNotificationPreferences.permission.state === "unavailable";
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-[#17211b]/35 px-4">
@@ -3587,7 +3730,7 @@ function ProfileSettingsModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="profile-settings-title"
-        className="max-h-[92vh] w-full max-w-[640px] overflow-y-auto rounded-lg border border-[#dbe4d7] bg-white p-5 shadow-xl"
+        className="max-h-[92vh] w-full max-w-[720px] overflow-y-auto rounded-lg border border-[#dbe4d7] bg-white p-5 shadow-xl"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -3777,6 +3920,149 @@ function ProfileSettingsModal({
             ) : null}
           </label>
 
+          <section
+            aria-labelledby="notification-settings-title"
+            className="grid gap-4 rounded-md border border-[#e3eadf] bg-[#fbfcfa] p-3"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-xs font-medium text-[#6a786c]">
+                  <Bell aria-hidden="true" size={14} strokeWidth={2} />
+                  通知
+                </p>
+                <h3
+                  id="notification-settings-title"
+                  className="mt-1 text-sm font-semibold text-[#263229]"
+                >
+                  通知偏好
+                </h3>
+              </div>
+              <span className="text-[11px] text-[#7a8678]">
+                {isNotificationLoading
+                  ? "正在读取通知设置"
+                  : `更新时间：${new Date(savedNotificationPreferences.updatedAtMs).toLocaleString()}`}
+              </span>
+            </div>
+
+            {permissionUnavailable ? (
+              <div className="flex items-start gap-2 rounded-md border border-[#ead8a8] bg-[#fff8e4] p-3 text-xs text-[#6f5b1f]">
+                <BellOff aria-hidden="true" className="mt-0.5 shrink-0" size={15} strokeWidth={2} />
+                <p>
+                  <span className="block font-semibold">
+                    {savedNotificationPreferences.permission.message}
+                  </span>
+                  <span className="mt-1 block">
+                    {savedNotificationPreferences.permission.userAction}
+                  </span>
+                </p>
+              </div>
+            ) : null}
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <NotificationToggle
+                icon={<Bell aria-hidden="true" size={15} strokeWidth={2} />}
+                label="桌面通知"
+                checked={notificationDraft.desktopNotificationsEnabled}
+                onChange={(checked) =>
+                  onNotificationDraftChange({
+                    ...notificationDraft,
+                    desktopNotificationsEnabled: checked,
+                  })
+                }
+              />
+              <NotificationToggle
+                icon={<Info aria-hidden="true" size={15} strokeWidth={2} />}
+                label="声音提醒"
+                checked={notificationDraft.soundEnabled}
+                onChange={(checked) =>
+                  onNotificationDraftChange({ ...notificationDraft, soundEnabled: checked })
+                }
+              />
+              <NotificationToggle
+                icon={<AtSign aria-hidden="true" size={15} strokeWidth={2} />}
+                label="仅提及我"
+                checked={notificationDraft.mentionsOnly}
+                onChange={(checked) =>
+                  onNotificationDraftChange({ ...notificationDraft, mentionsOnly: checked })
+                }
+              />
+              <NotificationToggle
+                icon={<Eye aria-hidden="true" size={15} strokeWidth={2} />}
+                label="显示消息预览"
+                checked={notificationDraft.messagePreviewEnabled}
+                onChange={(checked) =>
+                  onNotificationDraftChange({
+                    ...notificationDraft,
+                    messagePreviewEnabled: checked,
+                  })
+                }
+              />
+            </div>
+
+            <div className="grid gap-3 rounded-md border border-[#edf1eb] bg-white p-3">
+              <NotificationToggle
+                icon={<Moon aria-hidden="true" size={15} strokeWidth={2} />}
+                label="免打扰时段"
+                checked={notificationDraft.dndEnabled}
+                onChange={(checked) =>
+                  onNotificationDraftChange({ ...notificationDraft, dndEnabled: checked })
+                }
+              />
+              {notificationDraft.dndEnabled ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                    开始
+                    <input
+                      type="time"
+                      value={notificationDraft.dndStartTime}
+                      aria-label="免打扰开始时间"
+                      onChange={(event) =>
+                        onNotificationDraftChange({
+                          ...notificationDraft,
+                          dndStartTime: event.target.value,
+                        })
+                      }
+                      className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87]"
+                    />
+                  </label>
+                  <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                    结束
+                    <input
+                      type="time"
+                      value={notificationDraft.dndEndTime}
+                      aria-label="免打扰结束时间"
+                      onChange={(event) =>
+                        onNotificationDraftChange({
+                          ...notificationDraft,
+                          dndEndTime: event.target.value,
+                        })
+                      }
+                      className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87]"
+                    />
+                  </label>
+                </div>
+              ) : null}
+            </div>
+
+            {notificationError ? (
+              <p className="rounded-md border border-[#e2c7c0] bg-[#fff5f2] p-2 text-xs font-medium text-[#7a2f2f]">
+                {notificationError}
+              </p>
+            ) : null}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                disabled={!canSaveNotifications}
+                onClick={onSaveNotifications}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+              >
+                <CheckCircle2 aria-hidden="true" size={14} strokeWidth={2} />
+                {isNotificationSaving ? "保存中" : "保存通知"}
+              </button>
+            </div>
+          </section>
+
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#edf1eb] pt-4">
             <p className="text-xs text-[#6a786c]">
               {isLoading
@@ -3804,6 +4090,36 @@ function ProfileSettingsModal({
         </form>
       </section>
     </div>
+  );
+}
+
+function NotificationToggle({
+  icon,
+  label,
+  checked,
+  onChange,
+}: {
+  icon: ReactNode;
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="flex min-h-11 items-center justify-between gap-3 rounded-md border border-[#edf1eb] bg-white px-3 py-2 text-xs font-semibold text-[#263229]">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
+          {icon}
+        </span>
+        <span className="truncate">{label}</span>
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        aria-label={label}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-4 w-4 accent-[#2f6f55]"
+      />
+    </label>
   );
 }
 
@@ -6441,6 +6757,47 @@ function profileSnapshotToDraft(profile: ProfileSettingsSnapshot): ProfileSettin
     status: profile.status,
     statusMessage: profile.statusMessage ?? "",
   };
+}
+
+function notificationPreferencesToDraft(
+  preferences: NotificationPreferencesSnapshot,
+): NotificationPreferencesDraft {
+  return {
+    desktopNotificationsEnabled: preferences.desktopNotificationsEnabled,
+    soundEnabled: preferences.soundEnabled,
+    mentionsOnly: preferences.mentionsOnly,
+    messagePreviewEnabled: preferences.messagePreviewEnabled,
+    dndEnabled: preferences.dndEnabled,
+    dndStartTime: minutesToTimeInput(preferences.dndStartMinutes),
+    dndEndTime: minutesToTimeInput(preferences.dndEndMinutes),
+  };
+}
+
+function minutesToTimeInput(minutes: number) {
+  const normalizedMinutes = Number.isInteger(minutes) && minutes >= 0 && minutes < 1440 ? minutes : 0;
+  const hours = Math.floor(normalizedMinutes / 60);
+  const minute = normalizedMinutes % 60;
+
+  return `${String(hours).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function timeInputToMinutes(value: string) {
+  const [hourText, minuteText] = value.split(":");
+  const hours = Number(hourText);
+  const minutes = Number(minuteText);
+
+  if (
+    !Number.isInteger(hours) ||
+    !Number.isInteger(minutes) ||
+    hours < 0 ||
+    hours > 23 ||
+    minutes < 0 ||
+    minutes > 59
+  ) {
+    return null;
+  }
+
+  return hours * 60 + minutes;
 }
 
 function applyProfileSettingsToOwnerMembers(

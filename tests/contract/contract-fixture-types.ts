@@ -76,6 +76,12 @@ import type {
   NotificationNavigationPendingResult,
   NotificationNavigationRequest,
   NotificationNavigationResult,
+  NotificationPermissionState,
+  NotificationPreferencesGetRequest,
+  NotificationPreferencesGetResult,
+  NotificationPreferencesSnapshot,
+  NotificationPreferencesUpdateRequest,
+  NotificationPreferencesUpdateResult,
   NotificationUnreadSummary,
   NotificationUnreadSummaryRequest,
   NotificationUnreadSummaryResult,
@@ -270,6 +276,13 @@ import notificationNavigationEvent from "../../fixtures/contracts/notification/n
 import notificationNavigationPendingError from "../../fixtures/contracts/notification/notification-navigation-pending-get.error.json";
 import notificationNavigationPendingRequest from "../../fixtures/contracts/notification/notification-navigation-pending-get.request.json";
 import notificationNavigationPendingResult from "../../fixtures/contracts/notification/notification-navigation-pending-get.result.json";
+import notificationPreferencesEvent from "../../fixtures/contracts/notification/notification-preferences.event.json";
+import notificationPreferencesGetError from "../../fixtures/contracts/notification/notification-preferences-get.error.json";
+import notificationPreferencesGetRequest from "../../fixtures/contracts/notification/notification-preferences-get.request.json";
+import notificationPreferencesGetResult from "../../fixtures/contracts/notification/notification-preferences-get.result.json";
+import notificationPreferencesUpdateError from "../../fixtures/contracts/notification/notification-preferences-update.error.json";
+import notificationPreferencesUpdateRequest from "../../fixtures/contracts/notification/notification-preferences-update.request.json";
+import notificationPreferencesUpdateResult from "../../fixtures/contracts/notification/notification-preferences-update.result.json";
 import notificationUnreadGetError from "../../fixtures/contracts/notification/notification-unread-summary-get.error.json";
 import notificationUnreadGetRequest from "../../fixtures/contracts/notification/notification-unread-summary-get.request.json";
 import notificationUnreadGetResult from "../../fixtures/contracts/notification/notification-unread-summary-get.result.json";
@@ -552,6 +565,24 @@ export const dispatchQueueResumeResultFixture: DispatchQueueResumeResult = {
 };
 export const dispatchQueueResumeErrorFixture: AppError = appError(dispatchQueueResumeError);
 
+export const notificationPreferencesGetRequestFixture: NotificationPreferencesGetRequest =
+  notificationPreferencesGetRequest;
+export const notificationPreferencesGetResultFixture: NotificationPreferencesGetResult = {
+  preferences: notificationPreferencesSnapshot(notificationPreferencesGetResult.preferences),
+};
+export const notificationPreferencesGetErrorFixture: AppError = appError(
+  notificationPreferencesGetError,
+);
+export const notificationPreferencesUpdateRequestFixture: NotificationPreferencesUpdateRequest =
+  notificationPreferencesUpdateRequest;
+export const notificationPreferencesUpdateResultFixture: NotificationPreferencesUpdateResult = {
+  preferences: notificationPreferencesSnapshot(notificationPreferencesUpdateResult.preferences),
+};
+export const notificationPreferencesUpdateErrorFixture: AppError = appError(
+  notificationPreferencesUpdateError,
+);
+export const notificationPreferencesEventFixture: NotificationPreferencesSnapshot =
+  notificationPreferencesSnapshot(notificationPreferencesEvent);
 export const notificationUnreadGetRequestFixture: NotificationUnreadSummaryRequest =
   notificationUnreadGetRequest;
 export const notificationUnreadGetResultFixture: NotificationUnreadSummaryResult = {
@@ -890,6 +921,8 @@ type ErrorJson =
   | typeof terminalTabUpdateError
   | typeof dispatchChatMessageError
   | typeof dispatchQueueResumeError
+  | typeof notificationPreferencesGetError
+  | typeof notificationPreferencesUpdateError
   | typeof notificationUnreadGetError
   | typeof notificationUnreadUpdateError
   | typeof notificationNavigationPendingError
@@ -944,6 +977,33 @@ function notificationUnreadSummary(
     conversations: summary.conversations.map((conversation) => ({ ...conversation })),
     tray: { ...summary.tray },
   };
+}
+
+function notificationPreferencesSnapshot(
+  preferences:
+    | typeof notificationPreferencesGetResult.preferences
+    | typeof notificationPreferencesUpdateResult.preferences
+    | typeof notificationPreferencesEvent,
+): NotificationPreferencesSnapshot {
+  return {
+    ...preferences,
+    permission: {
+      ...preferences.permission,
+      state: notificationPermissionState(preferences.permission.state),
+    },
+  };
+}
+
+function notificationPermissionState(value: string): NotificationPermissionState {
+  switch (value) {
+    case "granted":
+    case "denied":
+    case "prompt":
+    case "unavailable":
+      return value;
+    default:
+      throw new Error(`Unknown notification permission state: ${value}`);
+  }
 }
 
 function notificationNavigationAction(

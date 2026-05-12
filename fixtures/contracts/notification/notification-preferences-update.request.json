@@ -1,0 +1,9 @@
+{
+  "desktopNotificationsEnabled": false,
+  "soundEnabled": false,
+  "mentionsOnly": true,
+  "messagePreviewEnabled": false,
+  "dndEnabled": true,
+  "dndStartMinutes": 1260,
+  "dndEndMinutes": 450
+}

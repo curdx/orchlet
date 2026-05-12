@@ -1,26 +1,74 @@
 use crate::{
     app::notification::{
-        NotificationRuntimeState, NOTIFICATION_NAVIGATION_CHANGED_EVENT,
+        get_notification_preferences, update_notification_preferences, NotificationRuntimeState,
+        NOTIFICATION_NAVIGATION_CHANGED_EVENT, NOTIFICATION_PREFERENCES_CHANGED_EVENT,
         NOTIFICATION_UNREAD_CHANGED_EVENT,
     },
     contracts::{
         AppError, NotificationIgnoreAllRequest, NotificationIgnoreAllResult,
         NotificationNavigationPendingRequest, NotificationNavigationPendingResult,
         NotificationNavigationRequest, NotificationNavigationResult,
+        NotificationPreferencesGetRequest, NotificationPreferencesGetResult,
+        NotificationPreferencesUpdateRequest, NotificationPreferencesUpdateResult,
         NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
         NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult,
     },
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+#[tauri::command]
+pub fn notification_preferences_get(
+    app: AppHandle,
+    _request: NotificationPreferencesGetRequest,
+) -> Result<NotificationPreferencesGetResult, AppError> {
+    get_notification_preferences(app_data_dir(&app)?)
+}
+
+#[tauri::command]
+pub fn notification_preferences_update(
+    app: AppHandle,
+    notification_state: State<'_, NotificationRuntimeState>,
+    request: NotificationPreferencesUpdateRequest,
+) -> Result<NotificationPreferencesUpdateResult, AppError> {
+    let result = update_notification_preferences(app_data_dir(&app)?, request)?;
+    let summary = notification_state.apply_preferences(&result.preferences);
+
+    app.emit(
+        NOTIFICATION_PREFERENCES_CHANGED_EVENT,
+        result.preferences.clone(),
+    )
+    .map_err(|error| {
+        AppError::recoverable_error(
+            "notification.preferences.emitFailed",
+            "无法同步通知偏好设置。",
+            "当前窗口已保存；请重新打开其他窗口或重试。",
+            Some(error.to_string()),
+        )
+    })?;
+    app.emit(NOTIFICATION_UNREAD_CHANGED_EVENT, summary)
+        .map_err(|error| {
+            AppError::recoverable_error(
+                "notification.unread.emitFailed",
+                "无法同步未读状态。",
+                "通知偏好已保存；请重新打开通知预览或重试。",
+                Some(error.to_string()),
+            )
+        })?;
+
+    Ok(result)
+}
 
 #[tauri::command]
 pub fn notification_unread_summary_get(
+    app: AppHandle,
     notification_state: State<'_, NotificationRuntimeState>,
     _request: NotificationUnreadSummaryRequest,
-) -> NotificationUnreadSummaryResult {
-    NotificationUnreadSummaryResult {
-        summary: notification_state.unread_summary(),
-    }
+) -> Result<NotificationUnreadSummaryResult, AppError> {
+    let preferences = get_notification_preferences(app_data_dir(&app)?)?.preferences;
+
+    Ok(NotificationUnreadSummaryResult {
+        summary: notification_state.unread_summary_with_preferences(&preferences),
+    })
 }
 
 #[tauri::command]
@@ -29,7 +77,8 @@ pub fn notification_unread_summary_update(
     notification_state: State<'_, NotificationRuntimeState>,
     request: NotificationUnreadUpdateRequest,
 ) -> Result<NotificationUnreadUpdateResult, AppError> {
-    let summary = notification_state.update_unread_summary(request);
+    let preferences = get_notification_preferences(app_data_dir(&app)?)?.preferences;
+    let summary = notification_state.update_unread_summary_with_preferences(request, &preferences);
     app.emit(NOTIFICATION_UNREAD_CHANGED_EVENT, summary.clone())
         .map_err(|error| {
             AppError::recoverable_error(
@@ -79,7 +128,8 @@ pub fn notification_ignore_all_unread(
     notification_state: State<'_, NotificationRuntimeState>,
     request: NotificationIgnoreAllRequest,
 ) -> Result<NotificationIgnoreAllResult, AppError> {
-    let result = notification_state.ignore_all_unread(request);
+    let preferences = get_notification_preferences(app_data_dir(&app)?)?.preferences;
+    let result = notification_state.ignore_all_unread_with_preferences(request, &preferences);
     app.emit(NOTIFICATION_UNREAD_CHANGED_EVENT, result.summary.clone())
         .map_err(|error| {
             AppError::recoverable_error(
@@ -91,4 +141,15 @@ pub fn notification_ignore_all_unread(
         })?;
 
     Ok(result)
+}
+
+fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, AppError> {
+    app.path().app_data_dir().map_err(|error| {
+        AppError::recoverable_error(
+            "notification.preferences.appDataDirFailed",
+            "无法定位应用数据目录。",
+            "通知偏好未更新；请检查系统应用数据目录权限后重试。",
+            Some(error.to_string()),
+        )
+    })
 }

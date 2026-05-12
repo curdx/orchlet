@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod contact;
 pub mod member;
+pub mod notification;
 pub mod orchestration;
 pub mod roadmap;
 pub mod settings;

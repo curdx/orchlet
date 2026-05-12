@@ -4,6 +4,76 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "notification.ts")]
+pub enum NotificationPermissionState {
+    Granted,
+    Denied,
+    Prompt,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
+pub struct NotificationPermissionSnapshot {
+    pub state: NotificationPermissionState,
+    pub message: String,
+    pub user_action: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
+pub struct NotificationPreferencesSnapshot {
+    pub schema_version: u32,
+    pub desktop_notifications_enabled: bool,
+    pub sound_enabled: bool,
+    pub mentions_only: bool,
+    pub message_preview_enabled: bool,
+    pub dnd_enabled: bool,
+    pub dnd_start_minutes: u16,
+    pub dnd_end_minutes: u16,
+    pub permission: NotificationPermissionSnapshot,
+    #[ts(type = "number")]
+    pub created_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
+pub struct NotificationPreferencesGetRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
+pub struct NotificationPreferencesGetResult {
+    pub preferences: NotificationPreferencesSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
+pub struct NotificationPreferencesUpdateRequest {
+    pub desktop_notifications_enabled: Option<bool>,
+    pub sound_enabled: Option<bool>,
+    pub mentions_only: Option<bool>,
+    pub message_preview_enabled: Option<bool>,
+    pub dnd_enabled: Option<bool>,
+    pub dnd_start_minutes: Option<u16>,
+    pub dnd_end_minutes: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
+pub struct NotificationPreferencesUpdateResult {
+    pub preferences: NotificationPreferencesSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
 pub struct NotificationUnreadConversation {
     pub conversation_id: String,
     pub title: String,

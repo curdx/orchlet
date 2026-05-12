@@ -1,0 +1,19 @@
+{
+  "preferences": {
+    "schemaVersion": 1,
+    "desktopNotificationsEnabled": false,
+    "soundEnabled": false,
+    "mentionsOnly": true,
+    "messagePreviewEnabled": false,
+    "dndEnabled": true,
+    "dndStartMinutes": 1260,
+    "dndEndMinutes": 450,
+    "permission": {
+      "state": "unavailable",
+      "message": "系统通知权限适配器当前不可用。",
+      "userAction": "当前版本仍会保存本地通知偏好；启用系统通知需要后续平台适配。"
+    },
+    "createdAtMs": 1760000066000,
+    "updatedAtMs": 1760000068000
+  }
+}

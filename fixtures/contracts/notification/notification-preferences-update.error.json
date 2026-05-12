@@ -1,0 +1,9 @@
+{
+  "code": "notification.preferences.invalidDndTime",
+  "message": "静默时段时间无效。",
+  "userAction": "请选择 00:00 到 23:59 之间的时间。",
+  "details": "field=dndStartMinutes",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "error"
+}
