@@ -58,6 +58,10 @@ import type {
 import type { ContactKind, ContactProfile } from "../../../contracts/generated/contact";
 import type { DispatchRequestProfile } from "../../../contracts/generated/orchestration";
 import type {
+  TerminalOutputEventPayload,
+  TerminalSessionStatus,
+} from "../../../contracts/generated/terminal";
+import type {
   InvitedMemberType,
   MemberProfile,
   MemberRuntimeKind,
@@ -93,7 +97,7 @@ type WorkspaceSelectionPageProps = {
   onOpenWindowMode?: (mode: WindowMode) => Promise<void>;
   integrityApi?: Pick<DataIntegrityApi, "validate">;
   memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember" | "updateMemberStatus">;
-  terminalApi?: Pick<TerminalApi, "openTerminal">;
+  terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
     "dispatchChatMessage" | "resumeMemberDispatchQueue"
@@ -137,9 +141,30 @@ type DispatchResolutionState = {
   target: MemberProfile | null;
   candidates: MemberProfile[];
 };
+type TerminalChatStreamEntry = {
+  terminalSessionId: string;
+  workspaceId: string;
+  memberId: string | null;
+  memberLabel: string;
+  title: string;
+  status: TerminalSessionStatus;
+  exitReasonMessage: string | null;
+  text: string;
+  lastSeq: number;
+  updatedAtMs: number;
+};
+type MemberTerminalActivity = {
+  terminalSessionId: string;
+  title: string;
+  status: TerminalSessionStatus;
+  exitReasonMessage: string | null;
+  updatedAtMs: number;
+};
 
 const MESSAGE_PAGE_LIMIT = 30;
 const RECENT_EMOJI_STORAGE_KEY = "orchlet.chat.recentEmojis";
+const TERMINAL_STREAM_FLUSH_MS = 100;
+const TERMINAL_STREAM_MAX_CHARS = 4000;
 
 export function WorkspaceSelectionPage({
   api = workspaceApi,
@@ -194,6 +219,12 @@ export function WorkspaceSelectionPage({
   const [messageDispatchStates, setMessageDispatchStates] = useState<
     Record<string, MessageDispatchState>
   >({});
+  const [terminalChatStreams, setTerminalChatStreams] = useState<
+    Record<string, TerminalChatStreamEntry>
+  >({});
+  const [memberTerminalActivity, setMemberTerminalActivity] = useState<
+    Record<string, MemberTerminalActivity>
+  >({});
   const [nextBeforeMessageId, setNextBeforeMessageId] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
@@ -206,6 +237,9 @@ export function WorkspaceSelectionPage({
   const conflictPrimaryButtonRef = useRef<HTMLButtonElement>(null);
   const conflictTriggerRef = useRef<HTMLElement | null>(null);
   const lastReadUpdateRef = useRef<string | null>(null);
+  const terminalOutputBufferRef = useRef(new Map<string, TerminalOutputEventPayload[]>());
+  const terminalOutputFlushTimerRef = useRef<number | null>(null);
+  const membersRef = useRef<MemberProfile[]>([]);
   const { toast, showToast, clearToast } = useToastStore();
   const { data: status, isLoading } = useQuery({
     queryKey: ["workspace-selection-status"],
@@ -251,6 +285,15 @@ export function WorkspaceSelectionPage({
     conversations.find((conversation) => conversation.conversationId === selectedConversationId) ??
     conversations[0] ??
     null;
+  const terminalChatStreamEntries = Object.values(terminalChatStreams)
+    .filter((stream) => stream.workspaceId === activeWorkspaceId)
+    .sort((left, right) => {
+      if (left.updatedAtMs !== right.updatedAtMs) {
+        return left.updatedAtMs - right.updatedAtMs;
+      }
+
+      return left.terminalSessionId.localeCompare(right.terminalSessionId);
+    });
   const messageQueryKey = [
     "chat-messages",
     activeWorkspaceId,
@@ -342,6 +385,200 @@ export function WorkspaceSelectionPage({
       action: appError.userAction ?? undefined,
     });
   }, [messageQuery.error, showToast]);
+
+  useEffect(() => {
+    membersRef.current = members;
+  }, [members]);
+
+  useEffect(() => {
+    terminalOutputBufferRef.current.clear();
+    if (terminalOutputFlushTimerRef.current !== null) {
+      window.clearTimeout(terminalOutputFlushTimerRef.current);
+      terminalOutputFlushTimerRef.current = null;
+    }
+    setTerminalChatStreams({});
+    setMemberTerminalActivity({});
+  }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    if (!activeWorkspaceId) {
+      return;
+    }
+
+    let disposed = false;
+    let unsubscribeOutput: (() => void) | null = null;
+    let unsubscribeStatus: (() => void) | null = null;
+
+    function flushTerminalOutput() {
+      terminalOutputFlushTimerRef.current = null;
+      const bufferedEvents = [...terminalOutputBufferRef.current.values()]
+        .flat()
+        .filter((event) => event.workspaceId === activeWorkspaceId)
+        .sort((left, right) => {
+          const sessionCompare = left.terminalSessionId.localeCompare(right.terminalSessionId);
+          if (sessionCompare !== 0) {
+            return sessionCompare;
+          }
+
+          if (left.seq !== right.seq) {
+            return left.seq - right.seq;
+          }
+
+          return left.emittedAtMs - right.emittedAtMs;
+        });
+
+      terminalOutputBufferRef.current.clear();
+      if (bufferedEvents.length === 0) {
+        return;
+      }
+
+      setTerminalChatStreams((current) => {
+        let next = current;
+
+        for (const event of bufferedEvents) {
+          const existing = next[event.terminalSessionId];
+          if (existing && event.seq <= existing.lastSeq) {
+            continue;
+          }
+
+          const memberLabel = terminalMemberLabel(
+            event.memberId,
+            membersRef.current,
+            existing?.title ?? null,
+          );
+          const updatedText = `${existing?.text ?? ""}${event.chunk}`.slice(
+            -TERMINAL_STREAM_MAX_CHARS,
+          );
+
+          if (next === current) {
+            next = { ...current };
+          }
+
+          next[event.terminalSessionId] = {
+            terminalSessionId: event.terminalSessionId,
+            workspaceId: event.workspaceId,
+            memberId: event.memberId,
+            memberLabel,
+            title: existing?.title ?? memberLabel,
+            status: existing?.status ?? "running",
+            exitReasonMessage: existing?.exitReasonMessage ?? null,
+            text: updatedText,
+            lastSeq: event.seq,
+            updatedAtMs: event.emittedAtMs,
+          };
+        }
+
+        return next;
+      });
+    }
+
+    function scheduleTerminalOutputFlush() {
+      if (terminalOutputFlushTimerRef.current !== null) {
+        return;
+      }
+
+      terminalOutputFlushTimerRef.current = window.setTimeout(
+        flushTerminalOutput,
+        TERMINAL_STREAM_FLUSH_MS,
+      );
+    }
+
+    async function subscribeTerminalEvents() {
+      try {
+        unsubscribeOutput = await terminalsApi.subscribeOutput((event) => {
+          if (disposed || event.workspaceId !== activeWorkspaceId) {
+            return;
+          }
+
+          const sessionEvents = terminalOutputBufferRef.current.get(event.terminalSessionId) ?? [];
+          terminalOutputBufferRef.current.set(event.terminalSessionId, [
+            ...sessionEvents,
+            event,
+          ]);
+          scheduleTerminalOutputFlush();
+        });
+
+        unsubscribeStatus = await terminalsApi.subscribeStatus((event) => {
+          if (disposed || event.workspaceId !== activeWorkspaceId) {
+            return;
+          }
+
+          const memberLabel = terminalMemberLabel(event.memberId, membersRef.current, event.title);
+          const snapshotText = event.snapshot.text.slice(-TERMINAL_STREAM_MAX_CHARS);
+          const exitReasonMessage = event.exitReason?.message ?? null;
+
+          setTerminalChatStreams((current) => {
+            const existing = current[event.terminalSessionId];
+            const shouldUseSnapshot =
+              event.snapshot.lastSeq > (existing?.lastSeq ?? 0) && snapshotText.length > 0;
+
+            return {
+              ...current,
+              [event.terminalSessionId]: {
+                terminalSessionId: event.terminalSessionId,
+                workspaceId: event.workspaceId,
+                memberId: event.memberId,
+                memberLabel,
+                title: event.title,
+                status: event.status,
+                exitReasonMessage,
+                text: shouldUseSnapshot ? snapshotText : (existing?.text ?? ""),
+                lastSeq: shouldUseSnapshot
+                  ? Math.max(existing?.lastSeq ?? 0, event.snapshot.lastSeq)
+                  : (existing?.lastSeq ?? 0),
+                updatedAtMs: event.emittedAtMs,
+              },
+            };
+          });
+
+          if (event.memberId) {
+            setMemberTerminalActivity((current) => {
+              const existing = current[event.memberId!];
+              if (existing && existing.updatedAtMs > event.emittedAtMs) {
+                return current;
+              }
+
+              return {
+                ...current,
+                [event.memberId!]: {
+                  terminalSessionId: event.terminalSessionId,
+                  title: event.title,
+                  status: event.status,
+                  exitReasonMessage,
+                  updatedAtMs: event.emittedAtMs,
+                },
+              };
+            });
+          }
+        });
+      } catch (error) {
+        if (disposed) {
+          return;
+        }
+
+        const appError = normalizeAppError(error);
+        showToast({
+          tone: appError.severity,
+          title: "无法订阅终端事件",
+          message: appError.message,
+          action: appError.userAction ?? undefined,
+        });
+      }
+    }
+
+    void subscribeTerminalEvents();
+
+    return () => {
+      disposed = true;
+      unsubscribeOutput?.();
+      unsubscribeStatus?.();
+      terminalOutputBufferRef.current.clear();
+      if (terminalOutputFlushTimerRef.current !== null) {
+        window.clearTimeout(terminalOutputFlushTimerRef.current);
+        terminalOutputFlushTimerRef.current = null;
+      }
+    };
+  }, [activeWorkspaceId, terminalsApi, showToast]);
 
   useEffect(() => {
     const data = messageQuery.data;
@@ -1698,6 +1935,7 @@ export function WorkspaceSelectionPage({
                 selectedConversation={selectedConversation}
                 messages={messages}
                 dispatchStates={messageDispatchStates}
+                terminalStreams={terminalChatStreamEntries}
                 members={members}
                 isLoading={conversationQuery.isLoading}
                 isLoadingMessages={messageQuery.isLoading}
@@ -1746,6 +1984,7 @@ export function WorkspaceSelectionPage({
             {activeWorkspace ? (
               <MembersPanel
                 members={members}
+                terminalActivity={memberTerminalActivity}
                 isLoading={memberQuery.isLoading}
                 isInviting={isInvitingMember}
                 inviteType={inviteType}
@@ -1923,6 +2162,7 @@ function ConversationPanel({
   selectedConversation,
   messages,
   dispatchStates,
+  terminalStreams,
   members,
   isLoading,
   isLoadingMessages,
@@ -1966,6 +2206,7 @@ function ConversationPanel({
   selectedConversation: ConversationProfile | null;
   messages: ChatMessageProfile[];
   dispatchStates: Record<string, MessageDispatchState>;
+  terminalStreams: TerminalChatStreamEntry[];
   members: MemberProfile[];
   isLoading: boolean;
   isLoadingMessages: boolean;
@@ -2031,6 +2272,7 @@ function ConversationPanel({
     .map((memberId) => members.find((member) => member.memberId === memberId))
     .filter((member): member is MemberProfile => Boolean(member));
   const hasUnsupportedAllMention = hasAllMentionToken(messageDraft);
+  const hasTimelineEntries = messages.length > 0 || terminalStreams.length > 0;
   const filteredEmojiOptions = emojiOptions.filter((option) => {
     const query = emojiSearch.trim().toLocaleLowerCase();
 
@@ -2264,65 +2506,70 @@ function ConversationPanel({
                 <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
                   正在加载消息
                 </p>
-              ) : messages.length > 0 ? (
-                messages.map((message) => {
-                  const dispatchResolution = selectedConversation
-                    ? dispatchResolutionForMessage(message, members, selectedConversation)
-                    : { target: null, candidates: [] };
-                  const dispatchTarget = dispatchResolution.target;
-                  const hasAmbiguousTargets = dispatchResolution.candidates.length > 1;
-                  const dispatchState = dispatchStates[message.messageId];
+              ) : hasTimelineEntries ? (
+                <>
+                  {messages.map((message) => {
+                    const dispatchResolution = selectedConversation
+                      ? dispatchResolutionForMessage(message, members, selectedConversation)
+                      : { target: null, candidates: [] };
+                    const dispatchTarget = dispatchResolution.target;
+                    const hasAmbiguousTargets = dispatchResolution.candidates.length > 1;
+                    const dispatchState = dispatchStates[message.messageId];
 
-                  return (
-                    <article
-                      key={message.messageId}
-                      className={
-                        message.status === "failed"
-                          ? "rounded-md border border-[#e2b8a7] bg-[#fff7f3] p-3"
-                          : "rounded-md border border-[#dfe8db] bg-white p-3"
-                      }
-                    >
-                      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[#263229]">
-                        {message.body}
-                      </p>
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#6a786c]">
-                        <span>{formatRecentTime(message.createdAtMs)}</span>
-                        <span className="inline-flex items-center gap-1 rounded border border-[#dfe8db] bg-[#f8fbf6] px-1.5 py-0.5 font-medium">
-                          <MessageStatusIcon status={message.status} />
-                          {messageStatusLabel(message.status)}
-                        </span>
-                      </div>
-                      {dispatchTarget || hasAmbiguousTargets || dispatchState ? (
-                        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[#edf1ea] pt-2 text-[11px]">
-                          {dispatchTarget || hasAmbiguousTargets ? (
-                            <button
-                              type="button"
-                              disabled={
-                                message.messageId.startsWith("pending-") ||
-                                dispatchState?.status === "dispatching"
-                              }
-                              onClick={() => onDispatchMessage(message)}
-                              className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-2 font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-60"
-                            >
-                              <SquareTerminal aria-hidden="true" size={12} strokeWidth={2} />
-                              {dispatchState?.status === "dispatching"
-                                ? "派发中"
-                                : dispatchTarget
-                                  ? `派发到 ${dispatchTarget.instanceLabel}`
-                                  : "选择派发目标"}
-                            </button>
-                          ) : null}
-                          {dispatchState ? (
-                            <DispatchStateBadge
-                              state={dispatchState}
-                              onSelectTarget={(memberId) => onDispatchMessage(message, memberId)}
-                            />
-                          ) : null}
+                    return (
+                      <article
+                        key={message.messageId}
+                        className={
+                          message.status === "failed"
+                            ? "rounded-md border border-[#e2b8a7] bg-[#fff7f3] p-3"
+                            : "rounded-md border border-[#dfe8db] bg-white p-3"
+                        }
+                      >
+                        <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[#263229]">
+                          {message.body}
+                        </p>
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#6a786c]">
+                          <span>{formatRecentTime(message.createdAtMs)}</span>
+                          <span className="inline-flex items-center gap-1 rounded border border-[#dfe8db] bg-[#f8fbf6] px-1.5 py-0.5 font-medium">
+                            <MessageStatusIcon status={message.status} />
+                            {messageStatusLabel(message.status)}
+                          </span>
                         </div>
-                      ) : null}
-                    </article>
-                  );
-                })
+                        {dispatchTarget || hasAmbiguousTargets || dispatchState ? (
+                          <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[#edf1ea] pt-2 text-[11px]">
+                            {dispatchTarget || hasAmbiguousTargets ? (
+                              <button
+                                type="button"
+                                disabled={
+                                  message.messageId.startsWith("pending-") ||
+                                  dispatchState?.status === "dispatching"
+                                }
+                                onClick={() => onDispatchMessage(message)}
+                                className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-2 font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-60"
+                              >
+                                <SquareTerminal aria-hidden="true" size={12} strokeWidth={2} />
+                                {dispatchState?.status === "dispatching"
+                                  ? "派发中"
+                                  : dispatchTarget
+                                    ? `派发到 ${dispatchTarget.instanceLabel}`
+                                    : "选择派发目标"}
+                              </button>
+                            ) : null}
+                            {dispatchState ? (
+                              <DispatchStateBadge
+                                state={dispatchState}
+                                onSelectTarget={(memberId) => onDispatchMessage(message, memberId)}
+                              />
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                  {terminalStreams.map((stream) => (
+                    <TerminalChatStreamArticle key={stream.terminalSessionId} stream={stream} />
+                  ))}
+                </>
               ) : (
                 <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
                   暂无消息
@@ -2756,6 +3003,45 @@ function ConversationKindIcon({ kind }: { kind: ConversationProfile["kind"] }) {
   return <MessageSquare aria-hidden="true" size={17} strokeWidth={2} />;
 }
 
+function TerminalChatStreamArticle({ stream }: { stream: TerminalChatStreamEntry }) {
+  return (
+    <article
+      aria-label="终端输出流"
+      className="rounded-md border border-[#b8c8cf] bg-[#f6fbfc] p-3"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#52666f]">
+        <span className="inline-flex items-center gap-1.5 font-semibold text-[#284956]">
+          <SquareTerminal aria-hidden="true" size={12} strokeWidth={2} />
+          终端输出
+        </span>
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <span>{stream.memberLabel}</span>
+          <span aria-hidden="true">·</span>
+          <span>{stream.title}</span>
+          <span aria-hidden="true">·</span>
+          <span>{terminalSessionStatusLabel(stream.status)}</span>
+          <span aria-hidden="true">·</span>
+          <span>{shortId(stream.terminalSessionId)}</span>
+        </span>
+      </div>
+      {stream.exitReasonMessage ? (
+        <p className="mt-2 rounded border border-[#d7c8a5] bg-[#fff9ed] px-2 py-1 text-[11px] font-medium text-[#604a1f]">
+          {stream.exitReasonMessage}
+        </p>
+      ) : null}
+      {stream.text ? (
+        <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded border border-[#dce7ea] bg-white p-2 font-mono text-xs leading-5 text-[#1f2f35]">
+          {stream.text}
+        </pre>
+      ) : (
+        <p className="mt-2 rounded border border-dashed border-[#cddde1] bg-white p-2 text-xs text-[#61757d]">
+          等待终端输出
+        </p>
+      )}
+    </article>
+  );
+}
+
 function MessageStatusIcon({ status }: { status: ChatMessageProfile["status"] }) {
   if (status === "failed") {
     return <AlertTriangle aria-hidden="true" size={12} strokeWidth={2} />;
@@ -2778,6 +3064,33 @@ function messageStatusLabel(status: ChatMessageProfile["status"]) {
   }
 
   return "sent";
+}
+
+function terminalSessionStatusLabel(status: TerminalSessionStatus) {
+  switch (status) {
+    case "starting":
+      return "启动中";
+    case "running":
+      return "运行中";
+    case "exited":
+      return "已退出";
+  }
+}
+
+function terminalMemberLabel(
+  memberId: string | null,
+  members: MemberProfile[],
+  fallbackTitle: string | null,
+) {
+  if (!memberId) {
+    return fallbackTitle || "工作区终端";
+  }
+
+  return (
+    members.find((member) => member.memberId === memberId)?.instanceLabel ??
+    fallbackTitle ??
+    shortId(memberId)
+  );
 }
 
 function stateForDispatchProfile(
@@ -3048,6 +3361,7 @@ function sortConversationsForDisplay(
 
 function MembersPanel({
   members,
+  terminalActivity,
   isLoading,
   isInviting,
   inviteType,
@@ -3080,6 +3394,7 @@ function MembersPanel({
   onInvite,
 }: {
   members: MemberProfile[];
+  terminalActivity: Record<string, MemberTerminalActivity>;
   isLoading: boolean;
   isInviting: boolean;
   inviteType: InvitedMemberType;
@@ -3142,6 +3457,7 @@ function MembersPanel({
         <MemberGroup
           title="群主"
           members={ownerMembers}
+          terminalActivity={terminalActivity}
           emptyText="正在初始化 owner"
           openActionMenuId={openActionMenuId}
           onToggleActionMenu={onToggleActionMenu}
@@ -3154,6 +3470,7 @@ function MembersPanel({
         <MemberGroup
           title="管理员"
           members={adminMembers}
+          terminalActivity={terminalActivity}
           emptyText="暂无管理员"
           openActionMenuId={openActionMenuId}
           onToggleActionMenu={onToggleActionMenu}
@@ -3166,6 +3483,7 @@ function MembersPanel({
         <MemberGroup
           title="助手"
           members={assistantMembers}
+          terminalActivity={terminalActivity}
           emptyText="暂无助手"
           openActionMenuId={openActionMenuId}
           onToggleActionMenu={onToggleActionMenu}
@@ -3178,6 +3496,7 @@ function MembersPanel({
         <MemberGroup
           title="普通成员"
           members={regularMembers}
+          terminalActivity={terminalActivity}
           emptyText="暂无普通成员"
           openActionMenuId={openActionMenuId}
           onToggleActionMenu={onToggleActionMenu}
@@ -3330,6 +3649,7 @@ function MembersPanel({
 function MemberGroup({
   title,
   members,
+  terminalActivity,
   emptyText,
   openActionMenuId,
   onToggleActionMenu,
@@ -3341,6 +3661,7 @@ function MemberGroup({
 }: {
   title: string;
   members: MemberProfile[];
+  terminalActivity: Record<string, MemberTerminalActivity>;
   emptyText: string;
   openActionMenuId: string | null;
   onToggleActionMenu: (memberId: string) => void;
@@ -3355,11 +3676,14 @@ function MemberGroup({
       <p className="text-xs font-semibold text-[#6a786c]">{title}</p>
       {members.length > 0 ? (
         <ul className="mt-2 grid gap-2">
-          {members.map((member) => (
-            <li
-              key={member.memberId}
-              className="relative flex items-center gap-3 rounded-md border border-[#e3eadf] bg-white p-3"
-            >
+          {members.map((member) => {
+            const activity = terminalActivity[member.memberId];
+
+            return (
+              <li
+                key={member.memberId}
+                className="relative flex items-center gap-3 rounded-md border border-[#e3eadf] bg-white p-3"
+              >
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
                 {member.role === "assistant" ? (
                   <Bot aria-hidden="true" size={18} strokeWidth={2} />
@@ -3378,6 +3702,13 @@ function MemberGroup({
                 <span className="mt-1 block truncate text-xs text-[#7a8678]">
                   {permissionLabel(member)} · {isolationLabel(member)}
                 </span>
+                {activity ? (
+                  <span className="mt-1 block truncate text-xs font-medium text-[#52666f]">
+                    终端：{terminalSessionStatusLabel(activity.status)} ·{" "}
+                    {shortId(activity.terminalSessionId)}
+                    {activity.exitReasonMessage ? ` · ${activity.exitReasonMessage}` : ""}
+                  </span>
+                ) : null}
               </span>
               <div className="shrink-0">
                 <button
@@ -3483,8 +3814,9 @@ function MemberGroup({
                   </div>
                 ) : null}
               </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="mt-2 rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">

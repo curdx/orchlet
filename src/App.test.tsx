@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,7 +45,9 @@ import type {
   SendMessageResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
+  TerminalOutputEventPayload,
   TerminalOpenResult,
+  TerminalStatusEventPayload,
   UpdateContactRequest,
   UpdateContactResult,
   UpdateConversationSettingsRequest,
@@ -93,6 +95,12 @@ function renderWorkspaceSelection(api: {
       memberId?: string | null;
       attachCurrent?: boolean;
     }) => Promise<TerminalOpenResult>;
+    subscribeOutput: (
+      handler: (event: TerminalOutputEventPayload) => void,
+    ) => Promise<() => void>;
+    subscribeStatus: (
+      handler: (event: TerminalStatusEventPayload) => void,
+    ) => Promise<() => void>;
   }>;
   terminalDispatchApi?: Partial<{
     dispatchChatMessage: (
@@ -159,6 +167,8 @@ function renderWorkspaceSelection(api: {
         }}
         terminalApi={{
           openTerminal: () => Promise.reject(new Error("openTerminal mock missing")),
+          subscribeOutput: () => Promise.resolve(() => undefined),
+          subscribeStatus: () => Promise.resolve(() => undefined),
           ...terminalApi,
         }}
         terminalDispatchApi={{
@@ -281,6 +291,46 @@ function terminalOpenResult(overrides: Partial<TerminalOpenResult> = {}): Termin
       createdAtMs: 1760000000000,
       updatedAtMs: 1760000000001,
     },
+    ...overrides,
+  };
+}
+
+function terminalOutputEvent(
+  overrides: Partial<TerminalOutputEventPayload> = {},
+): TerminalOutputEventPayload {
+  return {
+    schemaVersion: 1,
+    terminalSessionId: "01KTERMINAL00000000000020",
+    workspaceId: "01K00000000000000000000000",
+    memberId: null,
+    seq: 1,
+    chunk: "ready\n",
+    kind: "stdout",
+    emittedAtMs: 1760000004000,
+    ...overrides,
+  };
+}
+
+function terminalStatusEvent(
+  overrides: Partial<TerminalStatusEventPayload> = {},
+): TerminalStatusEventPayload {
+  return {
+    schemaVersion: 1,
+    terminalSessionId: "01KTERMINAL00000000000020",
+    workspaceId: "01K00000000000000000000000",
+    memberId: null,
+    title: "Workspace terminal",
+    status: "running",
+    cols: 120,
+    rows: 30,
+    snapshot: {
+      lastSeq: 0,
+      text: "",
+      truncated: false,
+      updatedAtMs: null,
+    },
+    exitReason: null,
+    emittedAtMs: 1760000004000,
     ...overrides,
   };
 }
@@ -909,6 +959,208 @@ describe("App workspace entry", () => {
 
     expect((await within(messageLog).findAllByText("sent")).length).toBeGreaterThan(0);
     expect(within(messageLog).getByText("Ship it")).toBeInTheDocument();
+  });
+
+  it("renders terminal output streams in sequence order", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    let outputHandler: ((event: TerminalOutputEventPayload) => void) | null = null;
+    let statusHandler: ((event: TerminalStatusEventPayload) => void) | null = null;
+    const subscribeOutput = vi.fn(async (handler: (event: TerminalOutputEventPayload) => void) => {
+      outputHandler = handler;
+      return vi.fn();
+    });
+    const subscribeStatus = vi.fn(async (handler: (event: TerminalStatusEventPayload) => void) => {
+      statusHandler = handler;
+      return vi.fn();
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+      },
+      terminalApi: {
+        subscribeOutput,
+        subscribeStatus,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeOutput).toHaveBeenCalled());
+    await waitFor(() => expect(subscribeStatus).toHaveBeenCalled());
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          memberId: reviewer.memberId,
+          title: "Reviewer shell",
+          emittedAtMs: 1760000004000,
+        }),
+      );
+      outputHandler?.(
+        terminalOutputEvent({
+          memberId: reviewer.memberId,
+          seq: 2,
+          chunk: "second\n",
+          emittedAtMs: 1760000004020,
+        }),
+      );
+      outputHandler?.(
+        terminalOutputEvent({
+          memberId: reviewer.memberId,
+          seq: 1,
+          chunk: "first\n",
+          emittedAtMs: 1760000004010,
+        }),
+      );
+    });
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    const stream = await within(messageLog).findByLabelText("终端输出流");
+
+    expect(stream).toHaveTextContent("Reviewer");
+    expect(stream).toHaveTextContent("Reviewer shell");
+    expect(stream).toHaveTextContent("运行中");
+    await waitFor(() =>
+      expect(stream.querySelector("pre")?.textContent).toBe("first\nsecond\n"),
+    );
+  });
+
+  it("shows terminal runtime status on members without overwriting manual status", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      status: "online",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    let statusHandler: ((event: TerminalStatusEventPayload) => void) | null = null;
+    const subscribeStatus = vi.fn(async (handler: (event: TerminalStatusEventPayload) => void) => {
+      statusHandler = handler;
+      return vi.fn();
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+      },
+      terminalApi: {
+        subscribeStatus,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeStatus).toHaveBeenCalled());
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          terminalSessionId: "01KTERMINAL00000000000021",
+          memberId: reviewer.memberId,
+          title: "Reviewer shell",
+          status: "running",
+          emittedAtMs: 1760000005000,
+        }),
+      );
+    });
+
+    expect(await screen.findByText(/终端：运行中 · 000021/)).toBeInTheDocument();
+    expect(screen.getByText(/Assistant · 在线 · Codex CLI/)).toBeInTheDocument();
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          terminalSessionId: "01KTERMINAL00000000000021",
+          memberId: reviewer.memberId,
+          title: "Reviewer shell",
+          status: "exited",
+          exitReason: {
+            code: "process.exit",
+            message: "进程退出",
+            occurredAtMs: 1760000006000,
+          },
+          emittedAtMs: 1760000006000,
+        }),
+      );
+    });
+
+    expect(await screen.findByText(/终端：已退出 · 000021 · 进程退出/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/Assistant · 在线 · Codex CLI/)).toBeInTheDocument();
+  });
+
+  it("keeps high-volume terminal output bounded while chat input remains usable", async () => {
+    const user = userEvent.setup();
+    let outputHandler: ((event: TerminalOutputEventPayload) => void) | null = null;
+    const subscribeOutput = vi.fn(async (handler: (event: TerminalOutputEventPayload) => void) => {
+      outputHandler = handler;
+      return vi.fn();
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      terminalApi: {
+        subscribeOutput,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeOutput).toHaveBeenCalled());
+
+    act(() => {
+      outputHandler?.(
+        terminalOutputEvent({
+          terminalSessionId: "01KTERMINAL00000000000022",
+          seq: 1,
+          chunk: `old-prefix${"x".repeat(4100)}fresh-tail`,
+          emittedAtMs: 1760000007000,
+        }),
+      );
+    });
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    await waitFor(() => {
+      const stream = within(messageLog).getByLabelText("终端输出流");
+      const streamText = stream.querySelector("pre")?.textContent ?? "";
+
+      expect(streamText).toContain("fresh-tail");
+      expect(streamText).not.toContain("old-prefix");
+      expect(streamText.length).toBeLessThanOrEqual(4000);
+    });
+    expect(within(conversationPanel).getByLabelText("输入消息")).toBeEnabled();
   });
 
   it("dispatches a mentioned chat message to the member terminal", async () => {
@@ -2288,7 +2540,11 @@ describe("App workspace entry", () => {
           windowContext={windowContextSnapshot()}
           onPreferencesChange={onPreferencesChange}
           onOpenWindowMode={onOpenWindowMode}
-          terminalApi={{ openTerminal }}
+          terminalApi={{
+            openTerminal,
+            subscribeOutput: () => Promise.resolve(() => undefined),
+            subscribeStatus: () => Promise.resolve(() => undefined),
+          }}
         />
       </QueryClientProvider>,
     );
