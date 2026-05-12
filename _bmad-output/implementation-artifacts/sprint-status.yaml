@@ -52,7 +52,7 @@ development_status:
   1-7-test-contract-fixture-desktop-smoke-scaffolding: done
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-default-owner-member-invitation: done
   2-2-multi-instance-invite-permissions-member-actions: done
   2-3-global-contacts-private-chat-entry: done
@@ -67,7 +67,7 @@ development_status:
   3-2-terminal-session-lifecycle-ipc: done
   3-3-terminal-tabs-create-restore-search-sort: done
   3-4-terminal-pane-layouts-tab-assignment: done
-  3-5-terminal-text-operations-find-options: backlog
+  3-5-terminal-text-operations-find-options: done
   3-6-cli-environment-resolution-error-recovery-session-snapshot: backlog
   epic-3-retrospective: optional
 

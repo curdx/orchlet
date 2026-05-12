@@ -95,6 +95,17 @@ function terminalPageHarness(initialTabs = [terminalTab()]) {
     mount: vi.fn(),
     write: vi.fn(),
     resize: vi.fn(),
+    focus: vi.fn(),
+    selectAll: vi.fn(),
+    copySelection: vi.fn(() => "selected text"),
+    clear: vi.fn(),
+    clearSelection: vi.fn(),
+    find: vi.fn((query: string) => ({
+      query,
+      index: query.trim() ? 1 : 0,
+      total: query.trim() ? 2 : 0,
+      errorMessage: null,
+    })),
     dispose: vi.fn(),
   });
   const renderer = createRenderer();
@@ -678,5 +689,131 @@ describe("TerminalPage", () => {
       expect(api.createTab).toHaveBeenCalledTimes(1);
     });
     expect(screen.getAllByText("Build").length).toBeGreaterThan(0);
+  });
+
+  it("runs text operations against the focused pane renderer only", async () => {
+    const user = userEvent.setup();
+    const secondTab = terminalTab({
+      tabId: "01K00000000000000000000081",
+      terminalSessionId: "01K00000000000000000000091",
+      label: "Logs",
+      shell: "fish",
+      sortIndex: 1,
+    });
+    const { renderers } = terminalPageHarness([terminalTab(), secondTab]);
+
+    await screen.findAllByText("orchlet-demo");
+    await user.click(screen.getByRole("button", { name: "左右分屏布局" }));
+    await waitFor(() => {
+      expect(renderers.length).toBeGreaterThanOrEqual(2);
+    });
+    await user.click(screen.getByLabelText("窗格 2 终端窗格"));
+    await user.click(screen.getByRole("button", { name: "Logs" }));
+
+    const paneOneRenderer = rendererForPane(renderers, "窗格 1");
+    const paneTwoRenderer = rendererForPane(renderers, "窗格 2");
+
+    await user.click(screen.getByRole("button", { name: "聚焦终端" }));
+    await user.click(screen.getByRole("button", { name: "全选终端文本" }));
+    await user.click(screen.getByRole("button", { name: "复制选中文本" }));
+    await user.click(screen.getByRole("button", { name: "清空终端显示" }));
+
+    expect(paneTwoRenderer.focus).toHaveBeenCalledTimes(1);
+    expect(paneTwoRenderer.selectAll).toHaveBeenCalledTimes(1);
+    expect(paneTwoRenderer.copySelection).toHaveBeenCalledTimes(1);
+    expect(paneTwoRenderer.clear).toHaveBeenCalledTimes(1);
+    expect(paneOneRenderer.focus).not.toHaveBeenCalled();
+    expect(paneOneRenderer.selectAll).not.toHaveBeenCalled();
+    expect(paneOneRenderer.copySelection).not.toHaveBeenCalled();
+    expect(paneOneRenderer.clear).not.toHaveBeenCalled();
+  });
+
+  it("opens terminal find, navigates with keyboard and updates find options", async () => {
+    const user = userEvent.setup();
+    const { renderer } = terminalPageHarness();
+
+    await screen.findAllByText("orchlet-demo");
+    await user.click(screen.getByRole("button", { name: "打开终端查找" }));
+
+    const findInput = await screen.findByRole("textbox", { name: "查找终端文本" });
+    await user.type(findInput, "error");
+
+    await waitFor(() => {
+      expect(renderer.find).toHaveBeenLastCalledWith(
+        "error",
+        {
+          caseSensitive: false,
+          wholeWord: false,
+          regex: false,
+        },
+        "current",
+      );
+    });
+    expect(screen.getByLabelText("查找结果")).toHaveTextContent("1/2");
+
+    await user.keyboard("{Enter}");
+    expect(renderer.find).toHaveBeenLastCalledWith(
+      "error",
+      {
+        caseSensitive: false,
+        wholeWord: false,
+        regex: false,
+      },
+      "next",
+    );
+
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(renderer.find).toHaveBeenLastCalledWith(
+      "error",
+      {
+        caseSensitive: false,
+        wholeWord: false,
+        regex: false,
+      },
+      "previous",
+    );
+
+    await user.click(screen.getByRole("button", { name: "区分大小写" }));
+    await waitFor(() => {
+      expect(renderer.find).toHaveBeenLastCalledWith(
+        "error",
+        {
+          caseSensitive: true,
+          wholeWord: false,
+          regex: false,
+        },
+        "current",
+      );
+    });
+
+    await user.click(screen.getByRole("button", { name: "全字匹配" }));
+    await waitFor(() => {
+      expect(renderer.find).toHaveBeenLastCalledWith(
+        "error",
+        {
+          caseSensitive: true,
+          wholeWord: true,
+          regex: false,
+        },
+        "current",
+      );
+    });
+
+    await user.click(screen.getByRole("button", { name: "正则查找" }));
+    await waitFor(() => {
+      expect(renderer.find).toHaveBeenLastCalledWith(
+        "error",
+        {
+          caseSensitive: true,
+          wholeWord: true,
+          regex: true,
+        },
+        "current",
+      );
+    });
+
+    await user.keyboard("{Escape}");
+    expect(renderer.clearSelection).toHaveBeenCalled();
+    expect(screen.queryByRole("textbox", { name: "查找终端文本" })).not.toBeInTheDocument();
   });
 });

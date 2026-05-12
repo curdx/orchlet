@@ -2,18 +2,28 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  CaseSensitive,
+  ChevronDown,
+  ChevronUp,
   Columns2,
+  Copy,
+  Eraser,
   FolderOpen,
   Grid2X2,
+  Keyboard,
   Loader2,
   Pin,
   Plus,
+  Regex,
   RotateCcw,
   Rows2,
   Search,
+  ScanText,
   Square,
   SquareArrowRight,
   SquareTerminal,
+  TextSearch,
+  WholeWord,
   X,
 } from "lucide-react";
 
@@ -32,10 +42,25 @@ import { normalizeAppError, terminalApi } from "../../shared/api";
 import type { TerminalApi } from "../../shared/api/terminal-api";
 import {
   measureTerminalSize,
+  type TerminalFindDirection,
+  type TerminalFindOptions,
+  type TerminalFindResult,
   XtermRendererAdapter,
 } from "./terminal-renderer";
 
-type RendererAdapter = Pick<XtermRendererAdapter, "mount" | "write" | "resize" | "dispose">;
+type RendererAdapter = Pick<
+  XtermRendererAdapter,
+  | "mount"
+  | "write"
+  | "resize"
+  | "dispose"
+  | "focus"
+  | "selectAll"
+  | "copySelection"
+  | "clear"
+  | "clearSelection"
+  | "find"
+>;
 type RendererAdapterOptions = {
   onInput: (input: string) => void;
 };
@@ -108,6 +133,7 @@ export function TerminalPage({
   const sessionsRef = useRef<Map<string, TerminalSessionProfile>>(new Map());
   const visiblePaneIdsRef = useRef<PaneId[]>(VISIBLE_PANES_BY_LAYOUT.single);
   const focusedPaneIdRef = useRef<PaneId>("pane-1");
+  const findInputRef = useRef<HTMLInputElement>(null);
 
   const [tabs, setTabs] = useState<TerminalTabProfile[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -118,6 +144,14 @@ export function TerminalPage({
   );
   const [focusedPaneId, setFocusedPaneId] = useState<PaneId>("pane-1");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isFindOpen, setIsFindOpen] = useState(false);
+  const [findQuery, setFindQuery] = useState("");
+  const [findOptions, setFindOptions] = useState<TerminalFindOptions>(
+    createDefaultFindOptions,
+  );
+  const [findResult, setFindResult] = useState<TerminalFindResult>(
+    createEmptyFindResult,
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const workspace = snapshot?.activeWorkspace ?? null;
@@ -282,6 +316,90 @@ export function TerminalPage({
       setActiveTabId(tab.tabId);
     }
   }, []);
+
+  const getFocusedTextRenderer = useCallback(() => {
+    const targetPaneId = resolveTargetPane(focusedPaneIdRef.current);
+    const tab = getAssignedTab(
+      targetPaneId,
+      paneAssignmentsRef.current,
+      tabsRef.current,
+    );
+
+    if (!tab) {
+      return null;
+    }
+
+    return rendererRefs.current.get(targetPaneId) ?? null;
+  }, [resolveTargetPane]);
+
+  const runFind = useCallback(
+    (direction: TerminalFindDirection = "current") => {
+      const renderer = getFocusedTextRenderer();
+
+      if (!renderer) {
+        setFindResult(createEmptyFindResult());
+        return;
+      }
+
+      setFindResult(renderer.find(findQuery, findOptions, direction));
+    },
+    [findOptions, findQuery, getFocusedTextRenderer],
+  );
+
+  const closeFind = useCallback(() => {
+    getFocusedTextRenderer()?.clearSelection();
+    setIsFindOpen(false);
+    setFindResult(createEmptyFindResult());
+  }, [getFocusedTextRenderer]);
+
+  const handleFocusTerminal = useCallback(() => {
+    getFocusedTextRenderer()?.focus();
+  }, [getFocusedTextRenderer]);
+
+  const handleSelectAllTerminal = useCallback(() => {
+    getFocusedTextRenderer()?.selectAll();
+  }, [getFocusedTextRenderer]);
+
+  const handleCopySelection = useCallback(() => {
+    const selectedText = getFocusedTextRenderer()?.copySelection() ?? "";
+
+    if (!selectedText || typeof navigator === "undefined") {
+      return;
+    }
+
+    void navigator.clipboard?.writeText(selectedText).catch((error) => {
+      const appError = normalizeAppError(error);
+      setErrorMessage(appError.message);
+    });
+  }, [getFocusedTextRenderer]);
+
+  const handleClearTerminal = useCallback(() => {
+    getFocusedTextRenderer()?.clear();
+    setFindResult(createEmptyFindResult());
+  }, [getFocusedTextRenderer]);
+
+  const handleOpenFind = useCallback(() => {
+    setIsFindOpen(true);
+    window.setTimeout(() => findInputRef.current?.focus(), 0);
+  }, []);
+
+  const handleFindKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeFind();
+        return;
+      }
+
+      if (event.key !== "Enter") {
+        return;
+      }
+
+      event.preventDefault();
+      runFind(event.shiftKey ? "previous" : "next");
+    },
+    [closeFind, runFind],
+  );
 
   const handleTerminalInput = useCallback(
     (paneId: PaneId, input: string) => {
@@ -606,6 +724,14 @@ export function TerminalPage({
     visiblePaneKey,
   ]);
 
+  useEffect(() => {
+    if (!isFindOpen) {
+      return;
+    }
+
+    runFind("current");
+  }, [focusedPaneId, isFindOpen, paneAssignments, runFind, tabs]);
+
   async function handleCreateTab(paneId?: PaneId) {
     const targetPaneId = resolveTargetPane(paneId);
     const requestId = bumpPaneAttachRequest(targetPaneId);
@@ -784,8 +910,21 @@ export function TerminalPage({
     focusPane(paneId);
   }
 
+  function toggleFindOption(option: keyof TerminalFindOptions) {
+    setFindOptions((currentOptions) => ({
+      ...currentOptions,
+      [option]: !currentOptions[option],
+    }));
+  }
+
   const title = activeTab?.label ?? activeSession?.title ?? workspace?.metadata.name ?? "终端";
   const canAssignActiveTab = activeTab?.status === "open";
+  const visibleFocusedPaneId = visiblePaneIds.includes(focusedPaneId)
+    ? focusedPaneId
+    : visiblePaneIds[0];
+  const focusedPaneTab = getAssignedTab(visibleFocusedPaneId, paneAssignments, tabs);
+  const canUseTextControls = Boolean(focusedPaneTab);
+  const findStatus = findStatusLabel(findResult, findQuery);
 
   return (
     <main className="min-h-screen bg-[#101511] text-[#dbe8d8]">
@@ -918,6 +1057,63 @@ export function TerminalPage({
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              <div
+                aria-label="终端文本操作"
+                className="mr-1 flex items-center gap-1 rounded-md border border-[#2d3b30] bg-[#101511] p-0.5"
+              >
+                <button
+                  type="button"
+                  aria-label="聚焦终端"
+                  onClick={handleFocusTerminal}
+                  disabled={!canUseTextControls}
+                  className="flex h-7 w-7 items-center justify-center rounded text-[#b8cbb3] transition hover:bg-[#223024] hover:text-[#f1f7ef] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                  title="聚焦终端"
+                >
+                  <Keyboard aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="全选终端文本"
+                  onClick={handleSelectAllTerminal}
+                  disabled={!canUseTextControls}
+                  className="flex h-7 w-7 items-center justify-center rounded text-[#b8cbb3] transition hover:bg-[#223024] hover:text-[#f1f7ef] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                  title="全选"
+                >
+                  <ScanText aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="复制选中文本"
+                  onClick={handleCopySelection}
+                  disabled={!canUseTextControls}
+                  className="flex h-7 w-7 items-center justify-center rounded text-[#b8cbb3] transition hover:bg-[#223024] hover:text-[#f1f7ef] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                  title="复制选中文本"
+                >
+                  <Copy aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="清空终端显示"
+                  onClick={handleClearTerminal}
+                  disabled={!canUseTextControls}
+                  className="flex h-7 w-7 items-center justify-center rounded text-[#b8cbb3] transition hover:bg-[#223024] hover:text-[#f1f7ef] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                  title="清空显示"
+                >
+                  <Eraser aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="打开终端查找"
+                  onClick={handleOpenFind}
+                  disabled={!canUseTextControls}
+                  className={`flex h-7 w-7 items-center justify-center rounded text-[#b8cbb3] transition hover:bg-[#223024] hover:text-[#f1f7ef] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e] ${
+                    isFindOpen ? "bg-[#243527] text-[#f1f7ef]" : ""
+                  }`}
+                  title="查找"
+                >
+                  <TextSearch aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+              </div>
               <div
                 aria-label="终端窗格布局"
                 className="mr-1 flex items-center gap-1 rounded-md border border-[#2d3b30] bg-[#101511] p-0.5"
@@ -1087,6 +1283,104 @@ export function TerminalPage({
                 );
               })}
             </div>
+            {isFindOpen ? (
+              <div
+                role="search"
+                aria-label="终端查找"
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    closeFind();
+                  }
+                }}
+                className="absolute right-4 top-4 z-20 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-1 rounded-md border border-[#334436] bg-[#151c17] p-2 text-xs shadow-xl"
+              >
+                <TextSearch
+                  aria-hidden="true"
+                  size={14}
+                  className="shrink-0 text-[#9fd08e]"
+                />
+                <input
+                  ref={findInputRef}
+                  aria-label="查找终端文本"
+                  value={findQuery}
+                  onChange={(event) => setFindQuery(event.target.value)}
+                  onKeyDown={handleFindKeyDown}
+                  className="h-8 w-44 min-w-0 rounded-md border border-[#3d503f] bg-[#101511] px-2 text-xs text-[#e5eee2] outline-none transition placeholder:text-[#82927f] focus:border-[#7daa75] focus:ring-2 focus:ring-[#7daa75]/25"
+                  placeholder="查找文本"
+                />
+                <span
+                  aria-label="查找结果"
+                  className={`min-w-[3.75rem] rounded px-2 py-1 text-center font-medium ${
+                    findResult.errorMessage ? "text-[#f0d6cf]" : "text-[#b8cbb3]"
+                  }`}
+                >
+                  {findStatus}
+                </span>
+                <button
+                  type="button"
+                  aria-label="上一个匹配项"
+                  onClick={() => runFind("previous")}
+                  disabled={!findQuery.trim() || findResult.total === 0}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-[#3d503f] bg-[#1b241d] text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                  title="上一个"
+                >
+                  <ChevronUp aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="下一个匹配项"
+                  onClick={() => runFind("next")}
+                  disabled={!findQuery.trim() || findResult.total === 0}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-[#3d503f] bg-[#1b241d] text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                  title="下一个"
+                >
+                  <ChevronDown aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="区分大小写"
+                  onClick={() => toggleFindOption("caseSensitive")}
+                  className={`flex h-8 w-8 items-center justify-center rounded-md border border-[#3d503f] text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e] ${
+                    findOptions.caseSensitive ? "bg-[#243527]" : "bg-[#1b241d]"
+                  }`}
+                  title="区分大小写"
+                >
+                  <CaseSensitive aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="全字匹配"
+                  onClick={() => toggleFindOption("wholeWord")}
+                  className={`flex h-8 w-8 items-center justify-center rounded-md border border-[#3d503f] text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e] ${
+                    findOptions.wholeWord ? "bg-[#243527]" : "bg-[#1b241d]"
+                  }`}
+                  title="全字匹配"
+                >
+                  <WholeWord aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="正则查找"
+                  onClick={() => toggleFindOption("regex")}
+                  className={`flex h-8 w-8 items-center justify-center rounded-md border border-[#3d503f] text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e] ${
+                    findOptions.regex ? "bg-[#243527]" : "bg-[#1b241d]"
+                  }`}
+                  title="正则"
+                >
+                  <Regex aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  aria-label="关闭终端查找"
+                  onClick={closeFind}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-[#3d503f] bg-[#1b241d] text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+                  title="关闭"
+                >
+                  <X aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+              </div>
+            ) : null}
           </div>
           {isLoading && !errorMessage ? (
             <div className="pointer-events-none fixed inset-x-0 top-28 flex justify-center">
@@ -1118,6 +1412,39 @@ function createEmptyPaneElementMap(): Record<PaneId, HTMLDivElement | null> {
     "pane-3": null,
     "pane-4": null,
   };
+}
+
+function createDefaultFindOptions(): TerminalFindOptions {
+  return {
+    caseSensitive: false,
+    wholeWord: false,
+    regex: false,
+  };
+}
+
+function createEmptyFindResult(): TerminalFindResult {
+  return {
+    query: "",
+    index: 0,
+    total: 0,
+    errorMessage: null,
+  };
+}
+
+function findStatusLabel(result: TerminalFindResult, query: string) {
+  if (result.errorMessage) {
+    return result.errorMessage;
+  }
+
+  if (!query.trim()) {
+    return "输入查找";
+  }
+
+  if (result.total === 0) {
+    return "无结果";
+  }
+
+  return `${result.index}/${result.total}`;
 }
 
 function getAssignedTab(
