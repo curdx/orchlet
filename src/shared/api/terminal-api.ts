@@ -6,6 +6,8 @@ import type {
   TerminalAttachResult,
   TerminalCloseRequest,
   TerminalCloseResult,
+  TerminalEnvironmentsListRequest,
+  TerminalEnvironmentsListResult,
   TerminalInputRequest,
   TerminalInputResult,
   TerminalOpenRequest,
@@ -55,6 +57,7 @@ export type TerminalApi = {
   resizeTerminal: (request: TerminalResizeRequest) => Promise<TerminalResizeResult>;
   closeTerminal: (request: TerminalCloseRequest) => Promise<TerminalCloseResult>;
   listTabs: () => Promise<TerminalTabsListResult>;
+  listEnvironments: () => Promise<TerminalEnvironmentsListResult>;
   createTab: (input?: TerminalTabCreateInput) => Promise<TerminalTabCreateResult>;
   closeTab: (request: TerminalTabCloseRequest) => Promise<TerminalTabCloseResult>;
   restoreTab: (request: TerminalTabRestoreRequest) => Promise<TerminalTabRestoreResult>;
@@ -156,6 +159,7 @@ export const terminalApi: TerminalApi = {
       browserSession = {
         ...touchBrowserSession(session),
         status: "exited",
+        exitReason: browserClosedExitReason(),
       };
       browserSessions.set(browserSession.terminalSessionId, browserSession);
       emitBrowserStatus(browserSession);
@@ -181,6 +185,34 @@ export const terminalApi: TerminalApi = {
 
     const request: TerminalTabsListRequest = {};
     return invokeCommand<TerminalTabsListResult>("terminal_tabs_list", { request });
+  },
+
+  async listEnvironments() {
+    if (!isTauriRuntime()) {
+      return {
+        environments: [
+          {
+            schemaVersion: 1,
+            environmentId: "browser:shell",
+            label: "Browser shell",
+            kind: "shell",
+            source: "system",
+            command: "browser-shell",
+            resolvedPath: "browser-shell",
+            memberId: null,
+            status: "available",
+            message: "终端环境可用。",
+            userAction: "可以直接启动该终端环境。",
+            details: null,
+          },
+        ],
+      };
+    }
+
+    const request: TerminalEnvironmentsListRequest = {};
+    return invokeCommand<TerminalEnvironmentsListResult>("terminal_environments_list", {
+      request,
+    });
   },
 
   async createTab(input = {}) {
@@ -218,6 +250,7 @@ export const terminalApi: TerminalApi = {
       const closedSession = {
         ...touchBrowserSession(session),
         status: "exited" as const,
+        exitReason: browserClosedExitReason(),
       };
       browserSession = closedSession;
       browserSessions.set(closedSession.terminalSessionId, closedSession);
@@ -334,6 +367,13 @@ function createBrowserSession(memberId: string | null): TerminalSessionProfile {
     status: "running",
     cols: 120,
     rows: 30,
+    snapshot: {
+      lastSeq: 0,
+      text: "",
+      truncated: false,
+      updatedAtMs: null,
+    },
+    exitReason: null,
     createdAtMs: timestamp,
     updatedAtMs: timestamp,
   };
@@ -436,10 +476,20 @@ function emitBrowserStatus(session: TerminalSessionProfile) {
     status: session.status,
     cols: session.cols,
     rows: session.rows,
+    snapshot: session.snapshot,
+    exitReason: session.exitReason,
     emittedAtMs: Date.now(),
   };
 
   browserStatusHandlers.forEach((handler) => handler(event));
+}
+
+function browserClosedExitReason() {
+  return {
+    code: "closedByUser",
+    message: "用户关闭了终端会话。",
+    occurredAtMs: Date.now(),
+  };
 }
 
 function orderedBrowserTabs() {

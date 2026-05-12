@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   CaseSensitive,
   ChevronDown,
   ChevronUp,
+  CheckCircle2,
+  CircleSlash,
   Columns2,
   Copy,
   Eraser,
@@ -15,6 +18,7 @@ import {
   Pin,
   Plus,
   Regex,
+  RefreshCw,
   RotateCcw,
   Rows2,
   Search,
@@ -28,10 +32,12 @@ import {
 } from "lucide-react";
 
 import type {
+  TerminalEnvironmentProfile,
   TerminalSessionProfile,
   TerminalTabProfile,
   TerminalTabUpdateRequest,
 } from "../../contracts/generated/terminal";
+import type { AppError } from "../../contracts/generated/common";
 import type {
   AppLanguage,
   AppTheme,
@@ -76,6 +82,7 @@ type TerminalPageApi = Pick<
   | "resizeTerminal"
   | "subscribeOutput"
   | "subscribeStatus"
+  | "listEnvironments"
 >;
 
 type PaneLayout = "single" | "splitVertical" | "splitHorizontal" | "grid2x2";
@@ -152,8 +159,11 @@ export function TerminalPage({
   const [findResult, setFindResult] = useState<TerminalFindResult>(
     createEmptyFindResult,
   );
+  const [environmentDiagnostics, setEnvironmentDiagnostics] = useState<
+    TerminalEnvironmentProfile[]
+  >([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<AppError | null>(null);
   const workspace = snapshot?.activeWorkspace ?? null;
 
   const visiblePaneIds = useMemo(
@@ -247,6 +257,36 @@ export function TerminalPage({
       };
     });
   }, []);
+
+  const restoreRendererSnapshot = useCallback(
+    (paneId: PaneId, session: TerminalSessionProfile) => {
+      const snapshotText = session.snapshot.text;
+
+      if (!snapshotText) {
+        return;
+      }
+
+      const renderer = rendererRefs.current.get(paneId);
+      renderer?.clear();
+      renderer?.write(snapshotText);
+    },
+    [],
+  );
+
+  const loadEnvironmentDiagnostics = useCallback(async () => {
+    try {
+      const result = await api.listEnvironments();
+      setEnvironmentDiagnostics(result.environments);
+      setErrorNotice(null);
+    } catch (error) {
+      const appError = normalizeAppError(error);
+      setErrorNotice(appError);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void loadEnvironmentDiagnostics();
+  }, [loadEnvironmentDiagnostics]);
 
   const updatePaneAssignments = useCallback(
     (updater: (currentAssignments: PaneAssignments) => PaneAssignments) => {
@@ -369,7 +409,7 @@ export function TerminalPage({
 
     void navigator.clipboard?.writeText(selectedText).catch((error) => {
       const appError = normalizeAppError(error);
-      setErrorMessage(appError.message);
+      setErrorNotice(appError);
     });
   }, [getFocusedTextRenderer]);
 
@@ -426,11 +466,11 @@ export function TerminalPage({
         })
         .then((result) => {
           storeSessionIfNotExited(result.session);
-          setErrorMessage(null);
+          setErrorNotice(null);
         })
         .catch((error) => {
           const appError = normalizeAppError(error);
-          setErrorMessage(appError.message);
+          setErrorNotice(appError);
         });
     },
     [api, storeSessionIfNotExited],
@@ -490,11 +530,12 @@ export function TerminalPage({
         }
 
         storeSession(result.session);
-        setErrorMessage(null);
+        restoreRendererSnapshot(targetPaneId, result.session);
+        setErrorNotice(null);
       } catch (error) {
         if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
           const appError = normalizeAppError(error);
-          setErrorMessage(appError.message);
+          setErrorNotice(appError);
         }
       } finally {
         if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
@@ -502,7 +543,14 @@ export function TerminalPage({
         }
       }
     },
-    [api, assignTabToPane, bumpPaneAttachRequest, resolveTargetPane, storeSession],
+    [
+      api,
+      assignTabToPane,
+      bumpPaneAttachRequest,
+      resolveTargetPane,
+      restoreRendererSnapshot,
+      storeSession,
+    ],
   );
 
   useEffect(() => {
@@ -535,12 +583,12 @@ export function TerminalPage({
         }
 
         if (!disposed) {
-          setErrorMessage(null);
+          setErrorNotice(null);
         }
       } catch (error) {
         if (!disposed) {
           const appError = normalizeAppError(error);
-          setErrorMessage(appError.message);
+          setErrorNotice(appError);
           setIsLoading(false);
         }
       }
@@ -594,6 +642,8 @@ export function TerminalPage({
               status: event.status,
               cols: event.cols,
               rows: event.rows,
+              snapshot: event.snapshot,
+              exitReason: event.exitReason,
               updatedAtMs: event.emittedAtMs,
             };
             sessionsRef.current.set(nextSession.terminalSessionId, nextSession);
@@ -607,7 +657,7 @@ export function TerminalPage({
       } catch (error) {
         if (!disposed) {
           const appError = normalizeAppError(error);
-          setErrorMessage(appError.message);
+          setErrorNotice(appError);
         }
       }
     }
@@ -664,11 +714,11 @@ export function TerminalPage({
         })
         .then((result) => {
           storeSessionIfNotExited(result.session);
-          setErrorMessage(null);
+          setErrorNotice(null);
         })
         .catch((error) => {
           const appError = normalizeAppError(error);
-          setErrorMessage(appError.message);
+          setErrorNotice(appError);
         });
     }
 
@@ -746,15 +796,16 @@ export function TerminalPage({
 
       storeTabs(result.tabs);
       storeSession(result.session);
+      restoreRendererSnapshot(targetPaneId, result.session);
       assignTabToPane(targetPaneId, result.tab.tabId);
       focusedPaneIdRef.current = targetPaneId;
       setFocusedPaneId(targetPaneId);
       setActiveTabId(result.tab.tabId);
-      setErrorMessage(null);
+      setErrorNotice(null);
     } catch (error) {
       if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
         const appError = normalizeAppError(error);
-        setErrorMessage(appError.message);
+        setErrorNotice(appError);
       }
     } finally {
       if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
@@ -781,7 +832,7 @@ export function TerminalPage({
 
       storeTabs(result.tabs);
       storeSession(result.session);
-      setErrorMessage(null);
+      setErrorNotice(null);
 
       if (nextOpenTab) {
         const assignedPaneId = findAssignedPaneForTab(
@@ -800,7 +851,7 @@ export function TerminalPage({
       }
     } catch (error) {
       const appError = normalizeAppError(error);
-      setErrorMessage(appError.message);
+      setErrorNotice(appError);
     }
   }
 
@@ -822,16 +873,17 @@ export function TerminalPage({
 
       storeTabs(result.tabs);
       storeSession(result.session);
+      restoreRendererSnapshot(targetPaneId, result.session);
       assignTabToPane(targetPaneId, result.tab.tabId);
       focusedPaneIdRef.current = targetPaneId;
       setFocusedPaneId(targetPaneId);
       setActiveTabId(result.tab.tabId);
       setSearchQuery("");
-      setErrorMessage(null);
+      setErrorNotice(null);
     } catch (error) {
       if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
         const appError = normalizeAppError(error);
-        setErrorMessage(appError.message);
+        setErrorNotice(appError);
       }
     } finally {
       if (attachRequestIdsRef.current.get(targetPaneId) === requestId) {
@@ -850,10 +902,10 @@ export function TerminalPage({
         isPinned: !activeTab.isPinned,
       }));
       storeTabs(result.tabs);
-      setErrorMessage(null);
+      setErrorNotice(null);
     } catch (error) {
       const appError = normalizeAppError(error);
-      setErrorMessage(appError.message);
+      setErrorNotice(appError);
     }
   }
 
@@ -878,10 +930,10 @@ export function TerminalPage({
         sortIndex: currentTab.sortIndex,
       }));
       storeTabs(second.tabs.length ? second.tabs : first.tabs);
-      setErrorMessage(null);
+      setErrorNotice(null);
     } catch (error) {
       const appError = normalizeAppError(error);
-      setErrorMessage(appError.message);
+      setErrorNotice(appError);
     }
   }
 
@@ -1193,12 +1245,60 @@ export function TerminalPage({
           </div>
         </header>
 
-        {errorMessage ? (
+        {environmentDiagnostics.length ? (
+          <section
+            aria-label="终端环境诊断"
+            className="flex flex-wrap items-center gap-2 border-b border-[#223024] bg-[#121914] px-4 py-2 text-xs"
+          >
+            <div className="mr-1 flex items-center gap-2 font-medium text-[#dbe8d8]">
+              <SquareTerminal aria-hidden="true" size={14} strokeWidth={2} />
+              终端环境
+            </div>
+            {environmentDiagnostics.slice(0, 6).map((environment) => {
+              const StatusIcon = environmentStatusIcon(environment.status);
+
+              return (
+                <span
+                  key={environment.environmentId}
+                  className={`inline-flex max-w-[18rem] items-center gap-1.5 rounded-md border px-2 py-1 ${environmentStatusClass(
+                    environment.status,
+                  )}`}
+                  title={`${environment.command} · ${environment.message} ${environment.userAction}`}
+                >
+                  <StatusIcon aria-hidden="true" size={13} strokeWidth={2} />
+                  <span className="truncate font-medium">{environment.label}</span>
+                  <span className="shrink-0">{environmentStatusLabel(environment.status)}</span>
+                </span>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => void loadEnvironmentDiagnostics()}
+              className="ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[#2d3b30] bg-[#101511] px-2 text-[#b8cbb3] transition hover:border-[#6f9369] hover:bg-[#223024] hover:text-[#f1f7ef] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
+            >
+              <RefreshCw aria-hidden="true" size={13} strokeWidth={2} />
+              刷新环境
+            </button>
+          </section>
+        ) : null}
+
+        {errorNotice ? (
           <section
             role="alert"
             className="border-b border-[#5a332f] bg-[#2a1715] px-4 py-3 text-sm text-[#ffd7d3]"
           >
-            {errorMessage}
+            <p className="font-medium">{errorNotice.message}</p>
+            <p className="mt-1 text-xs text-[#f2b8b0]">
+              影响范围：当前终端操作未完成，其他终端会话不受影响。
+            </p>
+            <p className="mt-1 text-xs text-[#f2b8b0]">
+              下一步：{errorNotice.userAction ?? "请重试；如果问题持续，请查看诊断信息。"}
+            </p>
+            {errorNotice.details ? (
+              <p className="mt-1 max-w-full truncate text-xs text-[#d99f98]">
+                详情：{errorNotice.details}
+              </p>
+            ) : null}
           </section>
         ) : null}
 
@@ -1215,6 +1315,9 @@ export function TerminalPage({
                   : null;
                 const paneClosed =
                   assignedTab?.status === "closed" || paneSession?.status === "exited";
+                const paneSnapshotText = paneSession?.snapshot.text ?? "";
+                const paneExitReason =
+                  paneSession?.exitReason?.message ?? "终端会话已结束。";
                 const focused = focusedPaneId === paneId;
 
                 return (
@@ -1273,10 +1376,16 @@ export function TerminalPage({
                       </div>
                     ) : null}
                     {paneClosed ? (
-                      <div className="pointer-events-none absolute inset-x-0 top-12 flex justify-center">
-                        <span className="rounded-md border border-[#334436] bg-[#1a231c] px-3 py-2 text-xs font-medium text-[#b8cbb3] shadow-lg">
-                          终端会话已关闭
-                        </span>
+                      <div className="pointer-events-none absolute inset-x-3 top-12 flex justify-center">
+                        <div className="max-w-[min(34rem,calc(100%-1rem))] rounded-md border border-[#334436] bg-[#1a231c]/95 p-3 text-xs text-[#b8cbb3] shadow-lg">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-medium">
+                            <span>当前状态：{paneSession ? sessionStatusLabel(paneSession) : "已退出"}</span>
+                            <span>退出原因：{paneExitReason}</span>
+                          </div>
+                          <pre className="mt-2 max-h-24 overflow-hidden whitespace-pre-wrap break-words rounded border border-[#2d3b30] bg-[#0f1511] p-2 font-mono text-[11px] leading-4 text-[#dbe8d8]">
+                            {paneSnapshotText.trim() ? paneSnapshotText : "暂无可观察输出"}
+                          </pre>
+                        </div>
                       </div>
                     ) : null}
                   </section>
@@ -1382,7 +1491,7 @@ export function TerminalPage({
               </div>
             ) : null}
           </div>
-          {isLoading && !errorMessage ? (
+          {isLoading && !errorNotice ? (
             <div className="pointer-events-none fixed inset-x-0 top-28 flex justify-center">
               <span className="inline-flex items-center gap-2 rounded-md border border-[#334436] bg-[#1a231c] px-3 py-2 text-xs text-[#b8cbb3] shadow-lg">
                 <Loader2 aria-hidden="true" size={14} className="animate-spin" />
@@ -1551,6 +1660,42 @@ function searchTerminalTabs(tabs: TerminalTabProfile[], query: string) {
       .toLocaleLowerCase()
       .includes(normalizedQuery),
   );
+}
+
+function environmentStatusIcon(status: TerminalEnvironmentProfile["status"]) {
+  switch (status) {
+    case "available":
+      return CheckCircle2;
+    case "invalid":
+      return CircleSlash;
+    case "missing":
+    default:
+      return AlertTriangle;
+  }
+}
+
+function environmentStatusLabel(status: TerminalEnvironmentProfile["status"]) {
+  switch (status) {
+    case "available":
+      return "可用";
+    case "invalid":
+      return "无效";
+    case "missing":
+    default:
+      return "缺失";
+  }
+}
+
+function environmentStatusClass(status: TerminalEnvironmentProfile["status"]) {
+  switch (status) {
+    case "available":
+      return "border-[#345a39] bg-[#16231a] text-[#c9e7c1]";
+    case "invalid":
+      return "border-[#5a4034] bg-[#241b16] text-[#f0d6cf]";
+    case "missing":
+    default:
+      return "border-[#5a5334] bg-[#242217] text-[#eadfa6]";
+  }
 }
 
 function sessionStatusLabel(session: TerminalSessionProfile | null) {

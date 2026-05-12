@@ -15,6 +15,7 @@ const requiredCommands = new Set([
   "terminal_resize",
   "terminal_close",
   "terminal_tabs_list",
+  "terminal_environments_list",
   "terminal_tab_create",
   "terminal_tab_close",
   "terminal_tab_restore",

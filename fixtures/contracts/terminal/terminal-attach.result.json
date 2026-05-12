@@ -9,6 +9,13 @@
     "cols": 120,
     "rows": 30,
     "createdAtMs": 1760000000000,
-    "updatedAtMs": 1760000000001
+    "updatedAtMs": 1760000000001,
+    "snapshot": {
+      "lastSeq": 1,
+      "text": "ready\n",
+      "truncated": false,
+      "updatedAtMs": 1760000000002
+    },
+    "exitReason": null
   }
 }

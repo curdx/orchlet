@@ -12,12 +12,15 @@ use ulid::Ulid;
 
 use crate::{
     contracts::{
-        AppError, MemberProfile, OpenedWorkspace, TerminalAttachRequest, TerminalCloseRequest,
+        AppError, MemberProfile, MemberRuntimeKind, OpenedWorkspace, TerminalAttachRequest,
+        TerminalCloseRequest, TerminalEnvironmentKind, TerminalEnvironmentProfile,
+        TerminalEnvironmentSource, TerminalEnvironmentStatus, TerminalEnvironmentsListResult,
         TerminalInputRequest, TerminalOpenRequest, TerminalOutputEventPayload,
-        TerminalResizeRequest, TerminalSessionProfile, TerminalSessionStatus,
-        TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
-        TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
-        TerminalTabProfile, TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
+        TerminalResizeRequest, TerminalSessionExitReason, TerminalSessionProfile,
+        TerminalSessionSnapshot, TerminalSessionStatus, TerminalStatusEventPayload,
+        TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult,
+        TerminalTabCreateRequest, TerminalTabCreateResult, TerminalTabProfile,
+        TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
         TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListResult,
     },
     domain::{
@@ -38,6 +41,11 @@ use crate::{
         },
         terminal::{default_shell_command, PtyTerminalLauncher},
     },
+};
+
+use crate::infrastructure::terminal::{
+    resolve_terminal_command, shell_command_candidates, terminal_command_unavailable_error,
+    TerminalCommandResolution, TerminalCommandResolutionStatus,
 };
 
 pub type TerminalOutputHandler = Arc<dyn Fn(String, TerminalStreamKind) + Send + Sync + 'static>;
@@ -66,6 +74,8 @@ pub struct TerminalLaunchProfile {
     pub cols: u16,
     pub rows: u16,
 }
+
+const TERMINAL_SNAPSHOT_MAX_CHARS: usize = 4000;
 
 pub struct TerminalRuntimeState {
     inner: Mutex<TerminalState>,
@@ -128,6 +138,7 @@ impl TerminalRuntimeState {
             .filter(|command| !command.is_empty())
             .map(ToOwned::to_owned)
             .unwrap_or_else(default_shell_command);
+        ensure_launch_command_available(&command)?;
         let profile = TerminalSessionProfile {
             schema_version: TERMINAL_SCHEMA_VERSION,
             terminal_session_id: session_id.clone(),
@@ -137,11 +148,19 @@ impl TerminalRuntimeState {
             status: TerminalSessionStatus::Starting,
             cols: TERMINAL_DEFAULT_COLS,
             rows: TERMINAL_DEFAULT_ROWS,
+            snapshot: TerminalSessionSnapshot::default(),
+            exit_reason: None,
             created_at_ms: timestamp,
             updated_at_ms: timestamp,
         };
         let seq = Arc::new(AtomicU64::new(0));
-        let output_handler = output_handler_for(profile.clone(), seq, event_sink);
+        let snapshot_state = Arc::new(Mutex::new(TerminalSessionSnapshot::default()));
+        let output_handler = output_handler_for(
+            profile.clone(),
+            Arc::clone(&seq),
+            Arc::clone(&snapshot_state),
+            event_sink,
+        );
         let handle = self.launcher.spawn(
             TerminalLaunchProfile {
                 cwd: PathBuf::from(&workspace.root_path),
@@ -155,12 +174,14 @@ impl TerminalRuntimeState {
         let mut running_profile = profile;
         running_profile.status = TerminalSessionStatus::Running;
         running_profile.updated_at_ms = now_ms().max(running_profile.created_at_ms);
+        running_profile.snapshot = clone_snapshot(&snapshot_state);
 
         self.insert_session(
             key,
             TerminalSessionEntry {
                 profile: running_profile.clone(),
                 handle,
+                snapshot_state,
             },
         );
         emit_status(&running_profile, status_sink);
@@ -195,6 +216,7 @@ impl TerminalRuntimeState {
             .filter(|command| !command.is_empty())
             .map(ToOwned::to_owned)
             .unwrap_or_else(default_shell_command);
+        ensure_launch_command_available(&command)?;
         let profile = TerminalSessionProfile {
             schema_version: TERMINAL_SCHEMA_VERSION,
             terminal_session_id: session_id.clone(),
@@ -204,11 +226,19 @@ impl TerminalRuntimeState {
             status: TerminalSessionStatus::Starting,
             cols: TERMINAL_DEFAULT_COLS,
             rows: TERMINAL_DEFAULT_ROWS,
+            snapshot: TerminalSessionSnapshot::default(),
+            exit_reason: None,
             created_at_ms: timestamp,
             updated_at_ms: timestamp,
         };
         let seq = Arc::new(AtomicU64::new(0));
-        let output_handler = output_handler_for(profile.clone(), seq, event_sink);
+        let snapshot_state = Arc::new(Mutex::new(TerminalSessionSnapshot::default()));
+        let output_handler = output_handler_for(
+            profile.clone(),
+            Arc::clone(&seq),
+            Arc::clone(&snapshot_state),
+            event_sink,
+        );
         let handle = self.launcher.spawn(
             TerminalLaunchProfile {
                 cwd: PathBuf::from(&workspace.root_path),
@@ -222,12 +252,14 @@ impl TerminalRuntimeState {
         let mut running_profile = profile;
         running_profile.status = TerminalSessionStatus::Running;
         running_profile.updated_at_ms = now_ms().max(running_profile.created_at_ms);
+        running_profile.snapshot = clone_snapshot(&snapshot_state);
 
         self.insert_session(
             key,
             TerminalSessionEntry {
                 profile: running_profile.clone(),
                 handle,
+                snapshot_state,
             },
         );
         emit_status(&running_profile, status_sink);
@@ -276,7 +308,7 @@ impl TerminalRuntimeState {
         entry.handle.write_input(&request.input)?;
         entry.profile.updated_at_ms = now_ms().max(entry.profile.updated_at_ms);
 
-        Ok(entry.profile.clone())
+        Ok(entry.profile_with_snapshot())
     }
 
     pub fn resize_session(
@@ -301,7 +333,7 @@ impl TerminalRuntimeState {
             entry.profile.cols = request.cols;
             entry.profile.rows = request.rows;
             entry.profile.updated_at_ms = now_ms().max(entry.profile.updated_at_ms);
-            entry.profile.clone()
+            entry.profile_with_snapshot()
         };
         emit_status(&profile, status_sink);
 
@@ -328,8 +360,14 @@ impl TerminalRuntimeState {
                 if entry.profile.status != TerminalSessionStatus::Exited {
                     entry.handle.close()?;
                 }
+                let timestamp = now_ms().max(entry.profile.updated_at_ms);
                 entry.profile.status = TerminalSessionStatus::Exited;
-                entry.profile.updated_at_ms = now_ms().max(entry.profile.updated_at_ms);
+                entry.profile.updated_at_ms = timestamp;
+                entry.profile.exit_reason = Some(TerminalSessionExitReason {
+                    code: "closedByUser".to_owned(),
+                    message: "用户关闭了终端会话。".to_owned(),
+                    occurred_at_ms: timestamp,
+                });
                 TerminalSessionKey {
                     workspace_id: entry.profile.workspace_id.clone(),
                     member_id: entry.profile.member_id.clone(),
@@ -350,8 +388,7 @@ impl TerminalRuntimeState {
                 .sessions_by_id
                 .get(&request.terminal_session_id)
                 .expect("session exists after close")
-                .profile
-                .clone()
+                .profile_with_snapshot()
         };
         emit_status(&profile, status_sink);
 
@@ -370,6 +407,54 @@ impl TerminalRuntimeState {
             tabs,
             active_tab_id,
         })
+    }
+
+    pub fn list_environments(
+        &self,
+        app_data_dir: PathBuf,
+        workspace: &OpenedWorkspace,
+    ) -> Result<TerminalEnvironmentsListResult, AppError> {
+        validate_workspace_id(&workspace.metadata.project_id)?;
+
+        let mut environments = Vec::new();
+        for shell in shell_command_candidates() {
+            let resolution = resolve_terminal_command(&shell.command);
+            environments.push(environment_profile(
+                format!("shell:{}", shell.command),
+                shell.label,
+                TerminalEnvironmentKind::Shell,
+                TerminalEnvironmentSource::System,
+                shell.command,
+                None,
+                resolution,
+            ));
+        }
+
+        let members = initialize_member_store(&app_data_dir, &workspace.metadata.project_id)?;
+        for member in members
+            .members
+            .into_iter()
+            .filter(|member| member.runtime.kind != MemberRuntimeKind::None)
+        {
+            let command = member.runtime.command.clone().unwrap_or_default();
+            let label = member
+                .runtime
+                .label
+                .clone()
+                .unwrap_or_else(|| member.instance_label.clone());
+            let resolution = resolve_terminal_command(&command);
+            environments.push(environment_profile(
+                format!("member:{}", member.member_id),
+                label,
+                environment_kind_for_runtime(&member.runtime.kind),
+                TerminalEnvironmentSource::MemberRuntime,
+                command,
+                Some(member.member_id),
+                resolution,
+            ));
+        }
+
+        Ok(TerminalEnvironmentsListResult { environments })
     }
 
     pub fn create_tab(
@@ -596,7 +681,7 @@ impl TerminalRuntimeState {
             if entry.profile.status == TerminalSessionStatus::Exited {
                 None
             } else {
-                Some(entry.profile.clone())
+                Some(entry.profile_with_snapshot())
             }
         })
     }
@@ -612,7 +697,7 @@ impl TerminalRuntimeState {
             .get(terminal_session_id)
             .ok_or_else(|| session_not_found(terminal_session_id, workspace_id))?;
         ensure_session_workspace(&entry.profile, workspace_id)?;
-        Ok(entry.profile.clone())
+        Ok(entry.profile_with_snapshot())
     }
 
     fn insert_session(&self, key: TerminalSessionKey, entry: TerminalSessionEntry) {
@@ -659,6 +744,19 @@ struct TerminalState {
 struct TerminalSessionEntry {
     profile: TerminalSessionProfile,
     handle: Box<dyn TerminalSessionHandle>,
+    snapshot_state: Arc<Mutex<TerminalSessionSnapshot>>,
+}
+
+impl TerminalSessionEntry {
+    fn profile_with_snapshot(&self) -> TerminalSessionProfile {
+        let mut profile = self.profile.clone();
+        profile.snapshot = self
+            .snapshot_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        profile
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -697,13 +795,72 @@ fn resolve_member(
     Ok(Some(member))
 }
 
+fn ensure_launch_command_available(command: &str) -> Result<(), AppError> {
+    let resolution = resolve_terminal_command(command);
+
+    if resolution.is_available() {
+        return Ok(());
+    }
+
+    Err(terminal_command_unavailable_error(command, &resolution))
+}
+
+fn environment_profile(
+    environment_id: String,
+    label: String,
+    kind: TerminalEnvironmentKind,
+    source: TerminalEnvironmentSource,
+    command: String,
+    member_id: Option<String>,
+    resolution: TerminalCommandResolution,
+) -> TerminalEnvironmentProfile {
+    TerminalEnvironmentProfile {
+        schema_version: TERMINAL_SCHEMA_VERSION,
+        environment_id,
+        label,
+        kind,
+        source,
+        command,
+        resolved_path: resolution
+            .resolved_path
+            .as_ref()
+            .map(|path| path.display().to_string()),
+        member_id,
+        status: environment_status_for_resolution(&resolution.status),
+        message: resolution.message,
+        user_action: resolution.user_action,
+        details: resolution.details,
+    }
+}
+
+fn environment_status_for_resolution(
+    status: &TerminalCommandResolutionStatus,
+) -> TerminalEnvironmentStatus {
+    match status {
+        TerminalCommandResolutionStatus::Available => TerminalEnvironmentStatus::Available,
+        TerminalCommandResolutionStatus::Missing => TerminalEnvironmentStatus::Missing,
+        TerminalCommandResolutionStatus::Invalid => TerminalEnvironmentStatus::Invalid,
+    }
+}
+
+fn environment_kind_for_runtime(kind: &MemberRuntimeKind) -> TerminalEnvironmentKind {
+    match kind {
+        MemberRuntimeKind::BuiltInAiCli => TerminalEnvironmentKind::BuiltInAiCli,
+        MemberRuntimeKind::CustomCli => TerminalEnvironmentKind::CustomCli,
+        MemberRuntimeKind::Shell | MemberRuntimeKind::None => TerminalEnvironmentKind::Shell,
+    }
+}
+
 fn output_handler_for(
     profile: TerminalSessionProfile,
     seq: Arc<AtomicU64>,
+    snapshot_state: Arc<Mutex<TerminalSessionSnapshot>>,
     event_sink: TerminalEventSink,
 ) -> TerminalOutputHandler {
     Arc::new(move |chunk, kind| {
         let seq = seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let emitted_at_ms = now_ms();
+        update_snapshot(&snapshot_state, seq, &chunk, emitted_at_ms);
         event_sink(TerminalOutputEventPayload {
             schema_version: TERMINAL_SCHEMA_VERSION,
             terminal_session_id: profile.terminal_session_id.clone(),
@@ -712,7 +869,7 @@ fn output_handler_for(
             seq,
             chunk,
             kind,
-            emitted_at_ms: now_ms(),
+            emitted_at_ms,
         });
     })
 }
@@ -727,8 +884,52 @@ fn emit_status(profile: &TerminalSessionProfile, status_sink: TerminalStatusSink
         status: profile.status.clone(),
         cols: profile.cols,
         rows: profile.rows,
+        snapshot: profile.snapshot.clone(),
+        exit_reason: profile.exit_reason.clone(),
         emitted_at_ms: now_ms(),
     });
+}
+
+fn update_snapshot(
+    snapshot_state: &Arc<Mutex<TerminalSessionSnapshot>>,
+    seq: u64,
+    chunk: &str,
+    emitted_at_ms: u64,
+) {
+    let mut snapshot = snapshot_state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    snapshot.last_seq = seq;
+    snapshot.updated_at_ms = Some(emitted_at_ms);
+
+    if chunk.is_empty() {
+        return;
+    }
+
+    snapshot.text.push_str(chunk);
+
+    let char_count = snapshot.text.chars().count();
+    if char_count <= TERMINAL_SNAPSHOT_MAX_CHARS {
+        return;
+    }
+
+    snapshot.text = snapshot
+        .text
+        .chars()
+        .rev()
+        .take(TERMINAL_SNAPSHOT_MAX_CHARS)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    snapshot.truncated = true;
+}
+
+fn clone_snapshot(snapshot_state: &Arc<Mutex<TerminalSessionSnapshot>>) -> TerminalSessionSnapshot {
+    snapshot_state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
 }
 
 fn ensure_session_workspace(
@@ -779,7 +980,10 @@ fn now_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::{
+        fs,
+        sync::{Arc, Mutex},
+    };
 
     use tempfile::tempdir;
 
@@ -792,10 +996,10 @@ mod tests {
         contracts::{
             AppError, InviteMemberRequest, InvitedMemberType, MemberIsolation, MemberPermissions,
             MemberRuntimeKind, MemberRuntimeProfile, OpenedWorkspace, TerminalAttachRequest,
-            TerminalCloseRequest, TerminalInputRequest, TerminalOpenRequest, TerminalResizeRequest,
-            TerminalSessionStatus, TerminalStreamKind, TerminalTabCloseRequest,
-            TerminalTabCreateRequest, TerminalTabRestoreRequest, TerminalTabStatus,
-            TerminalTabUpdateRequest, WorkspaceAccessMode, WorkspaceMetadata,
+            TerminalCloseRequest, TerminalEnvironmentStatus, TerminalInputRequest,
+            TerminalOpenRequest, TerminalResizeRequest, TerminalSessionStatus, TerminalStreamKind,
+            TerminalTabCloseRequest, TerminalTabCreateRequest, TerminalTabRestoreRequest,
+            TerminalTabStatus, TerminalTabUpdateRequest, WorkspaceAccessMode, WorkspaceMetadata,
             WorkspaceRegistryAction, WorkspaceRegistryEntry,
         },
     };
@@ -905,6 +1109,7 @@ mod tests {
     fn validates_member_runtime_and_reuses_member_session() {
         let app_data = tempdir().expect("app data");
         let workspace = workspace();
+        let cli_command = available_command(app_data.path(), "codex");
         let member = invite_workspace_member(
             app_data.path(),
             InviteMemberRequest {
@@ -915,7 +1120,7 @@ mod tests {
                     kind: MemberRuntimeKind::BuiltInAiCli,
                     runtime_id: Some("codex".to_owned()),
                     label: Some("Codex CLI".to_owned()),
-                    command: Some("codex".to_owned()),
+                    command: Some(cli_command.clone()),
                 },
                 instance_count: None,
                 permissions: Some(MemberPermissions {
@@ -966,7 +1171,7 @@ mod tests {
         assert_eq!(first.terminal_session_id, second.terminal_session_id);
         assert_eq!(
             launcher.launches.lock().expect("launches")[0].command,
-            "codex"
+            cli_command
         );
     }
 
@@ -1016,6 +1221,137 @@ mod tests {
             non_terminal.code,
             "terminal.member.runtimeNotTerminalCapable"
         );
+    }
+
+    #[test]
+    fn lists_shell_and_member_environment_diagnostics() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let available = available_command(app_data.path(), "codex");
+        let missing_command = "orchlet-missing-cli-for-test".to_owned();
+        let available_member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(available),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("available member")
+        .member;
+        let missing_member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Missing Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::CustomCli,
+                    runtime_id: Some("missing".to_owned()),
+                    label: Some("Missing CLI".to_owned()),
+                    command: Some(missing_command.clone()),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("missing member")
+        .member;
+        let state = TerminalRuntimeState::with_launcher(Arc::new(MockLauncher::default()));
+
+        let result = state
+            .list_environments(app_data.path().to_path_buf(), &workspace)
+            .expect("environment diagnostics");
+
+        assert!(result
+            .environments
+            .iter()
+            .any(|environment| environment.environment_id.starts_with("shell:")));
+        let available_environment = result
+            .environments
+            .iter()
+            .find(|environment| {
+                environment.member_id.as_deref() == Some(available_member.member_id.as_str())
+            })
+            .expect("available member environment");
+        assert_eq!(
+            available_environment.status,
+            TerminalEnvironmentStatus::Available
+        );
+        assert!(available_environment.resolved_path.is_some());
+
+        let missing_environment = result
+            .environments
+            .iter()
+            .find(|environment| {
+                environment.member_id.as_deref() == Some(missing_member.member_id.as_str())
+            })
+            .expect("missing member environment");
+        assert_eq!(
+            missing_environment.status,
+            TerminalEnvironmentStatus::Missing
+        );
+        assert_eq!(missing_environment.command, missing_command);
+        assert!(!missing_environment.user_action.is_empty());
+    }
+
+    #[test]
+    fn rejects_missing_member_cli_before_launching_pty() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Missing Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::CustomCli,
+                    runtime_id: Some("missing".to_owned()),
+                    label: Some("Missing CLI".to_owned()),
+                    command: Some("orchlet-missing-cli-for-launch".to_owned()),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let launcher = Arc::new(MockLauncher::default());
+        let state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let error = state
+            .open_or_create_session(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalOpenRequest {
+                    member_id: Some(member.member_id),
+                    attach_current: false,
+                },
+                Arc::new(|_| {}),
+                Arc::new(|_| {}),
+            )
+            .expect_err("missing command is rejected before launch");
+
+        assert_eq!(error.code, "terminal.command.missing");
+        assert!(error
+            .details
+            .as_deref()
+            .unwrap_or_default()
+            .contains("impactScope=current terminal session was not created"));
+        assert_eq!(state.session_count(), 0);
+        assert!(launcher.launches.lock().expect("launches").is_empty());
     }
 
     #[test]
@@ -1070,6 +1406,9 @@ mod tests {
             explicit_attach.terminal_session_id,
             session.terminal_session_id
         );
+        assert_eq!(session.snapshot.text, "ready");
+        assert_eq!(active_attach.snapshot.text, "ready");
+        assert_eq!(explicit_attach.snapshot.last_seq, 1);
 
         state
             .write_input(
@@ -1113,16 +1452,25 @@ mod tests {
         assert_eq!(resized.cols, 100);
         assert_eq!(resized.rows, 32);
         assert_eq!(closed.status, TerminalSessionStatus::Exited);
+        assert_eq!(closed.snapshot.text, "ready");
+        assert_eq!(
+            closed.exit_reason.as_ref().expect("exit reason").code,
+            "closedByUser"
+        );
         assert_eq!(after_close.code, "terminal.session.closed");
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
             ["input:pwd\n", "resize:100x32", "close"]
         );
-        assert!(statuses
-            .lock()
-            .expect("statuses")
-            .iter()
-            .any(|event| event.status == TerminalSessionStatus::Exited));
+        assert!(statuses.lock().expect("statuses").iter().any(|event| {
+            event.status == TerminalSessionStatus::Exited
+                && event.snapshot.text == "ready"
+                && event
+                    .exit_reason
+                    .as_ref()
+                    .map(|reason| reason.code.as_str())
+                    == Some("closedByUser")
+        }));
     }
 
     #[test]
@@ -1279,6 +1627,12 @@ mod tests {
             )
             .expect_err("missing tab rejected");
         assert_eq!(missing.code, "terminal.tab.notFound");
+    }
+
+    fn available_command(root: &std::path::Path, name: &str) -> String {
+        let path = root.join(name);
+        fs::write(&path, "").expect("test command file");
+        path.display().to_string()
     }
 
     fn workspace() -> OpenedWorkspace {

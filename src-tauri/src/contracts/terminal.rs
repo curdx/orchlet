@@ -29,6 +29,32 @@ pub enum TerminalTabStatus {
     Closed,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub enum TerminalEnvironmentKind {
+    Shell,
+    BuiltInAiCli,
+    CustomCli,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub enum TerminalEnvironmentSource {
+    System,
+    MemberRuntime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub enum TerminalEnvironmentStatus {
+    Available,
+    Missing,
+    Invalid,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "terminal.ts")]
@@ -77,6 +103,11 @@ pub struct TerminalTabsListRequest {}
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "terminal.ts")]
+pub struct TerminalEnvironmentsListRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
 pub struct TerminalTabCreateRequest {
     pub member_id: Option<String>,
     pub label: Option<String>,
@@ -109,6 +140,39 @@ pub struct TerminalTabUpdateRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "terminal.ts")]
+pub struct TerminalSessionSnapshot {
+    #[ts(type = "number")]
+    pub last_seq: u64,
+    pub text: String,
+    pub truncated: bool,
+    #[ts(type = "number | null")]
+    pub updated_at_ms: Option<u64>,
+}
+
+impl Default for TerminalSessionSnapshot {
+    fn default() -> Self {
+        Self {
+            last_seq: 0,
+            text: String::new(),
+            truncated: false,
+            updated_at_ms: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalSessionExitReason {
+    pub code: String,
+    pub message: String,
+    #[ts(type = "number")]
+    pub occurred_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
 pub struct TerminalSessionProfile {
     pub schema_version: u32,
     pub terminal_session_id: String,
@@ -118,6 +182,8 @@ pub struct TerminalSessionProfile {
     pub status: TerminalSessionStatus,
     pub cols: u16,
     pub rows: u16,
+    pub snapshot: TerminalSessionSnapshot,
+    pub exit_reason: Option<TerminalSessionExitReason>,
     #[ts(type = "number")]
     pub created_at_ms: u64,
     #[ts(type = "number")]
@@ -192,6 +258,31 @@ pub struct TerminalTabsListResult {
     pub active_tab_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalEnvironmentProfile {
+    pub schema_version: u32,
+    pub environment_id: String,
+    pub label: String,
+    pub kind: TerminalEnvironmentKind,
+    pub source: TerminalEnvironmentSource,
+    pub command: String,
+    pub resolved_path: Option<String>,
+    pub member_id: Option<String>,
+    pub status: TerminalEnvironmentStatus,
+    pub message: String,
+    pub user_action: String,
+    pub details: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalEnvironmentsListResult {
+    pub environments: Vec<TerminalEnvironmentProfile>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "terminal.ts")]
@@ -255,6 +346,8 @@ pub struct TerminalStatusEventPayload {
     pub status: TerminalSessionStatus,
     pub cols: u16,
     pub rows: u16,
+    pub snapshot: TerminalSessionSnapshot,
+    pub exit_reason: Option<TerminalSessionExitReason>,
     #[ts(type = "number")]
     pub emitted_at_ms: u64,
 }

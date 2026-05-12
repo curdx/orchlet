@@ -24,7 +24,14 @@
     "cols": 120,
     "rows": 30,
     "createdAtMs": 1760000000300,
-    "updatedAtMs": 1760000000301
+    "updatedAtMs": 1760000000301,
+    "snapshot": {
+      "lastSeq": 1,
+      "text": "ready\n",
+      "truncated": false,
+      "updatedAtMs": 1760000000002
+    },
+    "exitReason": null
   },
   "tabs": [
     {

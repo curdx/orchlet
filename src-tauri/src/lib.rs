@@ -35,6 +35,7 @@ pub fn run() {
             gateway::terminal_commands::terminal_resize,
             gateway::terminal_commands::terminal_close,
             gateway::terminal_commands::terminal_tabs_list,
+            gateway::terminal_commands::terminal_environments_list,
             gateway::terminal_commands::terminal_tab_create,
             gateway::terminal_commands::terminal_tab_close,
             gateway::terminal_commands::terminal_tab_restore,

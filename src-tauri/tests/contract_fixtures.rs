@@ -12,6 +12,7 @@ use orchlet_lib::contracts::{
     OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
     SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
+    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
     TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
     TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
     TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
@@ -148,6 +149,12 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/terminal/terminal-tabs-list.result.json");
     let tabs_list_error: AppError =
         read_fixture("../fixtures/contracts/terminal/terminal-tabs-list.error.json");
+    let _environments_request: TerminalEnvironmentsListRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-environments-list.request.json");
+    let environments_result: TerminalEnvironmentsListResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-environments-list.result.json");
+    let environments_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-environments-list.error.json");
     let tab_create_request: TerminalTabCreateRequest =
         read_fixture("../fixtures/contracts/terminal/terminal-tab-create.request.json");
     let tab_create_result: TerminalTabCreateResult =
@@ -187,6 +194,8 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
         result.session.member_id.as_deref(),
         Some("01K00000000000000000000031")
     );
+    assert_eq!(result.session.snapshot.text, "ready\n");
+    assert!(result.session.exit_reason.is_none());
     assert_eq!(error.code, "terminal.workspace.required");
     assert!(error.recoverable);
     assert_eq!(event.schema_version, 1);
@@ -215,6 +224,15 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
         resize_request.terminal_session_id
     );
     assert_eq!(close_result.session.status, TerminalSessionStatus::Exited);
+    assert_eq!(
+        close_result
+            .session
+            .exit_reason
+            .as_ref()
+            .expect("exit reason")
+            .code,
+        "closedByUser"
+    );
     assert_eq!(close_error.code, "terminal.close.failed");
     assert_eq!(status_event.schema_version, 1);
     assert_eq!(
@@ -224,6 +242,8 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(status_event.status, TerminalSessionStatus::Running);
     assert_eq!(status_event.cols, 100);
     assert_eq!(status_event.rows, 32);
+    assert_eq!(status_event.snapshot.text, "ready\n");
+    assert!(status_event.exit_reason.is_none());
     assert_eq!(tabs_list_result.tabs.len(), 2);
     assert_eq!(
         tabs_list_result.active_tab_id.as_deref(),
@@ -233,6 +253,20 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
     assert!(tabs_list_result.tabs[0].is_pinned);
     assert_eq!(tabs_list_result.tabs[1].status, TerminalTabStatus::Closed);
     assert_eq!(tabs_list_error.code, "terminal.workspace.required");
+    assert_eq!(environments_result.environments.len(), 3);
+    assert_eq!(
+        environments_result.environments[0].status,
+        TerminalEnvironmentStatus::Available
+    );
+    assert_eq!(
+        environments_result.environments[1].status,
+        TerminalEnvironmentStatus::Missing
+    );
+    assert_eq!(
+        environments_result.environments[2].status,
+        TerminalEnvironmentStatus::Invalid
+    );
+    assert_eq!(environments_error.code, "terminal.workspace.required");
     assert_eq!(
         tab_create_request.member_id.as_deref(),
         Some("01K00000000000000000000031")

@@ -1,0 +1,46 @@
+{
+  "environments": [
+    {
+      "schemaVersion": 1,
+      "environmentId": "shell:/bin/zsh",
+      "label": "zsh",
+      "kind": "shell",
+      "source": "system",
+      "command": "/bin/zsh",
+      "resolvedPath": "/bin/zsh",
+      "memberId": null,
+      "status": "available",
+      "message": "终端环境可用。",
+      "userAction": "可以直接启动该终端环境。",
+      "details": null
+    },
+    {
+      "schemaVersion": 1,
+      "environmentId": "member:01K00000000000000000000031",
+      "label": "Codex CLI",
+      "kind": "builtInAiCli",
+      "source": "memberRuntime",
+      "command": "codex",
+      "resolvedPath": null,
+      "memberId": "01K00000000000000000000031",
+      "status": "missing",
+      "message": "未在 PATH 中找到配置的终端命令。",
+      "userAction": "请安装该 CLI，或把成员运行时命令更新为有效命令后重试。",
+      "details": "executable=codex pathEntriesChecked=8"
+    },
+    {
+      "schemaVersion": 1,
+      "environmentId": "member:01K00000000000000000000032",
+      "label": "Custom CLI",
+      "kind": "customCli",
+      "source": "memberRuntime",
+      "command": "",
+      "resolvedPath": null,
+      "memberId": "01K00000000000000000000032",
+      "status": "invalid",
+      "message": "终端命令为空。",
+      "userAction": "请填写有效的 shell 或 CLI 命令后重试。",
+      "details": "command="
+    }
+  ]
+}

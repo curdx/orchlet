@@ -7,5 +7,12 @@
   "status": "running",
   "cols": 100,
   "rows": 32,
-  "emittedAtMs": 1760000000006
+  "emittedAtMs": 1760000000006,
+  "snapshot": {
+    "lastSeq": 1,
+    "text": "ready\n",
+    "truncated": false,
+    "updatedAtMs": 1760000000002
+  },
+  "exitReason": null
 }

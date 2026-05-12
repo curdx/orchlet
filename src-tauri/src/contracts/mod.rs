@@ -35,13 +35,16 @@ pub use member::{
 };
 pub use terminal::{
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
+    TerminalEnvironmentKind, TerminalEnvironmentProfile, TerminalEnvironmentSource,
+    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
     TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
     TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult,
-    TerminalSessionProfile, TerminalSessionStatus, TerminalStatusEventPayload, TerminalStreamKind,
-    TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
-    TerminalTabCreateResult, TerminalTabProfile, TerminalTabRestoreRequest,
-    TerminalTabRestoreResult, TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult,
-    TerminalTabsListRequest, TerminalTabsListResult,
+    TerminalSessionExitReason, TerminalSessionProfile, TerminalSessionSnapshot,
+    TerminalSessionStatus, TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
+    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult, TerminalTabProfile,
+    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
+    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    TerminalTabsListResult,
 };
 pub use workspace::{
     AppLanguage, AppPreferencesSnapshot, AppTheme, OpenWindowModeRequest, OpenWindowModeResult,

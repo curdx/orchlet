@@ -62,13 +62,13 @@ development_status:
   2-7-mentions-emoji-attachments-quick-prompts: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
+  epic-3: done
   3-1-open-or-reuse-workspace-terminal-window: done
   3-2-terminal-session-lifecycle-ipc: done
   3-3-terminal-tabs-create-restore-search-sort: done
   3-4-terminal-pane-layouts-tab-assignment: done
   3-5-terminal-text-operations-find-options: done
-  3-6-cli-environment-resolution-error-recovery-session-snapshot: backlog
+  3-6-cli-environment-resolution-error-recovery-session-snapshot: done
   epic-3-retrospective: optional
 
   epic-4: backlog

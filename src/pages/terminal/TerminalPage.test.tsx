@@ -61,6 +61,13 @@ function terminalSession(
     status: "running",
     cols: 120,
     rows: 30,
+    snapshot: {
+      lastSeq: 0,
+      text: "",
+      truncated: false,
+      updatedAtMs: null,
+    },
+    exitReason: null,
     createdAtMs: 1760000000000,
     updatedAtMs: 1760000000001,
     ...overrides,
@@ -110,12 +117,37 @@ function terminalPageHarness(initialTabs = [terminalTab()]) {
   });
   const renderer = createRenderer();
   const renderers = [renderer];
-  const sessionForTab = (tab: TerminalTabProfile, status: TerminalSessionProfile["status"] = "running") =>
+  const sessionForTab = (
+    tab: TerminalTabProfile,
+    status: TerminalSessionProfile["status"] = "running",
+  ) =>
     terminalSession({
       terminalSessionId: tab.terminalSessionId,
       memberId: tab.memberId,
       title: tab.label,
       status,
+      snapshot:
+        status === "exited"
+          ? {
+              lastSeq: 3,
+              text: "last visible output\n",
+              truncated: false,
+              updatedAtMs: 1760000000200,
+            }
+          : {
+              lastSeq: 0,
+              text: "",
+              truncated: false,
+              updatedAtMs: null,
+            },
+      exitReason:
+        status === "exited"
+          ? {
+              code: "closedByUser",
+              message: "用户关闭了终端会话。",
+              occurredAtMs: 1760000000300,
+            }
+          : null,
       updatedAtMs: 1760000000100,
     });
   const api = {
@@ -123,6 +155,40 @@ function terminalPageHarness(initialTabs = [terminalTab()]) {
       Promise.resolve({
         tabs: currentTabs,
         activeTabId: currentTabs.find((tab) => tab.status === "open")?.tabId ?? null,
+      }),
+    ),
+    listEnvironments: vi.fn(() =>
+      Promise.resolve({
+        environments: [
+          {
+            schemaVersion: 1,
+            environmentId: "shell:/bin/zsh",
+            label: "zsh",
+            kind: "shell" as const,
+            source: "system" as const,
+            command: "/bin/zsh",
+            resolvedPath: "/bin/zsh",
+            memberId: null,
+            status: "available" as const,
+            message: "终端环境可用。",
+            userAction: "可以直接启动该终端环境。",
+            details: null,
+          },
+          {
+            schemaVersion: 1,
+            environmentId: "member:01K00000000000000000000031",
+            label: "Missing CLI",
+            kind: "customCli" as const,
+            source: "memberRuntime" as const,
+            command: "missing-cli",
+            resolvedPath: null,
+            memberId: "01K00000000000000000000031",
+            status: "missing" as const,
+            message: "未在 PATH 中找到配置的终端命令。",
+            userAction: "请安装该 CLI，或把成员运行时命令更新为有效命令后重试。",
+            details: "executable=missing-cli",
+          },
+        ],
       }),
     ),
     createTab: vi.fn(() => {
@@ -282,6 +348,17 @@ function rendererForPane(renderers: HarnessRenderer[], paneLabel: string) {
 }
 
 describe("TerminalPage", () => {
+  it("shows terminal environment diagnostics with actionable statuses", async () => {
+    terminalPageHarness();
+
+    expect(await screen.findByLabelText("终端环境诊断")).toBeInTheDocument();
+    expect(screen.getByText("终端环境")).toBeInTheDocument();
+    expect(screen.getByText("zsh")).toBeInTheDocument();
+    expect(screen.getByText("Missing CLI")).toBeInTheDocument();
+    expect(screen.getByText("可用")).toBeInTheDocument();
+    expect(screen.getByText("缺失")).toBeInTheDocument();
+  });
+
   it("lists tabs, attaches the active session and streams only active output", async () => {
     const secondTab = terminalTab({
       tabId: "01K00000000000000000000081",
@@ -348,11 +425,24 @@ describe("TerminalPage", () => {
       status: "exited",
       cols: 120,
       rows: 30,
+      snapshot: {
+        lastSeq: 4,
+        text: "panic trace\n",
+        truncated: false,
+        updatedAtMs: 1760000000004,
+      },
+      exitReason: {
+        code: "processExited",
+        message: "进程退出。",
+        occurredAtMs: 1760000000004,
+      },
       emittedAtMs: 1760000000004,
     });
 
     expect((await screen.findAllByText("已退出")).length).toBeGreaterThan(0);
-    expect(screen.getByText("终端会话已关闭")).toBeInTheDocument();
+    expect(screen.getByText("当前状态：已退出")).toBeInTheDocument();
+    expect(screen.getByText("退出原因：进程退出。")).toBeInTheDocument();
+    expect(screen.getByText("panic trace")).toBeInTheDocument();
   });
 
   it("forwards xterm input and calculated resize requests through the active tab session", async () => {
@@ -392,6 +482,34 @@ describe("TerminalPage", () => {
     });
   });
 
+  it("shows structured launch failure impact and next action", async () => {
+    const user = userEvent.setup();
+    const { api } = terminalPageHarness();
+
+    await screen.findAllByText("orchlet-demo");
+    api.createTab.mockRejectedValueOnce({
+      code: "terminal.command.missing",
+      message: "终端启动失败：未在 PATH 中找到配置的终端命令。",
+      severity: "error",
+      recoverable: true,
+      userAction: "请安装该 CLI，或把成员运行时命令更新为有效命令后重试。",
+      details: "impactScope=current terminal session was not created",
+      correlationId: null,
+    });
+
+    await user.click(screen.getByRole("button", { name: "新标签" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "终端启动失败：未在 PATH 中找到配置的终端命令。",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "影响范围：当前终端操作未完成，其他终端会话不受影响。",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "下一步：请安装该 CLI，或把成员运行时命令更新为有效命令后重试。",
+    );
+  });
+
   it("closes and restores the active terminal tab through tab APIs", async () => {
     const user = userEvent.setup();
     const { api } = terminalPageHarness();
@@ -404,6 +522,8 @@ describe("TerminalPage", () => {
       });
     });
     expect((await screen.findAllByText("已退出")).length).toBeGreaterThan(0);
+    expect(screen.getByText("退出原因：用户关闭了终端会话。")).toBeInTheDocument();
+    expect(screen.getByText("last visible output")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /恢复 orchlet-demo/ }));
 
@@ -466,6 +586,41 @@ describe("TerminalPage", () => {
 
     expect(renderer.write).toHaveBeenCalledTimes(1);
     expect(renderer.write).toHaveBeenCalledWith("new\n");
+  });
+
+  it("rehydrates the focused renderer from the attached session snapshot", async () => {
+    const user = userEvent.setup();
+    const secondTab = terminalTab({
+      tabId: "01K00000000000000000000081",
+      terminalSessionId: "01K00000000000000000000091",
+      label: "Logs",
+      shell: "fish",
+      sortIndex: 1,
+    });
+    const { api, renderer } = terminalPageHarness([terminalTab(), secondTab]);
+
+    await screen.findAllByText("orchlet-demo");
+    renderer.clear.mockClear();
+    renderer.write.mockClear();
+    api.attachTerminal.mockResolvedValueOnce({
+      session: terminalSession({
+        terminalSessionId: "01K00000000000000000000091",
+        title: "Logs",
+        snapshot: {
+          lastSeq: 12,
+          text: "restored output\n",
+          truncated: false,
+          updatedAtMs: 1760000000900,
+        },
+      }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "Logs" }));
+
+    await waitFor(() => {
+      expect(renderer.clear).toHaveBeenCalledTimes(1);
+    });
+    expect(renderer.write).toHaveBeenCalledWith("restored output\n");
   });
 
   it("persists pin and move requests through the terminal tab update API", async () => {

@@ -6,8 +6,9 @@ use crate::{
     app::{terminal::TerminalRuntimeState, window_context::WindowContextRuntimeState},
     contracts::{
         AppError, TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest,
-        TerminalCloseResult, TerminalInputRequest, TerminalInputResult, TerminalOpenRequest,
-        TerminalOpenResult, TerminalResizeRequest, TerminalResizeResult, TerminalTabCloseRequest,
+        TerminalCloseResult, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
+        TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
+        TerminalResizeRequest, TerminalResizeResult, TerminalTabCloseRequest,
         TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
         TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabUpdateRequest,
         TerminalTabUpdateResult, TerminalTabsListRequest, TerminalTabsListResult, WindowMode,
@@ -125,6 +126,17 @@ pub fn terminal_tabs_list(
 ) -> Result<TerminalTabsListResult, AppError> {
     let workspace = active_workspace(&window_context_state)?;
     terminal_state.list_tabs(app_data_dir(&app)?, &workspace)
+}
+
+#[tauri::command]
+pub fn terminal_environments_list(
+    app: AppHandle,
+    window_context_state: State<'_, WindowContextRuntimeState>,
+    terminal_state: State<'_, TerminalRuntimeState>,
+    _request: TerminalEnvironmentsListRequest,
+) -> Result<TerminalEnvironmentsListResult, AppError> {
+    let workspace = active_workspace(&window_context_state)?;
+    terminal_state.list_environments(app_data_dir(&app)?, &workspace)
 }
 
 #[tauri::command]

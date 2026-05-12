@@ -128,6 +128,17 @@
     },
     {
       "domain": "terminal",
+      "command": "terminal_environments_list",
+      "requestFixture": "fixtures/contracts/terminal/terminal-environments-list.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-environments-list.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-environments-list.error.json",
+      "rustRequestDto": "TerminalEnvironmentsListRequest",
+      "rustSuccessDto": "TerminalEnvironmentsListResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR41", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "terminal",
       "command": "terminal_tab_create",
       "requestFixture": "fixtures/contracts/terminal/terminal-tab-create.request.json",
       "successResultFixture": "fixtures/contracts/terminal/terminal-tab-create.result.json",

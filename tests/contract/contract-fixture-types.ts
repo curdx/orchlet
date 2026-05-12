@@ -70,6 +70,12 @@ import type {
   TerminalAttachResult,
   TerminalCloseRequest,
   TerminalCloseResult,
+  TerminalEnvironmentKind,
+  TerminalEnvironmentProfile,
+  TerminalEnvironmentSource,
+  TerminalEnvironmentStatus,
+  TerminalEnvironmentsListRequest,
+  TerminalEnvironmentsListResult,
   TerminalInputRequest,
   TerminalInputResult,
   TerminalOpenRequest,
@@ -177,6 +183,9 @@ import terminalStatusEvent from "../../fixtures/contracts/terminal/terminal-stat
 import terminalTabsListError from "../../fixtures/contracts/terminal/terminal-tabs-list.error.json";
 import terminalTabsListRequest from "../../fixtures/contracts/terminal/terminal-tabs-list.request.json";
 import terminalTabsListResult from "../../fixtures/contracts/terminal/terminal-tabs-list.result.json";
+import terminalEnvironmentsListError from "../../fixtures/contracts/terminal/terminal-environments-list.error.json";
+import terminalEnvironmentsListRequest from "../../fixtures/contracts/terminal/terminal-environments-list.request.json";
+import terminalEnvironmentsListResult from "../../fixtures/contracts/terminal/terminal-environments-list.result.json";
 import terminalTabCreateError from "../../fixtures/contracts/terminal/terminal-tab-create.error.json";
 import terminalTabCreateRequest from "../../fixtures/contracts/terminal/terminal-tab-create.request.json";
 import terminalTabCreateResult from "../../fixtures/contracts/terminal/terminal-tab-create.result.json";
@@ -291,6 +300,14 @@ export const terminalTabsListResultFixture: TerminalTabsListResult = {
   tabs: terminalTabsListResult.tabs.map(terminalTabProfile),
 };
 export const terminalTabsListErrorFixture: AppError = appError(terminalTabsListError);
+export const terminalEnvironmentsListRequestFixture: TerminalEnvironmentsListRequest =
+  terminalEnvironmentsListRequest;
+export const terminalEnvironmentsListResultFixture: TerminalEnvironmentsListResult = {
+  environments: terminalEnvironmentsListResult.environments.map(terminalEnvironmentProfile),
+};
+export const terminalEnvironmentsListErrorFixture: AppError = appError(
+  terminalEnvironmentsListError,
+);
 export const terminalTabCreateRequestFixture: TerminalTabCreateRequest =
   terminalTabCreateRequest;
 export const terminalTabCreateResultFixture: TerminalTabCreateResult = {
@@ -462,6 +479,7 @@ type ErrorJson =
   | typeof terminalResizeError
   | typeof terminalCloseError
   | typeof terminalTabsListError
+  | typeof terminalEnvironmentsListError
   | typeof terminalTabCreateError
   | typeof terminalTabCloseError
   | typeof terminalTabRestoreError
@@ -804,6 +822,60 @@ function terminalSessionStatus(value: string): TerminalSessionStatus {
   }
 }
 
+function terminalEnvironmentKind(value: string): TerminalEnvironmentKind {
+  switch (value) {
+    case "shell":
+    case "builtInAiCli":
+    case "customCli":
+      return value;
+    default:
+      throw new Error(`Unknown terminal environment kind: ${value}`);
+  }
+}
+
+function terminalEnvironmentSource(value: string): TerminalEnvironmentSource {
+  switch (value) {
+    case "system":
+    case "memberRuntime":
+      return value;
+    default:
+      throw new Error(`Unknown terminal environment source: ${value}`);
+  }
+}
+
+function terminalEnvironmentStatus(value: string): TerminalEnvironmentStatus {
+  switch (value) {
+    case "available":
+    case "missing":
+    case "invalid":
+      return value;
+    default:
+      throw new Error(`Unknown terminal environment status: ${value}`);
+  }
+}
+
+function terminalEnvironmentProfile(environment: {
+  schemaVersion: number;
+  environmentId: string;
+  label: string;
+  kind: string;
+  source: string;
+  command: string;
+  resolvedPath: string | null;
+  memberId: string | null;
+  status: string;
+  message: string;
+  userAction: string;
+  details: string | null;
+}): TerminalEnvironmentProfile {
+  return {
+    ...environment,
+    kind: terminalEnvironmentKind(environment.kind),
+    source: terminalEnvironmentSource(environment.source),
+    status: terminalEnvironmentStatus(environment.status),
+  };
+}
+
 function terminalSessionProfile(session: {
   schemaVersion: number;
   terminalSessionId: string;
@@ -813,6 +885,8 @@ function terminalSessionProfile(session: {
   status: string;
   cols: number;
   rows: number;
+  snapshot: TerminalSessionProfile["snapshot"];
+  exitReason: TerminalSessionProfile["exitReason"];
   createdAtMs: number;
   updatedAtMs: number;
 }): TerminalSessionProfile {

@@ -24,7 +24,18 @@
     "cols": 100,
     "rows": 32,
     "createdAtMs": 1760000000000,
-    "updatedAtMs": 1760000000200
+    "updatedAtMs": 1760000000200,
+    "snapshot": {
+      "lastSeq": 1,
+      "text": "ready\n",
+      "truncated": false,
+      "updatedAtMs": 1760000000002
+    },
+    "exitReason": {
+      "code": "closedByUser",
+      "message": "用户关闭了终端会话。",
+      "occurredAtMs": 1760000000005
+    }
   },
   "tabs": [
     {

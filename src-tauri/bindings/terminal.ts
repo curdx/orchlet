@@ -9,6 +9,18 @@ export type TerminalCloseRequest = { terminalSessionId: string, };
 
 export type TerminalCloseResult = { session: TerminalSessionProfile, };
 
+export type TerminalEnvironmentKind = "shell" | "builtInAiCli" | "customCli";
+
+export type TerminalEnvironmentProfile = { schemaVersion: number, environmentId: string, label: string, kind: TerminalEnvironmentKind, source: TerminalEnvironmentSource, command: string, resolvedPath: string | null, memberId: string | null, status: TerminalEnvironmentStatus, message: string, userAction: string, details: string | null, };
+
+export type TerminalEnvironmentSource = "system" | "memberRuntime";
+
+export type TerminalEnvironmentStatus = "available" | "missing" | "invalid";
+
+export type TerminalEnvironmentsListRequest = Record<symbol, never>;
+
+export type TerminalEnvironmentsListResult = { environments: Array<TerminalEnvironmentProfile>, };
+
 export type TerminalInputRequest = { terminalSessionId: string, input: string, };
 
 export type TerminalInputResult = { session: TerminalSessionProfile, };
@@ -23,11 +35,15 @@ export type TerminalResizeRequest = { terminalSessionId: string, cols: number, r
 
 export type TerminalResizeResult = { session: TerminalSessionProfile, };
 
-export type TerminalSessionProfile = { schemaVersion: number, terminalSessionId: string, workspaceId: string, memberId: string | null, title: string, status: TerminalSessionStatus, cols: number, rows: number, createdAtMs: number, updatedAtMs: number, };
+export type TerminalSessionExitReason = { code: string, message: string, occurredAtMs: number, };
+
+export type TerminalSessionProfile = { schemaVersion: number, terminalSessionId: string, workspaceId: string, memberId: string | null, title: string, status: TerminalSessionStatus, cols: number, rows: number, snapshot: TerminalSessionSnapshot, exitReason: TerminalSessionExitReason | null, createdAtMs: number, updatedAtMs: number, };
+
+export type TerminalSessionSnapshot = { lastSeq: number, text: string, truncated: boolean, updatedAtMs: number | null, };
 
 export type TerminalSessionStatus = "starting" | "running" | "exited";
 
-export type TerminalStatusEventPayload = { schemaVersion: number, terminalSessionId: string, workspaceId: string, memberId: string | null, title: string, status: TerminalSessionStatus, cols: number, rows: number, emittedAtMs: number, };
+export type TerminalStatusEventPayload = { schemaVersion: number, terminalSessionId: string, workspaceId: string, memberId: string | null, title: string, status: TerminalSessionStatus, cols: number, rows: number, snapshot: TerminalSessionSnapshot, exitReason: TerminalSessionExitReason | null, emittedAtMs: number, };
 
 export type TerminalStreamKind = "stdout" | "stderr" | "system";
 

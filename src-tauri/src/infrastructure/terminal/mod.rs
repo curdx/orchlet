@@ -1,5 +1,7 @@
 use std::{
+    env,
     io::{Read, Write},
+    path::{Path, PathBuf},
     sync::Mutex,
     thread::{self, JoinHandle},
 };
@@ -22,6 +24,16 @@ impl TerminalSessionLauncher for PtyTerminalLauncher {
         profile: TerminalLaunchProfile,
         output_handler: TerminalOutputHandler,
     ) -> Result<Box<dyn TerminalSessionHandle>, AppError> {
+        if !profile.use_shell_wrapper {
+            let resolution = resolve_terminal_command(&profile.command);
+            if !resolution.is_available() {
+                return Err(terminal_command_unavailable_error(
+                    &profile.command,
+                    &resolution,
+                ));
+            }
+        }
+
         let pty_system = native_pty_system();
         let pair = pty_system
             .openpty(PtySize {
@@ -148,6 +160,154 @@ pub fn default_shell_command() -> String {
         })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalShellCandidate {
+    pub label: String,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalCommandResolutionStatus {
+    Available,
+    Missing,
+    Invalid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalCommandResolution {
+    pub status: TerminalCommandResolutionStatus,
+    pub executable: Option<String>,
+    pub resolved_path: Option<PathBuf>,
+    pub message: String,
+    pub user_action: String,
+    pub details: Option<String>,
+}
+
+impl TerminalCommandResolution {
+    pub fn is_available(&self) -> bool {
+        self.status == TerminalCommandResolutionStatus::Available
+    }
+}
+
+pub fn shell_command_candidates() -> Vec<TerminalShellCandidate> {
+    let mut candidates = Vec::new();
+    push_shell_candidate(&mut candidates, "默认 shell", default_shell_command());
+
+    if cfg!(windows) {
+        if let Ok(comspec) = env::var("COMSPEC") {
+            push_shell_candidate(&mut candidates, "COMSPEC", comspec);
+        }
+        push_shell_candidate(&mut candidates, "Command Prompt", "cmd.exe");
+        push_shell_candidate(&mut candidates, "Windows PowerShell", "powershell.exe");
+        push_shell_candidate(&mut candidates, "PowerShell", "pwsh.exe");
+    } else {
+        if let Ok(shell) = env::var("SHELL") {
+            push_shell_candidate(&mut candidates, "登录 shell", shell);
+        }
+        push_shell_candidate(&mut candidates, "sh", "/bin/sh");
+        push_shell_candidate(&mut candidates, "bash", "/bin/bash");
+        push_shell_candidate(&mut candidates, "zsh", "/bin/zsh");
+        push_shell_candidate(&mut candidates, "fish", "/usr/bin/fish");
+        push_shell_candidate(&mut candidates, "fish", "/opt/homebrew/bin/fish");
+    }
+
+    candidates
+}
+
+pub fn resolve_terminal_command(command: &str) -> TerminalCommandResolution {
+    let executable = match command_executable(command) {
+        Ok(executable) => executable,
+        Err(message) => {
+            return TerminalCommandResolution {
+                status: TerminalCommandResolutionStatus::Invalid,
+                executable: None,
+                resolved_path: None,
+                message,
+                user_action: "请填写有效的 shell 或 CLI 命令后重试。".to_owned(),
+                details: Some(format!("command={}", command.trim())),
+            };
+        }
+    };
+
+    if has_path_separator(&executable) || Path::new(&executable).is_absolute() {
+        let path = PathBuf::from(&executable);
+
+        if command_path_exists(&path) {
+            return TerminalCommandResolution {
+                status: TerminalCommandResolutionStatus::Available,
+                executable: Some(executable),
+                resolved_path: Some(path),
+                message: "终端环境可用。".to_owned(),
+                user_action: "可以直接启动该终端环境。".to_owned(),
+                details: None,
+            };
+        }
+
+        return TerminalCommandResolution {
+            status: TerminalCommandResolutionStatus::Missing,
+            executable: Some(executable.clone()),
+            resolved_path: None,
+            message: "配置的终端命令不存在。".to_owned(),
+            user_action: "请安装该 CLI，或把成员运行时命令更新为有效路径后重试。".to_owned(),
+            details: Some(format!("executable={}", executable)),
+        };
+    }
+
+    if let Some(path) = find_executable_in_path(&executable) {
+        return TerminalCommandResolution {
+            status: TerminalCommandResolutionStatus::Available,
+            executable: Some(executable),
+            resolved_path: Some(path),
+            message: "终端环境可用。".to_owned(),
+            user_action: "可以直接启动该终端环境。".to_owned(),
+            details: None,
+        };
+    }
+
+    TerminalCommandResolution {
+        status: TerminalCommandResolutionStatus::Missing,
+        executable: Some(executable.clone()),
+        resolved_path: None,
+        message: "未在 PATH 中找到配置的终端命令。".to_owned(),
+        user_action: "请安装该 CLI，或把成员运行时命令更新为有效命令后重试。".to_owned(),
+        details: Some(format!(
+            "executable={} pathEntriesChecked={}",
+            executable,
+            env::split_paths(&env::var_os("PATH").unwrap_or_default()).count()
+        )),
+    }
+}
+
+pub fn terminal_command_unavailable_error(
+    command: &str,
+    resolution: &TerminalCommandResolution,
+) -> AppError {
+    let code = match resolution.status {
+        TerminalCommandResolutionStatus::Invalid => "terminal.command.invalid",
+        TerminalCommandResolutionStatus::Missing => "terminal.command.missing",
+        TerminalCommandResolutionStatus::Available => "terminal.command.unavailable",
+    };
+    let executable = resolution
+        .executable
+        .as_deref()
+        .unwrap_or_else(|| command.trim());
+
+    AppError::recoverable_error(
+        code,
+        format!(
+            "终端启动失败：{}{}",
+            resolution.message,
+            launch_subject(executable)
+        ),
+        resolution.user_action.clone(),
+        Some(format!(
+            "impactScope=current terminal session was not created command={} details={}",
+            command.trim(),
+            resolution.details.as_deref().unwrap_or("none")
+        )),
+    )
+}
+
 fn command_builder(profile: &TerminalLaunchProfile) -> CommandBuilder {
     if !profile.use_shell_wrapper {
         return CommandBuilder::new(&profile.command);
@@ -196,11 +356,153 @@ where
     E: std::fmt::Display,
 {
     move |error| {
+        if stage == "openpty" {
+            return AppError::recoverable_error(
+                "terminal.pty.resourceLimit",
+                "系统资源不足，无法创建新的终端 PTY。",
+                "请关闭部分终端或后台任务后重试。",
+                Some(format!(
+                    "impactScope=current terminal session was not created stage={} error={}",
+                    stage, error
+                )),
+            );
+        }
+
         AppError::recoverable_error(
             "terminal.pty.launchFailed",
-            "无法启动终端会话。",
+            "终端启动失败，运行时命令无法执行。",
             "请检查工作区路径和运行时命令是否可用后重试。",
-            Some(format!("stage={} error={}", stage, error)),
+            Some(format!(
+                "impactScope=current terminal session was not created stage={} error={}",
+                stage, error
+            )),
         )
+    }
+}
+
+fn push_shell_candidate(
+    candidates: &mut Vec<TerminalShellCandidate>,
+    label: impl Into<String>,
+    command: impl Into<String>,
+) {
+    let command = command.into().trim().to_owned();
+
+    if command.is_empty()
+        || candidates
+            .iter()
+            .any(|candidate| candidate.command == command)
+    {
+        return;
+    }
+
+    candidates.push(TerminalShellCandidate {
+        label: label.into(),
+        command,
+    });
+}
+
+fn command_executable(command: &str) -> Result<String, String> {
+    let command = command.trim();
+
+    if command.is_empty() {
+        return Err("终端命令为空。".to_owned());
+    }
+
+    let mut chars = command.chars();
+    let first = chars.next().expect("non-empty command");
+
+    if first == '"' || first == '\'' {
+        let mut executable = String::new();
+        let mut escaped = false;
+
+        for value in chars {
+            if escaped {
+                executable.push(value);
+                escaped = false;
+                continue;
+            }
+
+            if value == '\\' {
+                escaped = true;
+                continue;
+            }
+
+            if value == first {
+                if executable.trim().is_empty() {
+                    return Err("终端命令的可执行文件为空。".to_owned());
+                }
+
+                return Ok(executable);
+            }
+
+            executable.push(value);
+        }
+
+        return Err("终端命令包含未闭合的引号。".to_owned());
+    }
+
+    Ok(command
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_owned())
+}
+
+fn has_path_separator(value: &str) -> bool {
+    value.contains('/') || value.contains('\\')
+}
+
+fn find_executable_in_path(executable: &str) -> Option<PathBuf> {
+    let path = env::var_os("PATH")?;
+    let extensions = executable_extensions(executable);
+
+    for directory in env::split_paths(&path) {
+        for extension in &extensions {
+            let candidate = directory.join(format!("{}{}", executable, extension));
+
+            if command_path_exists(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
+}
+
+fn executable_extensions(executable: &str) -> Vec<String> {
+    if !cfg!(windows) || Path::new(executable).extension().is_some() {
+        return vec![String::new()];
+    }
+
+    env::var("PATHEXT")
+        .ok()
+        .map(|value| {
+            value
+                .split(';')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|extensions| !extensions.is_empty())
+        .unwrap_or_else(|| {
+            vec![
+                ".COM".to_owned(),
+                ".EXE".to_owned(),
+                ".BAT".to_owned(),
+                ".CMD".to_owned(),
+            ]
+        })
+}
+
+fn command_path_exists(path: &Path) -> bool {
+    path.is_file()
+}
+
+fn launch_subject(executable: &str) -> String {
+    if executable.is_empty() {
+        String::new()
+    } else {
+        format!("（{}）", executable)
     }
 }

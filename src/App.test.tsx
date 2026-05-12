@@ -246,6 +246,13 @@ function terminalOpenResult(overrides: Partial<TerminalOpenResult> = {}): Termin
       status: "running",
       cols: 120,
       rows: 30,
+      snapshot: {
+        lastSeq: 0,
+        text: "",
+        truncated: false,
+        updatedAtMs: null,
+      },
+      exitReason: null,
       createdAtMs: 1760000000000,
       updatedAtMs: 1760000000001,
     },
