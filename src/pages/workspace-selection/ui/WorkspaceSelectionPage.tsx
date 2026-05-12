@@ -28,6 +28,7 @@ import {
   SquareTerminal,
   Trash2,
   Unlink,
+  Upload,
   User,
   UserPlus,
   Users,
@@ -103,6 +104,7 @@ import type {
   RoadmapTaskStatus,
 } from "../../../contracts/generated/roadmap";
 import type {
+  ProfileAvatarSnapshot,
   ProfileSettingsSnapshot,
   ProfileStatus,
 } from "../../../contracts/generated/settings";
@@ -151,7 +153,16 @@ type WorkspaceSelectionPageProps = {
     | "updateGoal"
     | "deleteGoal"
   >;
-  settingsApi?: Pick<SettingsApi, "getProfileSettings" | "updateProfileSettings">;
+  settingsApi?: Pick<
+    SettingsApi,
+    | "getProfileSettings"
+    | "updateProfileSettings"
+    | "selectAvatarImage"
+    | "uploadProfileAvatar"
+    | "selectProfileAvatarPreset"
+    | "resetProfileAvatar"
+    | "deleteUploadedProfileAvatar"
+  >;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
@@ -225,6 +236,7 @@ type ProfileSettingsDraft = {
   statusMessage: string;
 };
 type ProfileSettingsField = keyof ProfileSettingsDraft;
+type ProfileAvatarAction = "upload" | "preset" | "reset" | "delete";
 
 const MESSAGE_PAGE_LIMIT = 30;
 const RECENT_EMOJI_STORAGE_KEY = "orchlet.chat.recentEmojis";
@@ -242,12 +254,28 @@ const PROFILE_TIMEZONE_OPTIONS = [
   "America/Los_Angeles",
   "Australia/Sydney",
 ] as const;
+const PROFILE_AVATAR_PRESETS = [
+  { id: "orchid", label: "Orchid", className: "bg-[#f4e8ff] text-[#69417f] ring-[#d8b9ef]" },
+  { id: "lagoon", label: "Lagoon", className: "bg-[#dff4f2] text-[#1f6862] ring-[#a8d7d2]" },
+  { id: "sunrise", label: "Sunrise", className: "bg-[#fff0d7] text-[#85551f] ring-[#e5c083]" },
+  { id: "forest", label: "Forest", className: "bg-[#e3f2df] text-[#315f35] ring-[#a9c99d]" },
+] as const;
 const DEFAULT_PROFILE_SETTINGS: ProfileSettingsSnapshot = {
   schemaVersion: 1,
   displayName: "Owner",
   timezone: "UTC",
   status: "online",
   statusMessage: null,
+  avatar: {
+    kind: "placeholder",
+    presetId: null,
+    uploadId: null,
+    sourceFileName: null,
+    contentType: null,
+    sizeBytes: null,
+    libraryRelativePath: null,
+    updatedAtMs: 1,
+  },
   createdAtMs: 1,
   updatedAtMs: 1,
 };
@@ -293,6 +321,8 @@ export function WorkspaceSelectionPage({
   );
   const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false);
   const [isSavingProfileSettings, setIsSavingProfileSettings] = useState(false);
+  const [pendingProfileAvatarAction, setPendingProfileAvatarAction] =
+    useState<ProfileAvatarAction | null>(null);
   const [profileSettingsDraft, setProfileSettingsDraft] = useState<ProfileSettingsDraft>(
     profileSnapshotToDraft(DEFAULT_PROFILE_SETTINGS),
   );
@@ -2643,6 +2673,117 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  function applyProfileSettingsResult(profile: ProfileSettingsSnapshot) {
+    queryClient.setQueryData(["profile-settings"], { profile });
+    setProfileSettingsDraft(profileSnapshotToDraft(profile));
+  }
+
+  async function handleUploadProfileAvatar() {
+    setPendingProfileAvatarAction("upload");
+
+    try {
+      const sourcePath = await profileSettingsApi.selectAvatarImage();
+
+      if (!sourcePath) {
+        return;
+      }
+
+      const result = await profileSettingsApi.uploadProfileAvatar(sourcePath);
+      applyProfileSettingsResult(result.profile);
+      showToast({
+        tone: "info",
+        title: "头像已上传",
+        message: result.profile.avatar?.sourceFileName ?? "上传头像已保存。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "头像上传失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingProfileAvatarAction(null);
+    }
+  }
+
+  async function handleSelectProfileAvatarPreset(presetId: string) {
+    setPendingProfileAvatarAction("preset");
+
+    try {
+      const result = await profileSettingsApi.selectProfileAvatarPreset(presetId);
+      applyProfileSettingsResult(result.profile);
+      showToast({
+        tone: "info",
+        title: "头像预设已保存",
+        message: profileAvatarLabel(result.profile.avatar),
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "头像预设保存失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingProfileAvatarAction(null);
+    }
+  }
+
+  async function handleResetProfileAvatar() {
+    setPendingProfileAvatarAction("reset");
+
+    try {
+      const result = await profileSettingsApi.resetProfileAvatar();
+      applyProfileSettingsResult(result.profile);
+      showToast({
+        tone: "info",
+        title: "头像已恢复默认",
+        message: "当前资料将使用生成的占位头像。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "头像恢复失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingProfileAvatarAction(null);
+    }
+  }
+
+  async function handleDeleteUploadedProfileAvatar() {
+    setPendingProfileAvatarAction("delete");
+
+    try {
+      const result = await profileSettingsApi.deleteUploadedProfileAvatar();
+      applyProfileSettingsResult(result.profile);
+      showToast({
+        tone: "info",
+        title: "上传头像已删除",
+        message: "当前资料已回到默认头像。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "头像删除失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingProfileAvatarAction(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7f2] text-[#17211b]">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-5">
@@ -2897,6 +3038,7 @@ export function WorkspaceSelectionPage({
             {activeWorkspace ? (
               <MembersPanel
                 members={profiledMembers}
+                ownerAvatar={profileSettings.avatar}
                 terminalActivity={memberTerminalActivity}
                 isLoading={memberQuery.isLoading}
                 isInviting={isInvitingMember}
@@ -2993,7 +3135,12 @@ export function WorkspaceSelectionPage({
                 fieldError={profileSettingsFieldError}
                 isLoading={profileSettingsQuery.isLoading}
                 isSaving={isSavingProfileSettings}
+                pendingAvatarAction={pendingProfileAvatarAction}
                 onDraftChange={setProfileSettingsDraft}
+                onUploadAvatar={() => void handleUploadProfileAvatar()}
+                onSelectAvatarPreset={(presetId) => void handleSelectProfileAvatarPreset(presetId)}
+                onResetAvatar={() => void handleResetProfileAvatar()}
+                onDeleteUploadedAvatar={() => void handleDeleteUploadedProfileAvatar()}
                 onClose={() => setIsProfileSettingsOpen(false)}
                 onSave={() => void handleSaveProfileSettings()}
               />
@@ -3345,7 +3492,12 @@ function ProfileSettingsModal({
   fieldError,
   isLoading,
   isSaving,
+  pendingAvatarAction,
   onDraftChange,
+  onUploadAvatar,
+  onSelectAvatarPreset,
+  onResetAvatar,
+  onDeleteUploadedAvatar,
   onClose,
   onSave,
 }: {
@@ -3354,11 +3506,18 @@ function ProfileSettingsModal({
   fieldError: { field: ProfileSettingsField; message: string } | null;
   isLoading: boolean;
   isSaving: boolean;
+  pendingAvatarAction: ProfileAvatarAction | null;
   onDraftChange: (draft: ProfileSettingsDraft) => void;
+  onUploadAvatar: () => void;
+  onSelectAvatarPreset: (presetId: string) => void;
+  onResetAvatar: () => void;
+  onDeleteUploadedAvatar: () => void;
   onClose: () => void;
   onSave: () => void;
 }) {
   const canSave = draft.displayName.trim().length > 0 && draft.timezone.trim().length > 0;
+  const selectedPresetId = savedProfile.avatar?.kind === "preset" ? savedProfile.avatar.presetId : null;
+  const avatarControlsDisabled = pendingAvatarAction !== null;
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-[#17211b]/35 px-4">
@@ -3366,7 +3525,7 @@ function ProfileSettingsModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="profile-settings-title"
-        className="w-full max-w-[560px] rounded-lg border border-[#dbe4d7] bg-white p-5 shadow-xl"
+        className="max-h-[92vh] w-full max-w-[640px] overflow-y-auto rounded-lg border border-[#dbe4d7] bg-white p-5 shadow-xl"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -3396,6 +3555,84 @@ function ProfileSettingsModal({
             onSave();
           }}
         >
+          <div className="grid gap-3 rounded-md border border-[#e3eadf] bg-[#fbfcfa] p-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <AvatarPreview avatar={savedProfile.avatar} displayName={draft.displayName} size="lg" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-semibold text-[#263229]">
+                    {profileAvatarLabel(savedProfile.avatar)}
+                  </span>
+                  <span className="mt-1 block truncate text-xs text-[#6a786c]">
+                    {savedProfile.avatar?.kind === "uploaded"
+                      ? savedProfile.avatar.sourceFileName ?? "上传头像"
+                      : "本地头像，不会上传到远端服务"}
+                  </span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={onUploadAvatar}
+                disabled={avatarControlsDisabled}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Upload aria-hidden="true" size={14} strokeWidth={2} />
+                {pendingAvatarAction === "upload" ? "上传中" : "上传图片"}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {PROFILE_AVATAR_PRESETS.map((preset) => {
+                const selected = selectedPresetId === preset.id;
+
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    aria-pressed={selected}
+                    aria-label={`选择 ${preset.label} 头像预设`}
+                    onClick={() => onSelectAvatarPreset(preset.id)}
+                    disabled={avatarControlsDisabled}
+                    className={
+                      selected
+                        ? "rounded-md border border-[#2f6f55] bg-white p-2 text-xs font-semibold text-[#263229] ring-2 ring-[#b7d3ae] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+                        : "rounded-md border border-[#d8e2d4] bg-white p-2 text-xs font-medium text-[#526054] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+                    }
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`mx-auto mb-1 flex h-8 w-8 items-center justify-center rounded-md ring-1 ${preset.className}`}
+                    >
+                      {preset.label.slice(0, 1)}
+                    </span>
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onResetAvatar}
+                disabled={avatarControlsDisabled}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-xs font-semibold text-[#425044] transition hover:bg-[#f7f9f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCw aria-hidden="true" size={14} strokeWidth={2} />
+                {pendingAvatarAction === "reset" ? "恢复中" : "恢复默认"}
+              </button>
+              <button
+                type="button"
+                onClick={onDeleteUploadedAvatar}
+                disabled={avatarControlsDisabled || savedProfile.avatar?.kind !== "uploaded"}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#e2c7c0] bg-white px-3 py-2 text-xs font-semibold text-[#7a2f2f] transition hover:bg-[#fff5f2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a3b2f] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Trash2 aria-hidden="true" size={14} strokeWidth={2} />
+                {pendingAvatarAction === "delete" ? "删除中" : "删除上传头像"}
+              </button>
+            </div>
+          </div>
+
           <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
             显示名称
             <input
@@ -5298,6 +5535,7 @@ function sortConversationsForDisplay(
 
 function MembersPanel({
   members,
+  ownerAvatar,
   terminalActivity,
   isLoading,
   isInviting,
@@ -5331,6 +5569,7 @@ function MembersPanel({
   onInvite,
 }: {
   members: MemberProfile[];
+  ownerAvatar: ProfileAvatarSnapshot | null;
   terminalActivity: Record<string, MemberTerminalActivity>;
   isLoading: boolean;
   isInviting: boolean;
@@ -5394,6 +5633,7 @@ function MembersPanel({
         <MemberGroup
           title="群主"
           members={ownerMembers}
+          ownerAvatar={ownerAvatar}
           terminalActivity={terminalActivity}
           emptyText="正在初始化 owner"
           openActionMenuId={openActionMenuId}
@@ -5407,6 +5647,7 @@ function MembersPanel({
         <MemberGroup
           title="管理员"
           members={adminMembers}
+          ownerAvatar={ownerAvatar}
           terminalActivity={terminalActivity}
           emptyText="暂无管理员"
           openActionMenuId={openActionMenuId}
@@ -5420,6 +5661,7 @@ function MembersPanel({
         <MemberGroup
           title="助手"
           members={assistantMembers}
+          ownerAvatar={ownerAvatar}
           terminalActivity={terminalActivity}
           emptyText="暂无助手"
           openActionMenuId={openActionMenuId}
@@ -5433,6 +5675,7 @@ function MembersPanel({
         <MemberGroup
           title="普通成员"
           members={regularMembers}
+          ownerAvatar={ownerAvatar}
           terminalActivity={terminalActivity}
           emptyText="暂无普通成员"
           openActionMenuId={openActionMenuId}
@@ -5586,6 +5829,7 @@ function MembersPanel({
 function MemberGroup({
   title,
   members,
+  ownerAvatar,
   terminalActivity,
   emptyText,
   openActionMenuId,
@@ -5598,6 +5842,7 @@ function MemberGroup({
 }: {
   title: string;
   members: MemberProfile[];
+  ownerAvatar: ProfileAvatarSnapshot | null;
   terminalActivity: Record<string, MemberTerminalActivity>;
   emptyText: string;
   openActionMenuId: string | null;
@@ -5621,13 +5866,7 @@ function MemberGroup({
                 key={member.memberId}
                 className="relative flex items-center gap-3 rounded-md border border-[#e3eadf] bg-white p-3"
               >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
-                {member.role === "assistant" ? (
-                  <Bot aria-hidden="true" size={18} strokeWidth={2} />
-                ) : (
-                  <User aria-hidden="true" size={18} strokeWidth={2} />
-                )}
-              </span>
+              <MemberAvatar member={member} ownerAvatar={ownerAvatar} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium text-[#263229]">
                   {member.instanceLabel}
@@ -6056,6 +6295,77 @@ function contactKindLabel(kind: ContactKind) {
   }
 }
 
+function MemberAvatar({
+  member,
+  ownerAvatar,
+}: {
+  member: MemberProfile;
+  ownerAvatar: ProfileAvatarSnapshot | null;
+}) {
+  if (member.role === "owner") {
+    return <AvatarPreview avatar={ownerAvatar} displayName={member.displayName} size="md" />;
+  }
+
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
+      {member.role === "assistant" ? (
+        <Bot aria-hidden="true" size={18} strokeWidth={2} />
+      ) : (
+        <User aria-hidden="true" size={18} strokeWidth={2} />
+      )}
+    </span>
+  );
+}
+
+function AvatarPreview({
+  avatar,
+  displayName,
+  size,
+}: {
+  avatar: ProfileAvatarSnapshot | null;
+  displayName: string;
+  size: "md" | "lg";
+}) {
+  const dimensionClass = size === "lg" ? "h-14 w-14 text-base" : "h-9 w-9 text-sm";
+  const normalizedName = displayName.trim() || "Owner";
+  const fallbackInitial = normalizedName.slice(0, 1).toUpperCase();
+
+  if (avatar?.kind === "uploaded" && avatar.previewDataUrl) {
+    return (
+      <img
+        src={avatar.previewDataUrl}
+        alt={`${normalizedName} 头像`}
+        className={`${dimensionClass} shrink-0 rounded-md object-cover ring-1 ring-[#cfd9cc]`}
+      />
+    );
+  }
+
+  const preset =
+    avatar?.kind === "preset"
+      ? PROFILE_AVATAR_PRESETS.find((item) => item.id === avatar.presetId)
+      : null;
+
+  if (preset) {
+    return (
+      <span
+        aria-label={`${preset.label} 头像预设`}
+        className={`${dimensionClass} flex shrink-0 items-center justify-center rounded-md font-semibold ring-1 ${preset.className}`}
+      >
+        {preset.label.slice(0, 1)}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      aria-label={`${normalizedName} 默认头像`}
+      className={`${dimensionClass} flex shrink-0 items-center justify-center rounded-md bg-[#eef3eb] font-semibold text-[#3f6849] ring-1 ring-[#d8e2d4]`}
+    >
+      {fallbackInitial}
+    </span>
+  );
+}
+
 function profileSnapshotToDraft(profile: ProfileSettingsSnapshot): ProfileSettingsDraft {
   const timezone = PROFILE_TIMEZONE_OPTIONS.includes(
     profile.timezone as (typeof PROFILE_TIMEZONE_OPTIONS)[number],
@@ -6088,6 +6398,19 @@ function applyProfileSettingsToOwnerMembers(
       updatedAtMs: Math.max(member.updatedAtMs, profile.updatedAtMs),
     };
   });
+}
+
+function profileAvatarLabel(avatar: ProfileAvatarSnapshot | null | undefined) {
+  if (avatar?.kind === "uploaded") {
+    return "上传头像";
+  }
+
+  if (avatar?.kind === "preset") {
+    const preset = PROFILE_AVATAR_PRESETS.find((item) => item.id === avatar.presetId);
+    return preset ? `${preset.label} 预设` : "头像预设";
+  }
+
+  return "默认头像";
 }
 
 function profileSettingsFieldFromError(

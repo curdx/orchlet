@@ -43,6 +43,7 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceRegistry":
     case "workspaceFallbacks":
     case "profileSettings":
+    case "avatarLibrary":
     case "memberProfiles":
     case "contactProfiles":
     case "conversationRecords":

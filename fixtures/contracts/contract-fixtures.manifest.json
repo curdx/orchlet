@@ -463,6 +463,50 @@
       "requirements": ["FR63", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
     },
     {
+      "domain": "settings",
+      "command": "profile_avatar_upload",
+      "requestFixture": "fixtures/contracts/settings/profile-avatar-upload.request.json",
+      "successResultFixture": "fixtures/contracts/settings/profile-avatar-upload.result.json",
+      "errorFixture": "fixtures/contracts/settings/profile-avatar-upload.error.json",
+      "rustRequestDto": "UploadProfileAvatarRequest",
+      "rustSuccessDto": "UploadProfileAvatarResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR64", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "profile_avatar_preset_select",
+      "requestFixture": "fixtures/contracts/settings/profile-avatar-preset-select.request.json",
+      "successResultFixture": "fixtures/contracts/settings/profile-avatar-preset-select.result.json",
+      "errorFixture": "fixtures/contracts/settings/profile-avatar-preset-select.error.json",
+      "rustRequestDto": "SelectProfileAvatarPresetRequest",
+      "rustSuccessDto": "SelectProfileAvatarPresetResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR64", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "profile_avatar_reset",
+      "requestFixture": "fixtures/contracts/settings/profile-avatar-reset.request.json",
+      "successResultFixture": "fixtures/contracts/settings/profile-avatar-reset.result.json",
+      "errorFixture": "fixtures/contracts/settings/profile-avatar-reset.error.json",
+      "rustRequestDto": "ResetProfileAvatarRequest",
+      "rustSuccessDto": "ResetProfileAvatarResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR64", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "profile_avatar_delete_uploaded",
+      "requestFixture": "fixtures/contracts/settings/profile-avatar-delete-uploaded.request.json",
+      "successResultFixture": "fixtures/contracts/settings/profile-avatar-delete-uploaded.result.json",
+      "errorFixture": "fixtures/contracts/settings/profile-avatar-delete-uploaded.error.json",
+      "rustRequestDto": "DeleteUploadedProfileAvatarRequest",
+      "rustSuccessDto": "DeleteUploadedProfileAvatarResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR64", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

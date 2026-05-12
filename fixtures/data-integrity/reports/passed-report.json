@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=16"
+      "details": "entries=17"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -41,6 +41,16 @@
       "severity": "info",
       "message": "Profile settings are readable when initialized.",
       "affectedPaths": ["/fixtures/app-data/settings/profile.json"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "settings.avatarLibrary.load_validate",
+      "category": "avatarLibrary",
+      "status": "passed",
+      "severity": "info",
+      "message": "Profile avatar library references are readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/avatars"],
       "userAction": null,
       "details": null
     },
@@ -175,8 +185,8 @@
       "details": null
     }
   ],
-  "totalChecks": 17,
-  "passedChecks": 17,
+  "totalChecks": 18,
+  "passedChecks": 18,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,

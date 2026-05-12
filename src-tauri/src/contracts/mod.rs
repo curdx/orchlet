@@ -61,8 +61,12 @@ pub use roadmap::{
     UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult,
 };
 pub use settings::{
-    GetProfileSettingsRequest, GetProfileSettingsResult, ProfileSettingsSnapshot, ProfileStatus,
-    UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
+    DeleteUploadedProfileAvatarRequest, DeleteUploadedProfileAvatarResult,
+    GetProfileSettingsRequest, GetProfileSettingsResult, ProfileAvatarKind, ProfileAvatarSnapshot,
+    ProfileSettingsSnapshot, ProfileStatus, ResetProfileAvatarRequest, ResetProfileAvatarResult,
+    SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
+    UpdateProfileSettingsRequest, UpdateProfileSettingsResult, UploadProfileAvatarRequest,
+    UploadProfileAvatarResult,
 };
 pub use skill::{
     DeleteSkillRequest, DeleteSkillResult, ImportLocalSkillFolderRequest,

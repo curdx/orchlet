@@ -17,6 +17,26 @@ function invokeBrowserFallback<T>(
   command: string,
   args?: Record<string, unknown>,
 ): Promise<T> {
+  const browserProfile = {
+    schemaVersion: 1,
+    displayName: "Owner",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    status: "online",
+    statusMessage: null,
+    avatar: {
+      kind: "placeholder",
+      presetId: null,
+      uploadId: null,
+      sourceFileName: null,
+      contentType: null,
+      sizeBytes: null,
+      libraryRelativePath: null,
+      updatedAtMs: Date.now(),
+    },
+    createdAtMs: Date.now(),
+    updatedAtMs: Date.now(),
+  };
+
   if (command === "workspace_selection_status") {
     return Promise.resolve({
       windowMode: "workspaceSelection",
@@ -55,15 +75,7 @@ function invokeBrowserFallback<T>(
 
   if (command === "profile_settings_get") {
     return Promise.resolve({
-      profile: {
-        schemaVersion: 1,
-        displayName: "Owner",
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-        status: "online",
-        statusMessage: null,
-        createdAtMs: Date.now(),
-        updatedAtMs: Date.now(),
-      },
+      profile: browserProfile,
     } as T);
   }
 
@@ -77,14 +89,60 @@ function invokeBrowserFallback<T>(
 
     return Promise.resolve({
       profile: {
-        schemaVersion: 1,
+        ...browserProfile,
         displayName: request.displayName?.trim() || "Owner",
         timezone: request.timezone || "UTC",
         status: request.status || "online",
         statusMessage: request.statusMessage?.trim() || null,
-        createdAtMs: Date.now(),
         updatedAtMs: Date.now(),
       },
+    } as T);
+  }
+
+  if (command === "profile_avatar_preset_select") {
+    const request = (args?.request ?? {}) as { presetId?: string | null };
+    return Promise.resolve({
+      profile: {
+        ...browserProfile,
+        avatar: {
+          kind: "preset",
+          presetId: request.presetId || "orchid",
+          uploadId: null,
+          sourceFileName: null,
+          contentType: null,
+          sizeBytes: null,
+          libraryRelativePath: null,
+          updatedAtMs: Date.now(),
+        },
+        updatedAtMs: Date.now(),
+      },
+    } as T);
+  }
+
+  if (command === "profile_avatar_upload") {
+    const request = (args?.request ?? {}) as { sourcePath?: string | null };
+    return Promise.resolve({
+      profile: {
+        ...browserProfile,
+        avatar: {
+          kind: "uploaded",
+          presetId: null,
+          uploadId: "browser-upload",
+          sourceFileName: request.sourcePath?.split(/[\\/]/).pop() || "avatar.png",
+          contentType: "image/png",
+          sizeBytes: 3,
+          libraryRelativePath: "avatars/uploads/browser-upload.png",
+          previewDataUrl: "data:image/png;base64,cG5n",
+          updatedAtMs: Date.now(),
+        },
+        updatedAtMs: Date.now(),
+      },
+    } as T);
+  }
+
+  if (command === "profile_avatar_reset" || command === "profile_avatar_delete_uploaded") {
+    return Promise.resolve({
+      profile: browserProfile,
     } as T);
   }
 

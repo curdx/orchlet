@@ -5,6 +5,16 @@
     "timezone": "Asia/Shanghai",
     "status": "working",
     "statusMessage": "Reviewing Story 7.1",
+    "avatar": {
+      "kind": "preset",
+      "presetId": "lagoon",
+      "uploadId": null,
+      "sourceFileName": null,
+      "contentType": null,
+      "sizeBytes": null,
+      "libraryRelativePath": null,
+      "updatedAtMs": 1760000060500
+    },
     "createdAtMs": 1760000060000,
     "updatedAtMs": 1760000061000
   }

@@ -8,41 +8,45 @@ use orchlet_lib::contracts::{
     DataIntegrityValidateRequest, DataIntegrityValidateResult, DeleteContactRequest,
     DeleteContactResult, DeleteConversationRequest, DeleteConversationResult,
     DeleteRoadmapGoalRequest, DeleteRoadmapGoalResult, DeleteRoadmapTaskRequest,
-    DeleteRoadmapTaskResult, DeleteSkillRequest, DeleteSkillResult, DispatchChatMessageRequest,
-    DispatchChatMessageResult, DispatchQueueResumeRequest, DispatchQueueResumeResult,
-    DispatchRequestStatus, DispatchTargetResolutionSource, GetProfileSettingsRequest,
-    GetProfileSettingsResult, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
-    InviteMemberRequest, InviteMemberResult, InvitedMemberType, LinkWorkspaceSkillRequest,
-    LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult, ListConversationsRequest,
-    ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
-    ListMessagesResult, ListRoadmapGoalsRequest, ListRoadmapGoalsResult, ListRoadmapTasksRequest,
-    ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult,
-    MemberRole, MemberRuntimeKind, MemberStatus, NotificationIgnoreAllRequest,
-    NotificationIgnoreAllResult, NotificationNavigationAction, NotificationNavigationKind,
-    NotificationNavigationPendingRequest, NotificationNavigationPendingResult,
-    NotificationNavigationRequest, NotificationNavigationResult, NotificationUnreadSummary,
-    NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
-    NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenSkillFolderRequest,
-    OpenSkillFolderResult, OpenWorkspaceRequest, OpenWorkspaceResult, ProfileStatus,
-    RemoveMemberRequest, RemoveMemberResult, RoadmapTaskStatus, SendMessageRequest,
-    SendMessageResult, SkillImportStatus, SkillLibraryListRequest, SkillLibraryListResult,
-    SkillSource, StartPrivateConversationRequest, StartPrivateConversationResult,
-    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
-    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
-    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
-    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
-    TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
-    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
-    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
-    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    DeleteRoadmapTaskResult, DeleteSkillRequest, DeleteSkillResult,
+    DeleteUploadedProfileAvatarRequest, DeleteUploadedProfileAvatarResult,
+    DispatchChatMessageRequest, DispatchChatMessageResult, DispatchQueueResumeRequest,
+    DispatchQueueResumeResult, DispatchRequestStatus, DispatchTargetResolutionSource,
+    GetProfileSettingsRequest, GetProfileSettingsResult, ImportLocalSkillFolderRequest,
+    ImportLocalSkillFolderResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
+    LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult,
+    ListConversationsRequest, ListConversationsResult, ListMembersRequest, ListMembersResult,
+    ListMessagesRequest, ListMessagesResult, ListRoadmapGoalsRequest, ListRoadmapGoalsResult,
+    ListRoadmapTasksRequest, ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest,
+    ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind, MemberStatus,
+    NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
+    NotificationNavigationKind, NotificationNavigationPendingRequest,
+    NotificationNavigationPendingResult, NotificationNavigationRequest,
+    NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
+    NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
+    NotificationUnreadUpdateResult, OpenSkillFolderRequest, OpenSkillFolderResult,
+    OpenWorkspaceRequest, OpenWorkspaceResult, ProfileAvatarKind, ProfileStatus,
+    RemoveMemberRequest, RemoveMemberResult, ResetProfileAvatarRequest, ResetProfileAvatarResult,
+    RoadmapTaskStatus, SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
+    SendMessageRequest, SendMessageResult, SkillImportStatus, SkillLibraryListRequest,
+    SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
+    StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
+    TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
+    TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
+    TerminalInputResult, TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload,
+    TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus, TerminalStatusEventPayload,
+    TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
+    TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
+    TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
     TerminalTabsListResult, UnlinkWorkspaceSkillRequest, UnlinkWorkspaceSkillResult,
     UpdateContactRequest, UpdateContactResult, UpdateConversationSettingsRequest,
     UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
     UpdateGroupConversationMembersResult, UpdateMemberStatusRequest, UpdateMemberStatusResult,
     UpdateProfileSettingsRequest, UpdateProfileSettingsResult, UpdateReadPositionRequest,
     UpdateReadPositionResult, UpdateRoadmapGoalRequest, UpdateRoadmapGoalResult,
-    UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult, WindowMode, WorkspaceOpenStatus,
-    WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
+    UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult, UploadProfileAvatarRequest,
+    UploadProfileAvatarResult, WindowMode, WorkspaceOpenStatus, WorkspaceSkillLinkMode,
+    WorkspaceSkillLinkStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -104,6 +108,30 @@ fn profile_settings_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/settings/profile-settings-update.result.json");
     let update_error: AppError =
         read_fixture("../fixtures/contracts/settings/profile-settings-update.error.json");
+    let upload_request: UploadProfileAvatarRequest =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-upload.request.json");
+    let upload_result: UploadProfileAvatarResult =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-upload.result.json");
+    let upload_error: AppError =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-upload.error.json");
+    let preset_request: SelectProfileAvatarPresetRequest =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-preset-select.request.json");
+    let preset_result: SelectProfileAvatarPresetResult =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-preset-select.result.json");
+    let preset_error: AppError =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-preset-select.error.json");
+    let reset_request: ResetProfileAvatarRequest =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-reset.request.json");
+    let reset_result: ResetProfileAvatarResult =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-reset.result.json");
+    let reset_error: AppError =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-reset.error.json");
+    let delete_request: DeleteUploadedProfileAvatarRequest =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-delete-uploaded.request.json");
+    let delete_result: DeleteUploadedProfileAvatarResult =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-delete-uploaded.result.json");
+    let delete_error: AppError =
+        read_fixture("../fixtures/contracts/settings/profile-avatar-delete-uploaded.error.json");
 
     let _ = get_request;
     assert_eq!(get_result.profile.display_name, "Dana");
@@ -122,6 +150,34 @@ fn profile_settings_contract_fixtures_deserialize_into_rust_dtos() {
         .as_deref()
         .unwrap_or_default()
         .contains("displayName"));
+    assert_eq!(upload_request.source_path, "/fixtures/avatars/dana.png");
+    assert_eq!(
+        upload_result.profile.avatar.as_ref().expect("avatar").kind,
+        ProfileAvatarKind::Uploaded
+    );
+    assert_eq!(upload_error.code, "settings.avatar.fileTooLarge");
+    assert_eq!(preset_request.preset_id, "forest");
+    assert_eq!(
+        preset_result
+            .profile
+            .avatar
+            .as_ref()
+            .and_then(|avatar| avatar.preset_id.as_deref()),
+        Some("forest")
+    );
+    assert_eq!(preset_error.code, "settings.avatar.unsupportedPreset");
+    let _ = reset_request;
+    assert_eq!(
+        reset_result.profile.avatar.as_ref().expect("avatar").kind,
+        ProfileAvatarKind::Placeholder
+    );
+    assert_eq!(reset_error.code, "settings.avatar.invalidPath");
+    let _ = delete_request;
+    assert_eq!(
+        delete_result.profile.avatar.as_ref().expect("avatar").kind,
+        ProfileAvatarKind::Placeholder
+    );
+    assert_eq!(delete_error.code, "settings.avatar.deleteFailed");
 }
 
 #[test]

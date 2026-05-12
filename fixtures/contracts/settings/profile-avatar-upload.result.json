@@ -1,0 +1,22 @@
+{
+  "profile": {
+    "schemaVersion": 1,
+    "displayName": "Dana",
+    "timezone": "Asia/Shanghai",
+    "status": "working",
+    "statusMessage": "Reviewing Story 7.2",
+    "avatar": {
+      "kind": "uploaded",
+      "presetId": null,
+      "uploadId": "01KAVATARUPLOAD000000000001",
+      "sourceFileName": "dana.png",
+      "contentType": "image/png",
+      "sizeBytes": 67,
+      "libraryRelativePath": "avatars/uploads/01KAVATARUPLOAD000000000001.png",
+      "previewDataUrl": "data:image/png;base64,cG5n",
+      "updatedAtMs": 1760000070000
+    },
+    "createdAtMs": 1760000060000,
+    "updatedAtMs": 1760000070000
+  }
+}

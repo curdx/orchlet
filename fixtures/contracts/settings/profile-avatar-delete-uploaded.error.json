@@ -1,0 +1,9 @@
+{
+  "code": "settings.avatar.deleteFailed",
+  "message": "无法删除上传头像。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "头像已保留；请检查应用数据目录权限后重试。",
+  "details": "field=avatar; avatars/uploads/01KAVATARUPLOAD000000000001.png: permission denied",
+  "correlationId": null
+}

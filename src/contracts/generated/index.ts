@@ -123,12 +123,22 @@ export type {
   UpdateRoadmapTaskResult,
 } from "./roadmap";
 export type {
+  DeleteUploadedProfileAvatarRequest,
+  DeleteUploadedProfileAvatarResult,
   GetProfileSettingsRequest,
   GetProfileSettingsResult,
+  ProfileAvatarKind,
+  ProfileAvatarSnapshot,
   ProfileSettingsSnapshot,
   ProfileStatus,
+  ResetProfileAvatarRequest,
+  ResetProfileAvatarResult,
+  SelectProfileAvatarPresetRequest,
+  SelectProfileAvatarPresetResult,
   UpdateProfileSettingsRequest,
   UpdateProfileSettingsResult,
+  UploadProfileAvatarRequest,
+  UploadProfileAvatarResult,
 } from "./settings";
 export type {
   DeleteSkillRequest,

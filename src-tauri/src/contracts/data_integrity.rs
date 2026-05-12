@@ -24,6 +24,7 @@ pub enum StorageCategory {
     WorkspaceRegistry,
     WorkspaceFallbacks,
     ProfileSettings,
+    AvatarLibrary,
     MemberProfiles,
     ContactProfiles,
     ConversationRecords,
@@ -44,6 +45,7 @@ pub enum StorageCategory {
 #[ts(export, export_to = "data_integrity.ts")]
 pub enum StorageFormat {
     Json,
+    Binary,
     Sqlite,
 }
 

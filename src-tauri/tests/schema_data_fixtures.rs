@@ -6,10 +6,10 @@ use orchlet_lib::{
     contracts::{
         ChatMessageProfile, ChatMessageStatus, ContactProfile, ConversationKind,
         ConversationProfile, ConversationReadPositionProfile, DataIntegrityReport,
-        DataIntegrityStatus, MemberProfile, ProfileSettingsSnapshot, ProfileStatus,
-        RoadmapGoalEntry, RoadmapTaskEntry, RoadmapTaskStatus, SkillLibraryEntry,
-        TerminalTabProfile, TerminalTabStatus, WorkspaceMetadata, WorkspaceSkillLinkEntry,
-        WorkspaceSkillLinkMode,
+        DataIntegrityStatus, MemberProfile, ProfileAvatarKind, ProfileAvatarSnapshot,
+        ProfileSettingsSnapshot, ProfileStatus, RoadmapGoalEntry, RoadmapTaskEntry,
+        RoadmapTaskStatus, SkillLibraryEntry, TerminalTabProfile, TerminalTabStatus,
+        WorkspaceMetadata, WorkspaceSkillLinkEntry, WorkspaceSkillLinkMode,
     },
     domain::workspace::validate_workspace_metadata,
     infrastructure::persistence::json_store::{
@@ -149,6 +149,7 @@ struct ProfileSettingsFixture {
     timezone: String,
     status: ProfileStatus,
     status_message: Option<String>,
+    avatar: ProfileAvatarSnapshot,
     created_at_ms: u64,
     updated_at_ms: u64,
 }
@@ -216,6 +217,12 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
         app_data.join("settings/profile.json"),
     )
     .expect("profile settings copied");
+    fs::create_dir_all(app_data.join("avatars/uploads")).expect("avatar uploads dir");
+    fs::copy(
+        fixture_app_data.join("avatars/uploads/01KAVATARUPLOAD000000000001.png"),
+        app_data.join("avatars/uploads/01KAVATARUPLOAD000000000001.png"),
+    )
+    .expect("avatar upload copied");
     fs::create_dir_all(app_data.join("skills")).expect("skills dir");
     fs::copy(
         fixture_app_data.join("skills/skill-library.json"),
@@ -255,7 +262,7 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 17);
+    assert_eq!(report.total_checks, 18);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -269,7 +276,7 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 17);
+    assert_eq!(report.total_checks, 18);
     assert_eq!(report.failed_checks, 1);
     assert_eq!(report.skipped_checks, 11);
     assert!(report.has_failures);
@@ -641,10 +648,19 @@ fn profile_settings_fixture_covers_local_identity_status_and_message() {
     assert_eq!(fixture.status, ProfileStatus::Working);
     assert_eq!(
         fixture.status_message.as_deref(),
-        Some("Reviewing Story 7.1")
+        Some("Reviewing Story 7.2")
+    );
+    assert_eq!(fixture.avatar.kind, ProfileAvatarKind::Uploaded);
+    assert_eq!(
+        fixture.avatar.library_relative_path.as_deref(),
+        Some("avatars/uploads/01KAVATARUPLOAD000000000001.png")
     );
     assert!(fixture.updated_at_ms >= fixture.created_at_ms);
     assert_eq!(snapshot.status, ProfileStatus::Working);
+    assert_eq!(
+        snapshot.avatar.as_ref().expect("avatar").kind,
+        ProfileAvatarKind::Uploaded
+    );
 }
 
 #[test]

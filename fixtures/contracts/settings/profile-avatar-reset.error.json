@@ -1,0 +1,9 @@
+{
+  "code": "settings.avatar.invalidPath",
+  "message": "上传头像资产路径无效。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请重新上传头像后重试。",
+  "details": "field=avatar; path=../avatar.png",
+  "correlationId": null
+}

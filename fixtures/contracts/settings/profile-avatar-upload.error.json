@@ -1,0 +1,9 @@
+{
+  "code": "settings.avatar.fileTooLarge",
+  "message": "头像图片过大。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请选择 2 MB 以内的头像图片后重试。",
+  "details": "field=avatar",
+  "correlationId": null
+}

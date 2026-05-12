@@ -4,7 +4,7 @@ use crate::{
         StoragePrivacyClass,
     },
     domain::{
-        settings::PROFILE_SETTINGS_FILE_NAME,
+        settings::{AVATAR_LIBRARY_DIR_NAME, PROFILE_SETTINGS_FILE_NAME},
         workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME, WORKSPACE_SCHEMA_VERSION},
     },
     infrastructure::persistence::json_store::{
@@ -130,6 +130,30 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "settings.profile.load_validate".to_owned(),
             notes: "Local-only profile settings; no remote account, email, team membership or authentication fields are stored."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "settings.avatarLibrary".to_owned(),
+            owner: StorageOwner::Settings,
+            category: StorageCategory::AvatarLibrary,
+            description: "App-data local avatar library for uploaded profile images.".to_owned(),
+            path_policy: StoragePathPolicy::AppDataFile,
+            relative_path: Some(AVATAR_LIBRARY_DIR_NAME.to_owned()),
+            file_name: None,
+            format: StorageFormat::Binary,
+            schema_version: 1,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/profile_settings_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/profile_settings_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::AppState,
+            fixture_required: true,
+            validation_check_id: "settings.avatarLibrary.load_validate".to_owned(),
+            notes: "Uploaded avatar images live in app data and are referenced by local profile settings; presets are saved by id and are not copied into workspaces."
                 .to_owned(),
         },
         StorageManifestEntry {

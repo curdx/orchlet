@@ -103,6 +103,39 @@ function validateProfileSettings(path) {
   }
   assertPositiveTimestamp(profile.createdAtMs, `${path}.createdAtMs`);
   assert(profile.updatedAtMs >= profile.createdAtMs, `${path}.updatedAtMs must be >= createdAtMs`);
+  validateProfileAvatar(profile.avatar, `${path}.avatar`);
+}
+
+function validateProfileAvatar(avatar, context) {
+  assert(typeof avatar === "object" && avatar !== null, `${context} must be an object`);
+  assert(["placeholder", "preset", "uploaded"].includes(avatar.kind), `${context}.kind invalid`);
+  assertPositiveTimestamp(avatar.updatedAtMs, `${context}.updatedAtMs`);
+
+  if (avatar.kind === "placeholder") {
+    assert(avatar.presetId === null, `${context}.presetId must be null for placeholder`);
+    assert(avatar.uploadId === null, `${context}.uploadId must be null for placeholder`);
+    assert(avatar.libraryRelativePath === null, `${context}.libraryRelativePath must be null for placeholder`);
+    return;
+  }
+
+  if (avatar.kind === "preset") {
+    assert(["orchid", "lagoon", "sunrise", "forest"].includes(avatar.presetId), `${context}.presetId invalid`);
+    assert(avatar.uploadId === null, `${context}.uploadId must be null for preset`);
+    assert(avatar.libraryRelativePath === null, `${context}.libraryRelativePath must be null for preset`);
+    return;
+  }
+
+  assertNonEmptyString(avatar.uploadId, `${context}.uploadId`);
+  assertNonEmptyString(avatar.sourceFileName, `${context}.sourceFileName`);
+  assert(["image/png", "image/jpeg", "image/webp", "image/gif"].includes(avatar.contentType), `${context}.contentType invalid`);
+  assert(Number.isInteger(avatar.sizeBytes) && avatar.sizeBytes > 0, `${context}.sizeBytes invalid`);
+  assert(avatar.sizeBytes <= 2 * 1024 * 1024, `${context}.sizeBytes too large`);
+  assertNonEmptyString(avatar.libraryRelativePath, `${context}.libraryRelativePath`);
+  assert(
+    avatar.libraryRelativePath.startsWith("avatars/uploads/") &&
+      !avatar.libraryRelativePath.includes(".."),
+    `${context}.libraryRelativePath must stay under avatar uploads`,
+  );
 }
 
 function validateSqliteScaffold(path) {

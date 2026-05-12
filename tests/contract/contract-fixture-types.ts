@@ -113,12 +113,22 @@ import type {
   UpdateRoadmapTaskResult,
 } from "../../src/contracts/generated/roadmap";
 import type {
+  DeleteUploadedProfileAvatarRequest,
+  DeleteUploadedProfileAvatarResult,
   GetProfileSettingsRequest,
   GetProfileSettingsResult,
+  ProfileAvatarKind,
+  ProfileAvatarSnapshot,
   ProfileSettingsSnapshot,
   ProfileStatus,
+  ResetProfileAvatarRequest,
+  ResetProfileAvatarResult,
+  SelectProfileAvatarPresetRequest,
+  SelectProfileAvatarPresetResult,
   UpdateProfileSettingsRequest,
   UpdateProfileSettingsResult,
+  UploadProfileAvatarRequest,
+  UploadProfileAvatarResult,
 } from "../../src/contracts/generated/settings";
 import type {
   DeleteSkillRequest,
@@ -318,6 +328,18 @@ import profileSettingsGetResult from "../../fixtures/contracts/settings/profile-
 import profileSettingsUpdateError from "../../fixtures/contracts/settings/profile-settings-update.error.json";
 import profileSettingsUpdateRequest from "../../fixtures/contracts/settings/profile-settings-update.request.json";
 import profileSettingsUpdateResult from "../../fixtures/contracts/settings/profile-settings-update.result.json";
+import profileAvatarUploadError from "../../fixtures/contracts/settings/profile-avatar-upload.error.json";
+import profileAvatarUploadRequest from "../../fixtures/contracts/settings/profile-avatar-upload.request.json";
+import profileAvatarUploadResult from "../../fixtures/contracts/settings/profile-avatar-upload.result.json";
+import profileAvatarPresetSelectError from "../../fixtures/contracts/settings/profile-avatar-preset-select.error.json";
+import profileAvatarPresetSelectRequest from "../../fixtures/contracts/settings/profile-avatar-preset-select.request.json";
+import profileAvatarPresetSelectResult from "../../fixtures/contracts/settings/profile-avatar-preset-select.result.json";
+import profileAvatarResetError from "../../fixtures/contracts/settings/profile-avatar-reset.error.json";
+import profileAvatarResetRequest from "../../fixtures/contracts/settings/profile-avatar-reset.request.json";
+import profileAvatarResetResult from "../../fixtures/contracts/settings/profile-avatar-reset.result.json";
+import profileAvatarDeleteUploadedError from "../../fixtures/contracts/settings/profile-avatar-delete-uploaded.error.json";
+import profileAvatarDeleteUploadedRequest from "../../fixtures/contracts/settings/profile-avatar-delete-uploaded.request.json";
+import profileAvatarDeleteUploadedResult from "../../fixtures/contracts/settings/profile-avatar-delete-uploaded.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -692,6 +714,34 @@ export const profileSettingsUpdateResultFixture: UpdateProfileSettingsResult = {
   profile: profileSettingsSnapshot(profileSettingsUpdateResult.profile),
 };
 export const profileSettingsUpdateErrorFixture: AppError = appError(profileSettingsUpdateError);
+export const profileAvatarUploadRequestFixture: UploadProfileAvatarRequest =
+  profileAvatarUploadRequest;
+export const profileAvatarUploadResultFixture: UploadProfileAvatarResult = {
+  profile: profileSettingsSnapshot(profileAvatarUploadResult.profile),
+};
+export const profileAvatarUploadErrorFixture: AppError = appError(profileAvatarUploadError);
+export const profileAvatarPresetSelectRequestFixture: SelectProfileAvatarPresetRequest =
+  profileAvatarPresetSelectRequest;
+export const profileAvatarPresetSelectResultFixture: SelectProfileAvatarPresetResult = {
+  profile: profileSettingsSnapshot(profileAvatarPresetSelectResult.profile),
+};
+export const profileAvatarPresetSelectErrorFixture: AppError = appError(
+  profileAvatarPresetSelectError,
+);
+export const profileAvatarResetRequestFixture: ResetProfileAvatarRequest =
+  profileAvatarResetRequest;
+export const profileAvatarResetResultFixture: ResetProfileAvatarResult = {
+  profile: profileSettingsSnapshot(profileAvatarResetResult.profile),
+};
+export const profileAvatarResetErrorFixture: AppError = appError(profileAvatarResetError);
+export const profileAvatarDeleteUploadedRequestFixture: DeleteUploadedProfileAvatarRequest =
+  profileAvatarDeleteUploadedRequest;
+export const profileAvatarDeleteUploadedResultFixture: DeleteUploadedProfileAvatarResult = {
+  profile: profileSettingsSnapshot(profileAvatarDeleteUploadedResult.profile),
+};
+export const profileAvatarDeleteUploadedErrorFixture: AppError = appError(
+  profileAvatarDeleteUploadedError,
+);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -862,6 +912,10 @@ type ErrorJson =
   | typeof roadmapGoalDeleteError
   | typeof profileSettingsGetError
   | typeof profileSettingsUpdateError
+  | typeof profileAvatarUploadError
+  | typeof profileAvatarPresetSelectError
+  | typeof profileAvatarResetError
+  | typeof profileAvatarDeleteUploadedError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -950,7 +1004,11 @@ type RoadmapGoalEntryJson =
 
 type ProfileSettingsSnapshotJson =
   | typeof profileSettingsGetResult.profile
-  | typeof profileSettingsUpdateResult.profile;
+  | typeof profileSettingsUpdateResult.profile
+  | typeof profileAvatarUploadResult.profile
+  | typeof profileAvatarPresetSelectResult.profile
+  | typeof profileAvatarResetResult.profile
+  | typeof profileAvatarDeleteUploadedResult.profile;
 
 function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {
   return {
@@ -1024,7 +1082,28 @@ function profileSettingsSnapshot(
   return {
     ...profile,
     status: profileStatus(profile.status),
+    avatar: profile.avatar ? profileAvatarSnapshot(profile.avatar) : null,
   };
+}
+
+function profileAvatarSnapshot(
+  avatar: ProfileSettingsSnapshotJson["avatar"],
+): ProfileAvatarSnapshot {
+  return {
+    ...avatar,
+    kind: profileAvatarKind(avatar.kind),
+  };
+}
+
+function profileAvatarKind(value: string): ProfileAvatarKind {
+  switch (value) {
+    case "placeholder":
+    case "preset":
+    case "uploaded":
+      return value;
+    default:
+      throw new Error(`Unknown profile avatar kind: ${value}`);
+  }
 }
 
 function profileStatus(value: string): ProfileStatus {
@@ -1159,6 +1238,7 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceRegistry":
     case "workspaceFallbacks":
     case "profileSettings":
+    case "avatarLibrary":
     case "memberProfiles":
     case "contactProfiles":
     case "conversationRecords":
@@ -1181,6 +1261,7 @@ function storageCategory(value: string): StorageCategory {
 function storageFormat(value: string): StorageFormat {
   switch (value) {
     case "json":
+    case "binary":
     case "sqlite":
       return value;
     default:

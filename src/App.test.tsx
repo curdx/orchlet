@@ -48,6 +48,7 @@ import type {
   NotificationUnreadUpdateRequest,
   NotificationUnreadUpdateResult,
   OpenWorkspaceResult,
+  ProfileAvatarSnapshot,
   ProfileSettingsSnapshot,
   ProfileStatus,
   RecentWorkspaceEntry,
@@ -85,6 +86,10 @@ import type {
   UpdateMemberStatusRequest,
   UpdateMemberStatusResult,
   UpdateProfileSettingsResult,
+  UploadProfileAvatarResult,
+  SelectProfileAvatarPresetResult,
+  ResetProfileAvatarResult,
+  DeleteUploadedProfileAvatarResult,
   UpdateGroupConversationMembersResult,
   UpdateReadPositionRequest,
   UpdateReadPositionResult,
@@ -207,6 +212,11 @@ function renderWorkspaceSelection(api: {
       status: ProfileStatus;
       statusMessage: string;
     }) => Promise<UpdateProfileSettingsResult>;
+    selectAvatarImage: () => Promise<string | null>;
+    uploadProfileAvatar: (sourcePath: string) => Promise<UploadProfileAvatarResult>;
+    selectProfileAvatarPreset: (presetId: string) => Promise<SelectProfileAvatarPresetResult>;
+    resetProfileAvatar: () => Promise<ResetProfileAvatarResult>;
+    deleteUploadedProfileAvatar: () => Promise<DeleteUploadedProfileAvatarResult>;
   }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
@@ -319,6 +329,15 @@ function renderWorkspaceSelection(api: {
           getProfileSettings: () => Promise.resolve({ profile: profileSettingsSnapshot() }),
           updateProfileSettings: () =>
             Promise.reject(new Error("updateProfileSettings mock missing")),
+          selectAvatarImage: () => Promise.resolve(null),
+          uploadProfileAvatar: () =>
+            Promise.reject(new Error("uploadProfileAvatar mock missing")),
+          selectProfileAvatarPreset: () =>
+            Promise.reject(new Error("selectProfileAvatarPreset mock missing")),
+          resetProfileAvatar: () =>
+            Promise.reject(new Error("resetProfileAvatar mock missing")),
+          deleteUploadedProfileAvatar: () =>
+            Promise.reject(new Error("deleteUploadedProfileAvatar mock missing")),
           ...settingsApi,
         }}
         terminalDispatchApi={{
@@ -624,7 +643,24 @@ function profileSettingsSnapshot(
     timezone: "UTC",
     status: "online",
     statusMessage: null,
+    avatar: profileAvatarSnapshot(),
     createdAtMs: 1760000050000,
+    updatedAtMs: 1760000050000,
+    ...overrides,
+  };
+}
+
+function profileAvatarSnapshot(
+  overrides: Partial<ProfileAvatarSnapshot> = {},
+): ProfileAvatarSnapshot {
+  return {
+    kind: "placeholder",
+    presetId: null,
+    uploadId: null,
+    sourceFileName: null,
+    contentType: null,
+    sizeBytes: null,
+    libraryRelativePath: null,
     updatedAtMs: 1760000050000,
     ...overrides,
   };
@@ -937,6 +973,162 @@ describe("App workspace entry", () => {
     expect(within(form).getByLabelText("时区")).toHaveValue("Europe/London");
     expect(within(form).getByLabelText("状态")).toHaveValue("doNotDisturb");
     expect(within(form).getByLabelText("状态消息")).toHaveValue("Focus block");
+  });
+
+  it("uploads a profile avatar and reflects it in settings and owner surfaces", async () => {
+    const user = userEvent.setup();
+    const uploadedProfile = profileSettingsSnapshot({
+      avatar: profileAvatarSnapshot({
+        kind: "uploaded",
+        uploadId: "01KAVATARUPLOAD000000000001",
+        sourceFileName: "dana.png",
+        contentType: "image/png",
+        sizeBytes: 3,
+        libraryRelativePath: "avatars/uploads/01KAVATARUPLOAD000000000001.png",
+        previewDataUrl: "data:image/png;base64,cG5n",
+        updatedAtMs: 1760000054000,
+      }),
+      updatedAtMs: 1760000054000,
+    });
+    const selectAvatarImage = vi.fn(() => Promise.resolve("/fixtures/avatars/dana.png"));
+    const uploadProfileAvatar = vi.fn(() =>
+      Promise.resolve({ profile: uploadedProfile } satisfies UploadProfileAvatarResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers: () => Promise.resolve({ members: [memberProfile()] }) },
+      settingsApi: { selectAvatarImage, uploadProfileAvatar },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.click(within(form).getByRole("button", { name: "上传图片" }));
+
+    expect(selectAvatarImage).toHaveBeenCalled();
+    expect(uploadProfileAvatar).toHaveBeenCalledWith("/fixtures/avatars/dana.png");
+    expect(await screen.findByRole("status")).toHaveTextContent("头像已上传");
+    expect(within(form).getByText("上传头像")).toBeInTheDocument();
+    expect(screen.getAllByAltText("Owner 头像").length).toBeGreaterThan(0);
+  });
+
+  it("selects preset avatars and reflects the selected preset", async () => {
+    const user = userEvent.setup();
+    const presetProfile = profileSettingsSnapshot({
+      avatar: profileAvatarSnapshot({
+        kind: "preset",
+        presetId: "forest",
+        updatedAtMs: 1760000055000,
+      }),
+      updatedAtMs: 1760000055000,
+    });
+    const selectProfileAvatarPreset = vi.fn(() =>
+      Promise.resolve({
+        profile: presetProfile,
+      } satisfies SelectProfileAvatarPresetResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers: () => Promise.resolve({ members: [memberProfile()] }) },
+      settingsApi: { selectProfileAvatarPreset },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.click(within(form).getByRole("button", { name: "选择 Forest 头像预设" }));
+
+    expect(selectProfileAvatarPreset).toHaveBeenCalledWith("forest");
+    expect(await screen.findByRole("status")).toHaveTextContent("头像预设已保存");
+    expect(screen.getAllByLabelText("Forest 头像预设").length).toBeGreaterThan(0);
+  });
+
+  it("deletes uploaded avatars and resets avatar selection to placeholder", async () => {
+    const user = userEvent.setup();
+    const uploadedProfile = profileSettingsSnapshot({
+      avatar: profileAvatarSnapshot({
+        kind: "uploaded",
+        uploadId: "01KAVATARUPLOAD000000000001",
+        sourceFileName: "dana.png",
+        contentType: "image/png",
+        sizeBytes: 3,
+        libraryRelativePath: "avatars/uploads/01KAVATARUPLOAD000000000001.png",
+        previewDataUrl: "data:image/png;base64,cG5n",
+      }),
+    });
+    const placeholderProfile = profileSettingsSnapshot({
+      avatar: profileAvatarSnapshot({ kind: "placeholder", updatedAtMs: 1760000056000 }),
+      updatedAtMs: 1760000056000,
+    });
+    const deleteUploadedProfileAvatar = vi.fn(() =>
+      Promise.resolve({
+        profile: placeholderProfile,
+      } satisfies DeleteUploadedProfileAvatarResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers: () => Promise.resolve({ members: [memberProfile()] }) },
+      settingsApi: {
+        getProfileSettings: () => Promise.resolve({ profile: uploadedProfile }),
+        deleteUploadedProfileAvatar,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    expect(within(form).getByText("dana.png")).toBeInTheDocument();
+    await user.click(within(form).getByRole("button", { name: "删除上传头像" }));
+
+    expect(deleteUploadedProfileAvatar).toHaveBeenCalled();
+    expect(await screen.findByRole("status")).toHaveTextContent("上传头像已删除");
+    expect(within(form).getByText("默认头像")).toBeInTheDocument();
+  });
+
+  it("resets profile avatar to the generated placeholder", async () => {
+    const user = userEvent.setup();
+    const resetProfileAvatar = vi.fn(() =>
+      Promise.resolve({
+        profile: profileSettingsSnapshot({
+          avatar: profileAvatarSnapshot({ kind: "placeholder", updatedAtMs: 1760000057000 }),
+          updatedAtMs: 1760000057000,
+        }),
+      } satisfies ResetProfileAvatarResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers: () => Promise.resolve({ members: [memberProfile()] }) },
+      settingsApi: {
+        getProfileSettings: () =>
+          Promise.resolve({
+            profile: profileSettingsSnapshot({
+              avatar: profileAvatarSnapshot({ kind: "preset", presetId: "lagoon" }),
+            }),
+          }),
+        resetProfileAvatar,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.click(within(form).getByRole("button", { name: "恢复默认" }));
+
+    expect(resetProfileAvatar).toHaveBeenCalled();
+    expect(await screen.findByRole("status")).toHaveTextContent("头像已恢复默认");
+    expect(within(form).getByText("默认头像")).toBeInTheDocument();
   });
 
   it("imports a local skill folder and shows it in the skill library", async () => {

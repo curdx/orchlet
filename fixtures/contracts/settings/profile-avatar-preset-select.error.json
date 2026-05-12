@@ -1,0 +1,9 @@
+{
+  "code": "settings.avatar.unsupportedPreset",
+  "message": "头像预设暂不支持。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请选择设置中提供的头像预设后重试。",
+  "details": "field=avatar",
+  "correlationId": null
+}

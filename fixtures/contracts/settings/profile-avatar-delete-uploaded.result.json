@@ -4,18 +4,18 @@
     "displayName": "Dana",
     "timezone": "Asia/Shanghai",
     "status": "working",
-    "statusMessage": "Reviewing Story 7.1",
+    "statusMessage": "Reviewing Story 7.2",
     "avatar": {
-      "kind": "preset",
-      "presetId": "lagoon",
+      "kind": "placeholder",
+      "presetId": null,
       "uploadId": null,
       "sourceFileName": null,
       "contentType": null,
       "sizeBytes": null,
       "libraryRelativePath": null,
-      "updatedAtMs": 1760000060500
+      "updatedAtMs": 1760000073000
     },
     "createdAtMs": 1760000060000,
-    "updatedAtMs": 1760000062000
+    "updatedAtMs": 1760000073000
   }
 }

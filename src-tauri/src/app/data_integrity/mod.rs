@@ -8,7 +8,7 @@ use ulid::Ulid;
 use crate::{
     app::{
         roadmap::{validate_workspace_roadmap_goal_store, validate_workspace_roadmap_task_store},
-        settings::validate_profile_settings,
+        settings::{validate_profile_avatar_library, validate_profile_settings},
         skills::{validate_skill_library_store, validate_workspace_skill_link_store},
     },
     contracts::{
@@ -19,6 +19,7 @@ use crate::{
     domain::workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME},
     infrastructure::persistence::{
         json_store::{
+            profile_settings_store::avatar_library_dir,
             profile_settings_store::profile_settings_path,
             skill_library_store::skill_library_path,
             workspace_fallback_store::{load_workspace_fallbacks, workspace_fallback_path},
@@ -104,6 +105,7 @@ pub fn validate_data_integrity(
             .map(|_| "workspace-fallbacks.json is readable and matches schema version.".to_owned()),
     ));
     checks.push(validate_profile_settings_store(app_data_dir));
+    checks.push(validate_profile_avatar_library_store(app_data_dir));
     checks.push(validate_workspace_metadata(
         workspace_root.as_deref(),
         workspace_metadata_optional,
@@ -166,6 +168,7 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::WorkspaceRegistry,
         StorageCategory::WorkspaceFallbacks,
         StorageCategory::ProfileSettings,
+        StorageCategory::AvatarLibrary,
         StorageCategory::MemberProfiles,
         StorageCategory::ContactProfiles,
         StorageCategory::ConversationRecords,
@@ -223,6 +226,16 @@ fn validate_profile_settings_store(app_data_dir: &Path) -> DataIntegrityCheckRes
         vec![profile_settings_path(app_data_dir)],
         validate_profile_settings(app_data_dir)
             .map(|_| "Profile settings are readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_profile_avatar_library_store(app_data_dir: &Path) -> DataIntegrityCheckResult {
+    check_result(
+        "settings.avatarLibrary.load_validate",
+        StorageCategory::AvatarLibrary,
+        vec![avatar_library_dir(app_data_dir)],
+        validate_profile_avatar_library(app_data_dir)
+            .map(|_| "Profile avatar library references are readable when initialized.".to_owned()),
     )
 }
 
@@ -709,11 +722,12 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 16);
+        assert_eq!(manifest.len(), 17);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
         assert!(categories.contains(&StorageCategory::ProfileSettings));
+        assert!(categories.contains(&StorageCategory::AvatarLibrary));
         assert!(categories.contains(&StorageCategory::MemberProfiles));
         assert!(categories.contains(&StorageCategory::ContactProfiles));
         assert!(categories.contains(&StorageCategory::ConversationRecords));
@@ -736,7 +750,7 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 17);
+        assert_eq!(report.total_checks, 18);
         assert_eq!(report.failed_checks, 0);
         assert_eq!(report.skipped_checks, 11);
         assert!(report.checks.iter().any(|check| {
