@@ -9,10 +9,12 @@ use orchlet_lib::contracts::{
     DispatchChatMessageResult, DispatchQueueResumeRequest, DispatchQueueResumeResult,
     DispatchRequestStatus, DispatchTargetResolutionSource, ImportLocalSkillFolderRequest,
     ImportLocalSkillFolderResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
-    ListContactsRequest, ListContactsResult, ListConversationsRequest, ListConversationsResult,
-    ListMembersRequest, ListMembersResult, ListMessagesRequest, ListMessagesResult, MemberRole,
-    MemberRuntimeKind, MemberStatus, NotificationIgnoreAllRequest, NotificationIgnoreAllResult,
-    NotificationNavigationAction, NotificationNavigationKind, NotificationNavigationPendingRequest,
+    LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult,
+    ListConversationsRequest, ListConversationsResult, ListMembersRequest, ListMembersResult,
+    ListMessagesRequest, ListMessagesResult, ListWorkspaceSkillLinksRequest,
+    ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind, MemberStatus,
+    NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
+    NotificationNavigationKind, NotificationNavigationPendingRequest,
     NotificationNavigationPendingResult, NotificationNavigationRequest,
     NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
     NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
@@ -27,11 +29,12 @@ use orchlet_lib::contracts::{
     TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
     TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
     TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
-    TerminalTabsListResult, UpdateContactRequest, UpdateContactResult,
-    UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
-    UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
-    UpdateMemberStatusRequest, UpdateMemberStatusResult, UpdateReadPositionRequest,
-    UpdateReadPositionResult, WindowMode, WorkspaceOpenStatus,
+    TerminalTabsListResult, UnlinkWorkspaceSkillRequest, UnlinkWorkspaceSkillResult,
+    UpdateContactRequest, UpdateContactResult, UpdateConversationSettingsRequest,
+    UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
+    UpdateGroupConversationMembersResult, UpdateMemberStatusRequest, UpdateMemberStatusResult,
+    UpdateReadPositionRequest, UpdateReadPositionResult, WindowMode, WorkspaceOpenStatus,
+    WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -524,6 +527,24 @@ fn skill_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/skill/skill-import-folder.result.json");
     let import_error: AppError =
         read_fixture("../fixtures/contracts/skill/skill-import-folder.error.json");
+    let links_request: ListWorkspaceSkillLinksRequest =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-links-list.request.json");
+    let links_result: ListWorkspaceSkillLinksResult =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-links-list.result.json");
+    let links_error: AppError =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-links-list.error.json");
+    let link_request: LinkWorkspaceSkillRequest =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-link.request.json");
+    let link_result: LinkWorkspaceSkillResult =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-link.result.json");
+    let link_error: AppError =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-link.error.json");
+    let unlink_request: UnlinkWorkspaceSkillRequest =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-unlink.request.json");
+    let unlink_result: UnlinkWorkspaceSkillResult =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-unlink.result.json");
+    let unlink_error: AppError =
+        read_fixture("../fixtures/contracts/skill/workspace-skill-unlink.error.json");
 
     assert_eq!(list_result.skills.len(), 1);
     assert_eq!(list_result.skills[0].name, "Local Review");
@@ -537,6 +558,25 @@ fn skill_contract_fixtures_deserialize_into_rust_dtos() {
     );
     assert_eq!(import_result.skills.len(), 1);
     assert_eq!(import_error.code, "skill.manifest.missing");
+    assert_eq!(links_request.workspace_root, "/fixtures/workspaces/alpha");
+    assert_eq!(links_result.skills.len(), 1);
+    assert_eq!(
+        links_result.skills[0].link_mode,
+        WorkspaceSkillLinkMode::Symlink
+    );
+    assert_eq!(links_error.code, "skill.workspaceLinks.invalidJson");
+    assert_eq!(link_request.skill_id, "01K00000000000000000000100");
+    assert_eq!(link_result.status, WorkspaceSkillLinkStatus::Linked);
+    assert_eq!(
+        link_result.skill.link_mode,
+        WorkspaceSkillLinkMode::Manifest
+    );
+    assert!(link_result.skill.unavailable_reason.is_some());
+    assert_eq!(link_error.code, "skill.library.notFound");
+    assert_eq!(unlink_request.workspace_root, "/fixtures/workspaces/alpha");
+    assert_eq!(unlink_result.removed_skill_id, unlink_request.skill_id);
+    assert!(unlink_result.skills.is_empty());
+    assert_eq!(unlink_error.code, "skill.workspaceLink.notFound");
 }
 
 #[test]

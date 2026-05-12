@@ -3,7 +3,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import type { AppError } from "../../contracts/generated/common";
 import type {
   ImportLocalSkillFolderResult,
+  LinkWorkspaceSkillResult,
+  ListWorkspaceSkillLinksResult,
   SkillLibraryListResult,
+  UnlinkWorkspaceSkillResult,
 } from "../../contracts/generated/skill";
 import { invokeCommand, isTauriRuntime } from "./client";
 
@@ -31,6 +34,15 @@ export type SkillsApi = {
   listSkills: () => Promise<SkillLibraryListResult>;
   importFolder: (path: string) => Promise<ImportLocalSkillFolderResult>;
   importLocalFolder: () => Promise<ImportLocalSkillFolderResult | null>;
+  listWorkspaceLinks: (workspaceRoot: string) => Promise<ListWorkspaceSkillLinksResult>;
+  linkWorkspaceSkill: (
+    workspaceRoot: string,
+    skillId: string,
+  ) => Promise<LinkWorkspaceSkillResult>;
+  unlinkWorkspaceSkill: (
+    workspaceRoot: string,
+    skillId: string,
+  ) => Promise<UnlinkWorkspaceSkillResult>;
 };
 
 export const skillsApi: SkillsApi = {
@@ -65,5 +77,23 @@ export const skillsApi: SkillsApi = {
     }
 
     return this.importFolder(selected);
+  },
+
+  listWorkspaceLinks(workspaceRoot) {
+    return invokeCommand<ListWorkspaceSkillLinksResult>("workspace_skill_links_list", {
+      request: { workspaceRoot },
+    });
+  },
+
+  linkWorkspaceSkill(workspaceRoot, skillId) {
+    return invokeCommand<LinkWorkspaceSkillResult>("workspace_skill_link", {
+      request: { workspaceRoot, skillId },
+    });
+  },
+
+  unlinkWorkspaceSkill(workspaceRoot, skillId) {
+    return invokeCommand<UnlinkWorkspaceSkillResult>("workspace_skill_unlink", {
+      request: { workspaceRoot, skillId },
+    });
   },
 };

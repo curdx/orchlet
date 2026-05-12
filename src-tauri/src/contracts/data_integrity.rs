@@ -31,6 +31,7 @@ pub enum StorageCategory {
     PrivateConversations,
     TerminalTabs,
     SkillLibrary,
+    WorkspaceSkillLinks,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]

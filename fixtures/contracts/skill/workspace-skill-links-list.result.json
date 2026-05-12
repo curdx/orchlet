@@ -5,12 +5,13 @@
       "skillId": "01K00000000000000000000100",
       "name": "Local Review",
       "description": "Review helper",
-      "source": "localFolder",
       "sourcePath": "/fixtures/skills/local-review",
       "manifestPath": "/fixtures/skills/local-review/SKILL.md",
-      "importedAtMs": 1760000010000,
-      "updatedAtMs": 1760000010000,
-      "lastValidatedAtMs": 1760000010000
+      "linkPath": "/fixtures/workspaces/alpha/.orchlet/skills/local-review-01K00000000000000000000100",
+      "linkMode": "symlink",
+      "unavailableReason": null,
+      "linkedAtMs": 1760000020000,
+      "updatedAtMs": 1760000020000
     }
   ]
 }

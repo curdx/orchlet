@@ -7,7 +7,7 @@ use orchlet_lib::{
         ChatMessageProfile, ChatMessageStatus, ContactProfile, ConversationKind,
         ConversationProfile, ConversationReadPositionProfile, DataIntegrityReport,
         DataIntegrityStatus, MemberProfile, SkillLibraryEntry, TerminalTabProfile,
-        TerminalTabStatus, WorkspaceMetadata,
+        TerminalTabStatus, WorkspaceMetadata, WorkspaceSkillLinkEntry, WorkspaceSkillLinkMode,
     },
     domain::workspace::validate_workspace_metadata,
     infrastructure::persistence::json_store::{
@@ -112,6 +112,16 @@ struct SkillLibraryFixture {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct WorkspaceSkillLinksFixture {
+    schema_version: u32,
+    skills: Vec<WorkspaceSkillLinkEntry>,
+    duplicate_policy: Option<String>,
+    fallback_policy: Option<String>,
+    excluded_payloads: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TerminalStreamFixture {
     schema_version: u32,
     case: String,
@@ -178,6 +188,12 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
         workspace_root.join(".orchlet/workspace.json"),
     )
     .expect("metadata copied");
+    fs::create_dir_all(workspace_root.join(".orchlet/skills")).expect("workspace skills dir");
+    fs::copy(
+        fixture_workspace.join(".orchlet/skills/skill-links.json"),
+        workspace_root.join(".orchlet/skills/skill-links.json"),
+    )
+    .expect("workspace skill links copied");
     let metadata: WorkspaceMetadata = read_fixture(
         "../fixtures/data-integrity/valid-json-stores/workspace/.orchlet/workspace.json",
     );
@@ -188,7 +204,7 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 13);
+    assert_eq!(report.total_checks, 14);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -202,9 +218,9 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 13);
+    assert_eq!(report.total_checks, 14);
     assert_eq!(report.failed_checks, 1);
-    assert_eq!(report.skipped_checks, 8);
+    assert_eq!(report.skipped_checks, 9);
     assert!(report.has_failures);
 }
 
@@ -488,6 +504,36 @@ fn skill_library_fixture_covers_local_import_records() {
         .as_deref()
         .unwrap_or_default()
         .contains("updates"));
+    assert!(fixture
+        .excluded_payloads
+        .unwrap_or_default()
+        .iter()
+        .any(|payload| payload.contains("contents")));
+}
+
+#[test]
+fn workspace_skill_links_fixture_covers_manifest_fallback_records() {
+    let fixture: WorkspaceSkillLinksFixture =
+        read_fixture("../fixtures/schema/skills-v1/workspace-skill-links.json");
+
+    assert_eq!(fixture.schema_version, 1);
+    assert_eq!(fixture.skills.len(), 1);
+    assert_eq!(fixture.skills[0].name, "Local Review");
+    assert_eq!(
+        fixture.skills[0].link_mode,
+        WorkspaceSkillLinkMode::Manifest
+    );
+    assert!(fixture.skills[0].unavailable_reason.is_some());
+    assert!(fixture
+        .duplicate_policy
+        .as_deref()
+        .unwrap_or_default()
+        .contains("unique"));
+    assert!(fixture
+        .fallback_policy
+        .as_deref()
+        .unwrap_or_default()
+        .contains("manifest"));
     assert!(fixture
         .excluded_payloads
         .unwrap_or_default()

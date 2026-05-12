@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=12"
+      "details": "entries=13"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -133,12 +133,22 @@
       "affectedPaths": ["/fixtures/app-data/skills/skill-library.json"],
       "userAction": null,
       "details": null
+    },
+    {
+      "checkId": "skill.workspace_links.load_validate",
+      "category": "workspaceSkillLinks",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace root is available for workspace skill link validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
     }
   ],
-  "totalChecks": 13,
+  "totalChecks": 14,
   "passedChecks": 4,
   "failedChecks": 1,
-  "skippedChecks": 8,
+  "skippedChecks": 9,
   "hasFailures": true,
   "batched": true
 }

@@ -4,6 +4,14 @@ export type ImportLocalSkillFolderRequest = { path: string, };
 
 export type ImportLocalSkillFolderResult = { skill: SkillLibraryEntry, skills: Array<SkillLibraryEntry>, status: SkillImportStatus, };
 
+export type LinkWorkspaceSkillRequest = { workspaceRoot: string, skillId: string, };
+
+export type LinkWorkspaceSkillResult = { skill: WorkspaceSkillLinkEntry, skills: Array<WorkspaceSkillLinkEntry>, status: WorkspaceSkillLinkStatus, };
+
+export type ListWorkspaceSkillLinksRequest = { workspaceRoot: string, };
+
+export type ListWorkspaceSkillLinksResult = { skills: Array<WorkspaceSkillLinkEntry>, };
+
 export type SkillImportStatus = "imported" | "updatedExisting";
 
 export type SkillLibraryEntry = { schemaVersion: number, skillId: string, name: string, description: string | null, source: SkillSource, sourcePath: string, manifestPath: string, importedAtMs: number, updatedAtMs: number, lastValidatedAtMs: number, };
@@ -13,3 +21,13 @@ export type SkillLibraryListRequest = Record<symbol, never>;
 export type SkillLibraryListResult = { skills: Array<SkillLibraryEntry>, };
 
 export type SkillSource = "localFolder";
+
+export type UnlinkWorkspaceSkillRequest = { workspaceRoot: string, skillId: string, };
+
+export type UnlinkWorkspaceSkillResult = { removedSkillId: string, skills: Array<WorkspaceSkillLinkEntry>, };
+
+export type WorkspaceSkillLinkEntry = { schemaVersion: number, skillId: string, name: string, description: string | null, sourcePath: string, manifestPath: string, linkPath: string, linkMode: WorkspaceSkillLinkMode, unavailableReason: string | null, linkedAtMs: number, updatedAtMs: number, };
+
+export type WorkspaceSkillLinkMode = "symlink" | "manifest";
+
+export type WorkspaceSkillLinkStatus = "linked" | "updatedExisting";

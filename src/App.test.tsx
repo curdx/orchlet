@@ -54,6 +54,8 @@ import type {
   SendMessageRequest,
   SendMessageResult,
   ImportLocalSkillFolderResult,
+  LinkWorkspaceSkillResult,
+  ListWorkspaceSkillLinksResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
   SkillLibraryEntry,
@@ -73,6 +75,8 @@ import type {
   UpdateReadPositionResult,
   WindowContextSnapshot,
   WorkspaceSelectionStatus,
+  UnlinkWorkspaceSkillResult,
+  WorkspaceSkillLinkEntry,
 } from "./contracts/generated";
 
 const status: WorkspaceSelectionStatus = {
@@ -139,6 +143,15 @@ function renderWorkspaceSelection(api: {
   skillsApi?: Partial<{
     listSkills: () => Promise<SkillLibraryListResult>;
     importLocalFolder: () => Promise<ImportLocalSkillFolderResult | null>;
+    listWorkspaceLinks: (workspaceRoot: string) => Promise<ListWorkspaceSkillLinksResult>;
+    linkWorkspaceSkill: (
+      workspaceRoot: string,
+      skillId: string,
+    ) => Promise<LinkWorkspaceSkillResult>;
+    unlinkWorkspaceSkill: (
+      workspaceRoot: string,
+      skillId: string,
+    ) => Promise<UnlinkWorkspaceSkillResult>;
   }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
@@ -226,6 +239,10 @@ function renderWorkspaceSelection(api: {
         skillsApi={{
           listSkills: () => Promise.resolve({ skills: [] }),
           importLocalFolder: () => Promise.reject(new Error("importLocalFolder mock missing")),
+          listWorkspaceLinks: () => Promise.resolve({ skills: [] }),
+          linkWorkspaceSkill: () => Promise.reject(new Error("linkWorkspaceSkill mock missing")),
+          unlinkWorkspaceSkill: () =>
+            Promise.reject(new Error("unlinkWorkspaceSkill mock missing")),
           ...skillsApi,
         }}
         terminalDispatchApi={{
@@ -471,6 +488,26 @@ function skillLibraryEntry(overrides: Partial<SkillLibraryEntry> = {}): SkillLib
     importedAtMs: 1760000010000,
     updatedAtMs: 1760000010000,
     lastValidatedAtMs: 1760000010000,
+    ...overrides,
+  };
+}
+
+function workspaceSkillLinkEntry(
+  overrides: Partial<WorkspaceSkillLinkEntry> = {},
+): WorkspaceSkillLinkEntry {
+  return {
+    schemaVersion: 1,
+    skillId: "01K00000000000000000000100",
+    name: "Local Review",
+    description: "Review helper",
+    sourcePath: "/fixtures/skills/local-review",
+    manifestPath: "/fixtures/skills/local-review/SKILL.md",
+    linkPath:
+      "/fixtures/workspaces/orchlet-demo/.orchlet/skills/local-review-01K00000000000000000000100",
+    linkMode: "symlink",
+    unavailableReason: null,
+    linkedAtMs: 1760000020000,
+    updatedAtMs: 1760000020000,
     ...overrides,
   };
 }
@@ -758,6 +795,95 @@ describe("App workspace entry", () => {
     expect(within(skillsPanel).queryByText("Old Review")).not.toBeInTheDocument();
     expect(await screen.findByRole("status")).toHaveTextContent("技能已更新");
     expect(screen.getByRole("status")).toHaveTextContent("已更新已有技能记录");
+  });
+
+  it("links a library skill to the current workspace", async () => {
+    const user = userEvent.setup();
+    const librarySkill = skillLibraryEntry();
+    const linkedSkill = workspaceSkillLinkEntry();
+    const linkWorkspaceSkill = vi.fn(() =>
+      Promise.resolve({
+        skill: linkedSkill,
+        skills: [linkedSkill],
+        status: "linked",
+      } satisfies LinkWorkspaceSkillResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [librarySkill] }),
+        listWorkspaceLinks: () => Promise.resolve({ skills: [] }),
+        linkWorkspaceSkill,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
+    expect(await within(skillsPanel).findByText("Local Review")).toBeInTheDocument();
+
+    await user.click(within(skillsPanel).getByRole("button", { name: "关联" }));
+
+    expect(linkWorkspaceSkill).toHaveBeenCalledWith("/tmp/orchlet-demo", librarySkill.skillId);
+    expect(await within(skillsPanel).findByText("已关联")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("工作区技能已关联");
+  });
+
+  it("unlinks a workspace skill without removing it from the library", async () => {
+    const user = userEvent.setup();
+    const librarySkill = skillLibraryEntry();
+    const linkedSkill = workspaceSkillLinkEntry();
+    const unlinkWorkspaceSkill = vi.fn(() =>
+      Promise.resolve({
+        removedSkillId: linkedSkill.skillId,
+        skills: [],
+      } satisfies UnlinkWorkspaceSkillResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [librarySkill] }),
+        listWorkspaceLinks: () => Promise.resolve({ skills: [linkedSkill] }),
+        unlinkWorkspaceSkill,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
+    await user.click(await within(skillsPanel).findByRole("button", { name: "取消关联" }));
+
+    expect(unlinkWorkspaceSkill).toHaveBeenCalledWith("/tmp/orchlet-demo", linkedSkill.skillId);
+    expect(await within(skillsPanel).findByText("当前工作区还没有关联技能")).toBeInTheDocument();
+    expect(within(skillsPanel).getByText("Local Review")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("工作区技能已取消关联");
+  });
+
+  it("surfaces manifest fallback state for linked workspace skills", async () => {
+    const user = userEvent.setup();
+    const librarySkill = skillLibraryEntry();
+    const linkedSkill = workspaceSkillLinkEntry({
+      linkMode: "manifest",
+      unavailableReason: "symlink unavailable in test",
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [librarySkill] }),
+        listWorkspaceLinks: () => Promise.resolve({ skills: [linkedSkill] }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
+    expect(await within(skillsPanel).findByText(/清单链接：symlink unavailable/)).toBeInTheDocument();
   });
 
   it("loads conversations and creates then updates group membership", async () => {

@@ -1,0 +1,31 @@
+{
+  "skill": {
+    "schemaVersion": 1,
+    "skillId": "01K00000000000000000000100",
+    "name": "Local Review",
+    "description": "Review helper",
+    "sourcePath": "/fixtures/skills/local-review",
+    "manifestPath": "/fixtures/skills/local-review/SKILL.md",
+    "linkPath": "/fixtures/workspaces/alpha/.orchlet/skills/local-review-01K00000000000000000000100",
+    "linkMode": "manifest",
+    "unavailableReason": "无法创建 symlink：permission denied",
+    "linkedAtMs": 1760000020000,
+    "updatedAtMs": 1760000020000
+  },
+  "skills": [
+    {
+      "schemaVersion": 1,
+      "skillId": "01K00000000000000000000100",
+      "name": "Local Review",
+      "description": "Review helper",
+      "sourcePath": "/fixtures/skills/local-review",
+      "manifestPath": "/fixtures/skills/local-review/SKILL.md",
+      "linkPath": "/fixtures/workspaces/alpha/.orchlet/skills/local-review-01K00000000000000000000100",
+      "linkMode": "manifest",
+      "unavailableReason": "无法创建 symlink：permission denied",
+      "linkedAtMs": 1760000020000,
+      "updatedAtMs": 1760000020000
+    }
+  ],
+  "status": "linked"
+}

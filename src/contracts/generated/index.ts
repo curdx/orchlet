@@ -104,11 +104,20 @@ export type {
 export type {
   ImportLocalSkillFolderRequest,
   ImportLocalSkillFolderResult,
+  LinkWorkspaceSkillRequest,
+  LinkWorkspaceSkillResult,
+  ListWorkspaceSkillLinksRequest,
+  ListWorkspaceSkillLinksResult,
   SkillImportStatus,
   SkillLibraryEntry,
   SkillLibraryListRequest,
   SkillLibraryListResult,
   SkillSource,
+  UnlinkWorkspaceSkillRequest,
+  UnlinkWorkspaceSkillResult,
+  WorkspaceSkillLinkEntry,
+  WorkspaceSkillLinkMode,
+  WorkspaceSkillLinkStatus,
 } from "./skill";
 export type {
   TerminalAttachRequest,

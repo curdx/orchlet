@@ -94,11 +94,20 @@ import type {
 import type {
   ImportLocalSkillFolderRequest,
   ImportLocalSkillFolderResult,
+  LinkWorkspaceSkillRequest,
+  LinkWorkspaceSkillResult,
+  ListWorkspaceSkillLinksRequest,
+  ListWorkspaceSkillLinksResult,
   SkillImportStatus,
   SkillLibraryEntry,
   SkillLibraryListRequest,
   SkillLibraryListResult,
   SkillSource,
+  UnlinkWorkspaceSkillRequest,
+  UnlinkWorkspaceSkillResult,
+  WorkspaceSkillLinkEntry,
+  WorkspaceSkillLinkMode,
+  WorkspaceSkillLinkStatus,
 } from "../../src/contracts/generated/skill";
 import type {
   TerminalAttachRequest,
@@ -231,6 +240,15 @@ import skillImportFolderResult from "../../fixtures/contracts/skill/skill-import
 import skillLibraryListError from "../../fixtures/contracts/skill/skill-library-list.error.json";
 import skillLibraryListRequest from "../../fixtures/contracts/skill/skill-library-list.request.json";
 import skillLibraryListResult from "../../fixtures/contracts/skill/skill-library-list.result.json";
+import workspaceSkillLinkError from "../../fixtures/contracts/skill/workspace-skill-link.error.json";
+import workspaceSkillLinkRequest from "../../fixtures/contracts/skill/workspace-skill-link.request.json";
+import workspaceSkillLinkResult from "../../fixtures/contracts/skill/workspace-skill-link.result.json";
+import workspaceSkillLinksListError from "../../fixtures/contracts/skill/workspace-skill-links-list.error.json";
+import workspaceSkillLinksListRequest from "../../fixtures/contracts/skill/workspace-skill-links-list.request.json";
+import workspaceSkillLinksListResult from "../../fixtures/contracts/skill/workspace-skill-links-list.result.json";
+import workspaceSkillUnlinkError from "../../fixtures/contracts/skill/workspace-skill-unlink.error.json";
+import workspaceSkillUnlinkRequest from "../../fixtures/contracts/skill/workspace-skill-unlink.request.json";
+import workspaceSkillUnlinkResult from "../../fixtures/contracts/skill/workspace-skill-unlink.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -504,6 +522,26 @@ export const skillImportFolderResultFixture: ImportLocalSkillFolderResult = {
   status: skillImportStatus(skillImportFolderResult.status),
 };
 export const skillImportFolderErrorFixture: AppError = appError(skillImportFolderError);
+export const workspaceSkillLinksListRequestFixture: ListWorkspaceSkillLinksRequest =
+  workspaceSkillLinksListRequest;
+export const workspaceSkillLinksListResultFixture: ListWorkspaceSkillLinksResult = {
+  skills: workspaceSkillLinksListResult.skills.map(workspaceSkillLinkEntry),
+};
+export const workspaceSkillLinksListErrorFixture: AppError = appError(workspaceSkillLinksListError);
+export const workspaceSkillLinkRequestFixture: LinkWorkspaceSkillRequest = workspaceSkillLinkRequest;
+export const workspaceSkillLinkResultFixture: LinkWorkspaceSkillResult = {
+  skill: workspaceSkillLinkEntry(workspaceSkillLinkResult.skill),
+  skills: workspaceSkillLinkResult.skills.map(workspaceSkillLinkEntry),
+  status: workspaceSkillLinkStatus(workspaceSkillLinkResult.status),
+};
+export const workspaceSkillLinkErrorFixture: AppError = appError(workspaceSkillLinkError);
+export const workspaceSkillUnlinkRequestFixture: UnlinkWorkspaceSkillRequest =
+  workspaceSkillUnlinkRequest;
+export const workspaceSkillUnlinkResultFixture: UnlinkWorkspaceSkillResult = {
+  removedSkillId: workspaceSkillUnlinkResult.removedSkillId,
+  skills: workspaceSkillUnlinkResult.skills.map(workspaceSkillLinkEntry),
+};
+export const workspaceSkillUnlinkErrorFixture: AppError = appError(workspaceSkillUnlinkError);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -659,6 +697,9 @@ type ErrorJson =
   | typeof notificationIgnoreAllError
   | typeof skillLibraryListError
   | typeof skillImportFolderError
+  | typeof workspaceSkillLinksListError
+  | typeof workspaceSkillLinkError
+  | typeof workspaceSkillUnlinkError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -721,6 +762,12 @@ type SkillLibraryEntryJson =
   | typeof skillImportFolderResult.skill
   | (typeof skillImportFolderResult.skills)[number];
 
+type WorkspaceSkillLinkEntryJson =
+  | (typeof workspaceSkillLinksListResult.skills)[number]
+  | typeof workspaceSkillLinkResult.skill
+  | (typeof workspaceSkillLinkResult.skills)[number]
+  | (typeof workspaceSkillUnlinkResult.skills)[number];
+
 function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {
   return {
     ...skill,
@@ -744,6 +791,33 @@ function skillImportStatus(value: string): SkillImportStatus {
       return value;
     default:
       throw new Error(`Unknown skill import status: ${value}`);
+  }
+}
+
+function workspaceSkillLinkEntry(link: WorkspaceSkillLinkEntryJson): WorkspaceSkillLinkEntry {
+  return {
+    ...link,
+    linkMode: workspaceSkillLinkMode(link.linkMode),
+  };
+}
+
+function workspaceSkillLinkMode(value: string): WorkspaceSkillLinkMode {
+  switch (value) {
+    case "symlink":
+    case "manifest":
+      return value;
+    default:
+      throw new Error(`Unknown workspace skill link mode: ${value}`);
+  }
+}
+
+function workspaceSkillLinkStatus(value: string): WorkspaceSkillLinkStatus {
+  switch (value) {
+    case "linked":
+    case "updatedExisting":
+      return value;
+    default:
+      throw new Error(`Unknown workspace skill link status: ${value}`);
   }
 }
 
@@ -863,6 +937,7 @@ function storageCategory(value: string): StorageCategory {
     case "privateConversations":
     case "terminalTabs":
     case "skillLibrary":
+    case "workspaceSkillLinks":
       return value;
     default:
       throw new Error(`Unknown storage category: ${value}`);

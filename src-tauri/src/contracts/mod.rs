@@ -51,8 +51,11 @@ pub use orchestration::{
     DispatchRequestStatus, DispatchTargetResolutionProfile, DispatchTargetResolutionSource,
 };
 pub use skill::{
-    ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult, SkillImportStatus,
-    SkillLibraryEntry, SkillLibraryListRequest, SkillLibraryListResult, SkillSource,
+    ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult, LinkWorkspaceSkillRequest,
+    LinkWorkspaceSkillResult, ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult,
+    SkillImportStatus, SkillLibraryEntry, SkillLibraryListRequest, SkillLibraryListResult,
+    SkillSource, UnlinkWorkspaceSkillRequest, UnlinkWorkspaceSkillResult, WorkspaceSkillLinkEntry,
+    WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
 };
 pub use terminal::{
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,

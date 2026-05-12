@@ -15,6 +15,8 @@ validateMessageHistory("fixtures/schema/messages-v1/message-history.json");
 validateTerminalTabs("fixtures/schema/terminal-tabs-v1/terminal-tabs.json");
 validateSkillLibrary("fixtures/schema/skills-v1/skill-library.json");
 validateSkillLibrary("fixtures/data-integrity/valid-json-stores/app-data/skills/skill-library.json");
+validateWorkspaceSkillLinks("fixtures/schema/skills-v1/workspace-skill-links.json");
+validateWorkspaceSkillLinks("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/skills/skill-links.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/passed-report.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/failed-registry-report.json");
 validateTerminalStreams("fixtures/terminal-streams");
@@ -186,6 +188,41 @@ function validateSkillLibrary(path) {
       skill.lastValidatedAtMs >= skill.importedAtMs,
       `${path}.skills[].lastValidatedAtMs must be >= importedAtMs`,
     );
+  }
+
+  if (fixture.excludedPayloads) {
+    assert(
+      fixture.excludedPayloads.some((item) => item.includes("contents")),
+      `${path}.excludedPayloads must document skill content exclusion`,
+    );
+  }
+}
+
+function validateWorkspaceSkillLinks(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(Array.isArray(fixture.skills), `${path}.skills must be an array`);
+
+  const skillIds = new Set();
+  const linkPaths = new Set();
+  for (const skill of fixture.skills) {
+    assert(skill.schemaVersion === 1, `${path}.skills[].schemaVersion must be 1`);
+    assertValidUlid(skill.skillId, `${path}.skills[].skillId`);
+    assert(!skillIds.has(skill.skillId), `${path}.skills[].skillId must be unique`);
+    skillIds.add(skill.skillId);
+    assertNonEmptyString(skill.name, `${path}.skills[].name`);
+    if (skill.description !== null) assertNonEmptyString(skill.description, `${path}.skills[].description`);
+    assertNonEmptyString(skill.sourcePath, `${path}.skills[].sourcePath`);
+    assert(skill.manifestPath.endsWith("/SKILL.md"), `${path}.skills[].manifestPath must end with SKILL.md`);
+    assertNonEmptyString(skill.linkPath, `${path}.skills[].linkPath`);
+    assert(!linkPaths.has(skill.linkPath), `${path}.skills[].linkPath must be unique`);
+    linkPaths.add(skill.linkPath);
+    assert(["symlink", "manifest"].includes(skill.linkMode), `${path}.skills[].linkMode is invalid`);
+    if (skill.linkMode === "manifest") {
+      assertNonEmptyString(skill.unavailableReason, `${path}.skills[].unavailableReason`);
+    }
+    assertPositiveTimestamp(skill.linkedAtMs, `${path}.skills[].linkedAtMs`);
+    assert(skill.updatedAtMs >= skill.linkedAtMs, `${path}.skills[].updatedAtMs must be >= linkedAtMs`);
   }
 
   if (fixture.excludedPayloads) {

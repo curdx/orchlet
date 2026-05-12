@@ -1,8 +1,13 @@
 use crate::{
-    app::skills::{import_local_skill_folder, list_skill_library},
+    app::skills::{
+        import_local_skill_folder, link_workspace_skill, list_skill_library,
+        list_workspace_skill_links, unlink_workspace_skill,
+    },
     contracts::{
         AppError, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
-        SkillLibraryListRequest, SkillLibraryListResult,
+        LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListWorkspaceSkillLinksRequest,
+        ListWorkspaceSkillLinksResult, SkillLibraryListRequest, SkillLibraryListResult,
+        UnlinkWorkspaceSkillRequest, UnlinkWorkspaceSkillResult,
     },
 };
 use tauri::{AppHandle, Manager};
@@ -21,6 +26,28 @@ pub fn skills_import_folder(
     request: ImportLocalSkillFolderRequest,
 ) -> Result<ImportLocalSkillFolderResult, AppError> {
     import_local_skill_folder(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn workspace_skill_links_list(
+    request: ListWorkspaceSkillLinksRequest,
+) -> Result<ListWorkspaceSkillLinksResult, AppError> {
+    list_workspace_skill_links(request)
+}
+
+#[tauri::command]
+pub fn workspace_skill_link(
+    app: AppHandle,
+    request: LinkWorkspaceSkillRequest,
+) -> Result<LinkWorkspaceSkillResult, AppError> {
+    link_workspace_skill(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn workspace_skill_unlink(
+    request: UnlinkWorkspaceSkillRequest,
+) -> Result<UnlinkWorkspaceSkillResult, AppError> {
+    unlink_workspace_skill(request)
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, AppError> {

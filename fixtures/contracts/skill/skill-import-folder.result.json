@@ -1,7 +1,7 @@
 {
   "skill": {
     "schemaVersion": 1,
-    "skillId": "01KSKILL000000000000000001",
+    "skillId": "01K00000000000000000000100",
     "name": "Local Review",
     "description": "Review helper",
     "source": "localFolder",
@@ -14,7 +14,7 @@
   "skills": [
     {
       "schemaVersion": 1,
-      "skillId": "01KSKILL000000000000000001",
+      "skillId": "01K00000000000000000000100",
       "name": "Local Review",
       "description": "Review helper",
       "source": "localFolder",

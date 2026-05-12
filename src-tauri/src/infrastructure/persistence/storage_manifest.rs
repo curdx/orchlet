@@ -14,6 +14,7 @@ use crate::{
         workspace_registry_store::{
             WORKSPACE_REGISTRY_FILE_NAME, WORKSPACE_REGISTRY_SCHEMA_VERSION,
         },
+        workspace_skill_link_store::WORKSPACE_SKILL_LINKS_SCHEMA_VERSION,
     },
     infrastructure::persistence::sqlite::global_database::{
         GLOBAL_SQLITE_FILE_NAME, GLOBAL_SQLITE_RELATIVE_PATH, GLOBAL_SQLITE_SCHEMA_VERSION,
@@ -318,6 +319,31 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "skill.library.load_validate".to_owned(),
             notes: "Contains local skill folder paths and metadata only; skill contents are not copied, uploaded or executed by Story 6.1."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "skill.workspace_links".to_owned(),
+            owner: StorageOwner::Skill,
+            category: StorageCategory::WorkspaceSkillLinks,
+            description: "Workspace-local links from the current project to app-data skill library records."
+                .to_owned(),
+            path_policy: StoragePathPolicy::WorkspaceLocalRelative,
+            relative_path: Some(format!("{}/skills/skill-links.json", WORKSPACE_DIR_NAME)),
+            file_name: Some("skill-links.json".to_owned()),
+            format: StorageFormat::Json,
+            schema_version: WORKSPACE_SKILL_LINKS_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/workspace_skill_link_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/workspace_skill_link_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::LocalPath,
+            fixture_required: true,
+            validation_check_id: "skill.workspace_links.load_validate".to_owned(),
+            notes: "Contains workspace link metadata and symlink fallback status only; unlink removes workspace association without deleting app library records or user source folders."
                 .to_owned(),
         },
     ]

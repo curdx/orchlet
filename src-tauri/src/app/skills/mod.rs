@@ -1,19 +1,32 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use ulid::Ulid;
 
 use crate::{
     contracts::{
-        AppError, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult, SkillImportStatus,
-        SkillLibraryEntry, SkillLibraryListResult, SkillSource,
+        AppError, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
+        LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListWorkspaceSkillLinksRequest,
+        ListWorkspaceSkillLinksResult, SkillImportStatus, SkillLibraryEntry,
+        SkillLibraryListResult, SkillSource, UnlinkWorkspaceSkillRequest,
+        UnlinkWorkspaceSkillResult, WorkspaceSkillLinkEntry, WorkspaceSkillLinkMode,
+        WorkspaceSkillLinkStatus,
     },
     domain::skill::{
-        parse_local_skill_metadata, skill_name_from_path, SKILL_MANIFEST_FILE_NAME,
-        SKILL_RECORD_SCHEMA_VERSION,
+        parse_local_skill_metadata, skill_name_from_path, workspace_skill_link_name,
+        SKILL_MANIFEST_FILE_NAME, SKILL_RECORD_SCHEMA_VERSION, WORKSPACE_SKILL_LINK_SCHEMA_VERSION,
     },
-    infrastructure::persistence::{
-        json_store::skill_library_store::{load_skill_library, save_skill_library},
-        json_store::workspace_registry_store::now_ms,
+    infrastructure::{
+        filesystem::canonicalize_existing_directory,
+        persistence::{
+            json_store::skill_library_store::{load_skill_library, save_skill_library},
+            json_store::workspace_registry_store::now_ms,
+            json_store::workspace_skill_link_store::{
+                load_workspace_skill_links, save_workspace_skill_links, workspace_skill_links_dir,
+            },
+        },
     },
 };
 
@@ -118,6 +131,118 @@ pub fn validate_skill_library_store(app_data_dir: impl AsRef<Path>) -> Result<()
     load_skill_library(app_data_dir.as_ref()).map(|_| ())
 }
 
+pub fn list_workspace_skill_links(
+    request: ListWorkspaceSkillLinksRequest,
+) -> Result<ListWorkspaceSkillLinksResult, AppError> {
+    let workspace_root = canonicalize_existing_directory(request.workspace_root)?;
+    let links = load_workspace_skill_links(&workspace_root)?;
+
+    Ok(ListWorkspaceSkillLinksResult {
+        skills: sorted_workspace_links(links.skills),
+    })
+}
+
+pub fn link_workspace_skill(
+    app_data_dir: impl AsRef<Path>,
+    request: LinkWorkspaceSkillRequest,
+) -> Result<LinkWorkspaceSkillResult, AppError> {
+    let workspace_root = canonicalize_existing_directory(request.workspace_root)?;
+    let library = load_skill_library(app_data_dir.as_ref())?;
+    let library_skill = library
+        .skills
+        .iter()
+        .find(|skill| skill.skill_id == request.skill_id)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::recoverable_error(
+                "skill.library.notFound",
+                "技能库中找不到该技能。",
+                "请刷新技能库后重新选择要关联的技能。",
+                Some(request.skill_id.clone()),
+            )
+        })?;
+
+    let canonical_skill_path = canonicalize_existing_skill_directory(&library_skill.source_path)?;
+    let mut links = load_workspace_skill_links(&workspace_root)?;
+    let timestamp = now_ms();
+    let artifact = ensure_workspace_link_artifact(&workspace_root, &library_skill)?;
+    let mut status = WorkspaceSkillLinkStatus::Linked;
+    let link = if let Some(existing) = links
+        .skills
+        .iter_mut()
+        .find(|link| link.skill_id == library_skill.skill_id)
+    {
+        existing.name = library_skill.name.clone();
+        existing.description = library_skill.description.clone();
+        existing.source_path = canonical_skill_path.to_string_lossy().into_owned();
+        existing.manifest_path = library_skill.manifest_path.clone();
+        existing.link_path = artifact.path.to_string_lossy().into_owned();
+        existing.link_mode = artifact.mode;
+        existing.unavailable_reason = artifact.unavailable_reason;
+        existing.updated_at_ms = timestamp.max(existing.updated_at_ms + 1);
+        status = WorkspaceSkillLinkStatus::UpdatedExisting;
+        existing.clone()
+    } else {
+        let link = WorkspaceSkillLinkEntry {
+            schema_version: WORKSPACE_SKILL_LINK_SCHEMA_VERSION,
+            skill_id: library_skill.skill_id.clone(),
+            name: library_skill.name.clone(),
+            description: library_skill.description.clone(),
+            source_path: canonical_skill_path.to_string_lossy().into_owned(),
+            manifest_path: library_skill.manifest_path.clone(),
+            link_path: artifact.path.to_string_lossy().into_owned(),
+            link_mode: artifact.mode,
+            unavailable_reason: artifact.unavailable_reason,
+            linked_at_ms: timestamp,
+            updated_at_ms: timestamp,
+        };
+        links.skills.push(link.clone());
+        link
+    };
+
+    save_workspace_skill_links(&workspace_root, &links)?;
+
+    Ok(LinkWorkspaceSkillResult {
+        skill: link,
+        skills: sorted_workspace_links(links.skills),
+        status,
+    })
+}
+
+pub fn unlink_workspace_skill(
+    request: UnlinkWorkspaceSkillRequest,
+) -> Result<UnlinkWorkspaceSkillResult, AppError> {
+    let workspace_root = canonicalize_existing_directory(request.workspace_root)?;
+    let mut links = load_workspace_skill_links(&workspace_root)?;
+    let index = links
+        .skills
+        .iter()
+        .position(|link| link.skill_id == request.skill_id)
+        .ok_or_else(|| {
+            AppError::recoverable_error(
+                "skill.workspaceLink.notFound",
+                "当前工作区未关联该技能。",
+                "请刷新当前工作区技能列表后重试。",
+                Some(request.skill_id.clone()),
+            )
+        })?;
+    let removed = links.skills.remove(index);
+
+    remove_workspace_link_artifact(&removed)?;
+    save_workspace_skill_links(&workspace_root, &links)?;
+
+    Ok(UnlinkWorkspaceSkillResult {
+        removed_skill_id: removed.skill_id,
+        skills: sorted_workspace_links(links.skills),
+    })
+}
+
+pub fn validate_workspace_skill_link_store(
+    workspace_root: impl AsRef<Path>,
+) -> Result<(), AppError> {
+    load_workspace_skill_links(workspace_root.as_ref()).map(|_| ())
+}
+
 fn canonicalize_existing_skill_directory(
     path: impl AsRef<Path>,
 ) -> Result<std::path::PathBuf, AppError> {
@@ -169,6 +294,120 @@ fn canonicalize_existing_skill_directory(
     })
 }
 
+struct WorkspaceLinkArtifact {
+    path: PathBuf,
+    mode: WorkspaceSkillLinkMode,
+    unavailable_reason: Option<String>,
+}
+
+fn ensure_workspace_link_artifact(
+    workspace_root: &Path,
+    skill: &SkillLibraryEntry,
+) -> Result<WorkspaceLinkArtifact, AppError> {
+    let links_dir = workspace_skill_links_dir(workspace_root);
+    fs::create_dir_all(&links_dir).map_err(|error| {
+        AppError::recoverable_error(
+            "skill.workspaceLink.createDirFailed",
+            "无法创建工作区技能目录。",
+            "技能未关联；请检查工作区权限后重试。",
+            Some(format!("{}: {}", links_dir.display(), error)),
+        )
+    })?;
+
+    let link_path = links_dir.join(workspace_skill_link_name(&skill.skill_id, &skill.name));
+    let source_path = PathBuf::from(&skill.source_path);
+
+    if let Ok(metadata) = fs::symlink_metadata(&link_path) {
+        if metadata.file_type().is_symlink() {
+            fs::remove_file(&link_path).map_err(|error| {
+                AppError::recoverable_error(
+                    "skill.workspaceLink.replaceSymlinkFailed",
+                    "无法更新已有技能链接。",
+                    "技能未关联；请检查 .orchlet/skills 中的链接权限后重试。",
+                    Some(format!("{}: {}", link_path.display(), error)),
+                )
+            })?;
+        } else {
+            let reason = format!("目标链接路径已存在且不是 symlink：{}", link_path.display());
+            return Ok(manifest_artifact(link_path, reason));
+        }
+    }
+
+    match create_directory_symlink(&source_path, &link_path) {
+        Ok(()) => Ok(WorkspaceLinkArtifact {
+            path: link_path,
+            mode: WorkspaceSkillLinkMode::Symlink,
+            unavailable_reason: None,
+        }),
+        Err(error) => Ok(manifest_artifact(link_path, error)),
+    }
+}
+
+fn manifest_artifact(link_path: PathBuf, reason: String) -> WorkspaceLinkArtifact {
+    WorkspaceLinkArtifact {
+        path: link_path,
+        mode: WorkspaceSkillLinkMode::Manifest,
+        unavailable_reason: Some(reason),
+    }
+}
+
+fn remove_workspace_link_artifact(link: &WorkspaceSkillLinkEntry) -> Result<(), AppError> {
+    if link.link_mode != WorkspaceSkillLinkMode::Symlink {
+        return Ok(());
+    }
+
+    let link_path = PathBuf::from(&link.link_path);
+    match fs::symlink_metadata(&link_path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            fs::remove_file(&link_path).map_err(|error| {
+                AppError::recoverable_error(
+                    "skill.workspaceLink.removeSymlinkFailed",
+                    "无法移除工作区技能链接。",
+                    "技能链接未移除；请检查 .orchlet/skills 中的链接权限后重试。",
+                    Some(format!("{}: {}", link_path.display(), error)),
+                )
+            })
+        }
+        Ok(_) => Err(AppError::recoverable_error(
+            "skill.workspaceLink.removeUnsafePath",
+            "技能链接路径不是 symlink，已拒绝删除。",
+            "请手动检查 .orchlet/skills 后重试，避免误删真实文件夹。",
+            Some(link_path.display().to_string()),
+        )),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(AppError::recoverable_error(
+            "skill.workspaceLink.inspectSymlinkFailed",
+            "无法检查工作区技能链接。",
+            "技能链接未移除；请检查 .orchlet/skills 权限后重试。",
+            Some(format!("{}: {}", link_path.display(), error)),
+        )),
+    }
+}
+
+#[cfg(unix)]
+fn create_directory_symlink(source_path: &Path, link_path: &Path) -> Result<(), String> {
+    std::os::unix::fs::symlink(source_path, link_path).map_err(|error| {
+        format!(
+            "无法创建 symlink：{} -> {}: {}",
+            link_path.display(),
+            source_path.display(),
+            error
+        )
+    })
+}
+
+#[cfg(windows)]
+fn create_directory_symlink(source_path: &Path, link_path: &Path) -> Result<(), String> {
+    std::os::windows::fs::symlink_dir(source_path, link_path).map_err(|error| {
+        format!(
+            "无法创建目录 symlink：{} -> {}: {}",
+            link_path.display(),
+            source_path.display(),
+            error
+        )
+    })
+}
+
 fn sorted_skills(mut skills: Vec<SkillLibraryEntry>) -> Vec<SkillLibraryEntry> {
     skills.sort_by(|left, right| {
         right
@@ -180,15 +419,39 @@ fn sorted_skills(mut skills: Vec<SkillLibraryEntry>) -> Vec<SkillLibraryEntry> {
     skills
 }
 
+fn sorted_workspace_links(
+    mut skills: Vec<WorkspaceSkillLinkEntry>,
+) -> Vec<WorkspaceSkillLinkEntry> {
+    skills.sort_by(|left, right| {
+        right
+            .updated_at_ms
+            .cmp(&left.updated_at_ms)
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.skill_id.cmp(&right.skill_id))
+    });
+    skills
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
     use tempfile::tempdir;
 
-    use super::{import_local_skill_folder, list_skill_library};
-    use crate::contracts::{ImportLocalSkillFolderRequest, SkillImportStatus};
+    use super::{
+        import_local_skill_folder, link_workspace_skill, list_skill_library,
+        list_workspace_skill_links, unlink_workspace_skill,
+    };
+    use crate::contracts::{
+        ImportLocalSkillFolderRequest, LinkWorkspaceSkillRequest, ListWorkspaceSkillLinksRequest,
+        SkillImportStatus, UnlinkWorkspaceSkillRequest, WorkspaceSkillLinkMode,
+        WorkspaceSkillLinkStatus,
+    };
+    use crate::domain::skill::workspace_skill_link_name;
     use crate::infrastructure::persistence::json_store::skill_library_store::SkillLibraryDocument;
+    use crate::infrastructure::persistence::json_store::workspace_skill_link_store::{
+        save_workspace_skill_links, WorkspaceSkillLinksDocument,
+    };
 
     #[test]
     fn imports_valid_local_skill_folder() {
@@ -307,5 +570,169 @@ mod tests {
             .expect("list")
             .skills
             .is_empty());
+    }
+
+    #[test]
+    fn links_and_unlinks_workspace_skill_without_removing_library_record() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let skill = tempdir().expect("skill");
+        fs::write(
+            skill.path().join("SKILL.md"),
+            "---\nname: Linkable Skill\n---\n# Skill",
+        )
+        .expect("manifest");
+        let imported = import_local_skill_folder(
+            app_data.path(),
+            ImportLocalSkillFolderRequest {
+                path: skill.path().to_string_lossy().into_owned(),
+            },
+        )
+        .expect("import");
+
+        let linked = link_workspace_skill(
+            app_data.path(),
+            LinkWorkspaceSkillRequest {
+                workspace_root: workspace.path().to_string_lossy().into_owned(),
+                skill_id: imported.skill.skill_id.clone(),
+            },
+        )
+        .expect("link");
+
+        assert_eq!(linked.status, WorkspaceSkillLinkStatus::Linked);
+        assert_eq!(linked.skills.len(), 1);
+        assert_eq!(linked.skill.name, "Linkable Skill");
+        assert!(matches!(
+            linked.skill.link_mode,
+            WorkspaceSkillLinkMode::Symlink | WorkspaceSkillLinkMode::Manifest
+        ));
+
+        let listed = list_workspace_skill_links(ListWorkspaceSkillLinksRequest {
+            workspace_root: workspace.path().to_string_lossy().into_owned(),
+        })
+        .expect("list links");
+        assert_eq!(listed.skills.len(), 1);
+
+        let unlinked = unlink_workspace_skill(UnlinkWorkspaceSkillRequest {
+            workspace_root: workspace.path().to_string_lossy().into_owned(),
+            skill_id: imported.skill.skill_id.clone(),
+        })
+        .expect("unlink");
+
+        assert_eq!(unlinked.removed_skill_id, imported.skill.skill_id);
+        assert!(unlinked.skills.is_empty());
+        assert_eq!(
+            list_skill_library(app_data.path())
+                .expect("library")
+                .skills
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn link_falls_back_to_manifest_when_symlink_path_is_unavailable() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let skill = tempdir().expect("skill");
+        fs::write(
+            skill.path().join("SKILL.md"),
+            "---\nname: Fallback Skill\n---\n# Skill",
+        )
+        .expect("manifest");
+        let imported = import_local_skill_folder(
+            app_data.path(),
+            ImportLocalSkillFolderRequest {
+                path: skill.path().to_string_lossy().into_owned(),
+            },
+        )
+        .expect("import");
+        let links_dir = workspace.path().join(".orchlet/skills");
+        fs::create_dir_all(&links_dir).expect("links dir");
+        fs::create_dir(links_dir.join(workspace_skill_link_name(
+            &imported.skill.skill_id,
+            &imported.skill.name,
+        )))
+        .expect("conflicting non-symlink path");
+
+        let linked = link_workspace_skill(
+            app_data.path(),
+            LinkWorkspaceSkillRequest {
+                workspace_root: workspace.path().to_string_lossy().into_owned(),
+                skill_id: imported.skill.skill_id,
+            },
+        )
+        .expect("link fallback");
+
+        assert_eq!(linked.skill.link_mode, WorkspaceSkillLinkMode::Manifest);
+        assert!(linked.skill.unavailable_reason.is_some());
+    }
+
+    #[test]
+    fn duplicate_workspace_link_updates_existing_record() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let skill = tempdir().expect("skill");
+        fs::write(
+            skill.path().join("SKILL.md"),
+            "---\nname: First Link\n---\n# Skill",
+        )
+        .expect("manifest");
+        let imported = import_local_skill_folder(
+            app_data.path(),
+            ImportLocalSkillFolderRequest {
+                path: skill.path().to_string_lossy().into_owned(),
+            },
+        )
+        .expect("import");
+
+        let first = link_workspace_skill(
+            app_data.path(),
+            LinkWorkspaceSkillRequest {
+                workspace_root: workspace.path().to_string_lossy().into_owned(),
+                skill_id: imported.skill.skill_id.clone(),
+            },
+        )
+        .expect("first link");
+        let second = link_workspace_skill(
+            app_data.path(),
+            LinkWorkspaceSkillRequest {
+                workspace_root: workspace.path().to_string_lossy().into_owned(),
+                skill_id: imported.skill.skill_id,
+            },
+        )
+        .expect("second link");
+
+        assert_eq!(second.status, WorkspaceSkillLinkStatus::UpdatedExisting);
+        assert_eq!(second.skills.len(), 1);
+        assert_eq!(second.skill.skill_id, first.skill.skill_id);
+        assert!(second.skill.updated_at_ms > first.skill.updated_at_ms);
+    }
+
+    #[test]
+    fn workspace_link_store_rejects_duplicate_records() {
+        let workspace = tempdir().expect("workspace");
+        let link = crate::contracts::WorkspaceSkillLinkEntry {
+            schema_version: crate::domain::skill::WORKSPACE_SKILL_LINK_SCHEMA_VERSION,
+            skill_id: "01K00000000000000000000000".to_owned(),
+            name: "Duplicate Skill".to_owned(),
+            description: None,
+            source_path: "/fixtures/skills/duplicate".to_owned(),
+            manifest_path: "/fixtures/skills/duplicate/SKILL.md".to_owned(),
+            link_path: "/fixtures/workspaces/alpha/.orchlet/skills/duplicate".to_owned(),
+            link_mode: WorkspaceSkillLinkMode::Manifest,
+            unavailable_reason: Some("fixture fallback".to_owned()),
+            linked_at_ms: 1_760_000_020_000,
+            updated_at_ms: 1_760_000_020_000,
+        };
+        let document = WorkspaceSkillLinksDocument {
+            schema_version: 1,
+            skills: vec![link.clone(), link],
+        };
+
+        let error =
+            save_workspace_skill_links(workspace.path(), &document).expect_err("duplicate link");
+
+        assert_eq!(error.code, "skill.workspaceLinks.duplicateSkillId");
     }
 }

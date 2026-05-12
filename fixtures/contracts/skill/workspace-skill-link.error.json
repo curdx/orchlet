@@ -1,0 +1,9 @@
+{
+  "code": "skill.library.notFound",
+  "message": "技能库中找不到该技能。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新技能库后重新选择要关联的技能。",
+  "details": "01K00000000000000000000999",
+  "correlationId": null
+}

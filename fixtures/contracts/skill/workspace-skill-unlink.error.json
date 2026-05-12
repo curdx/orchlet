@@ -1,0 +1,9 @@
+{
+  "code": "skill.workspaceLink.notFound",
+  "message": "当前工作区未关联该技能。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新当前工作区技能列表后重试。",
+  "details": "01K00000000000000000000100",
+  "correlationId": null
+}

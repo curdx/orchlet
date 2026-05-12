@@ -1,9 +1,14 @@
 use std::path::Path;
 
-use crate::contracts::AppError;
+use ulid::Ulid;
+
+use crate::contracts::{AppError, WorkspaceSkillLinkEntry};
 
 pub const SKILL_RECORD_SCHEMA_VERSION: u32 = 1;
 pub const SKILL_MANIFEST_FILE_NAME: &str = "SKILL.md";
+pub const WORKSPACE_SKILL_LINK_SCHEMA_VERSION: u32 = 1;
+pub const WORKSPACE_SKILLS_DIR_NAME: &str = "skills";
+pub const WORKSPACE_SKILL_LINKS_FILE_NAME: &str = "skill-links.json";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalSkillMetadata {
@@ -34,6 +39,69 @@ pub fn skill_name_from_path(path: &Path) -> String {
         .to_owned()
 }
 
+pub fn workspace_skill_link_name(skill_id: &str, skill_name: &str) -> String {
+    let safe_name = skill_name
+        .chars()
+        .map(|value| {
+            if value.is_ascii_alphanumeric() {
+                value.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let safe_name = if safe_name.is_empty() {
+        "skill".to_owned()
+    } else {
+        safe_name
+    };
+
+    format!("{}-{}", safe_name, skill_id)
+}
+
+pub fn validate_workspace_skill_link(link: &WorkspaceSkillLinkEntry) -> Result<(), AppError> {
+    if link.schema_version != WORKSPACE_SKILL_LINK_SCHEMA_VERSION {
+        return Err(AppError::recoverable_error(
+            "skill.workspaceLink.invalidRecordVersion",
+            "工作区技能链接记录版本暂不支持。",
+            "请使用兼容版本的 orchlet，或先备份该工作区技能链接文件。",
+            Some(format!(
+                "skillId={} schemaVersion={} expected={}",
+                link.skill_id, link.schema_version, WORKSPACE_SKILL_LINK_SCHEMA_VERSION
+            )),
+        ));
+    }
+
+    if link.skill_id.parse::<Ulid>().is_err() {
+        return Err(AppError::recoverable_error(
+            "skill.workspaceLink.invalidSkillId",
+            "工作区技能链接标识无效。",
+            "请修复 .orchlet/skills/skill-links.json 中的 skillId 后重试。",
+            Some(format!("skillId must be a ULID string: {}", link.skill_id)),
+        ));
+    }
+
+    validate_skill_name(&link.name)?;
+    validate_non_empty_path(&link.source_path, "sourcePath", &link.skill_id)?;
+    validate_non_empty_path(&link.manifest_path, "manifestPath", &link.skill_id)?;
+    validate_non_empty_path(&link.link_path, "linkPath", &link.skill_id)?;
+
+    if link.linked_at_ms == 0 || link.updated_at_ms < link.linked_at_ms {
+        return Err(AppError::recoverable_error(
+            "skill.workspaceLink.invalidTimestamp",
+            "工作区技能链接时间戳无效。",
+            "请修复 .orchlet/skills/skill-links.json 中的时间戳后重试。",
+            Some(format!("skillId={}", link.skill_id)),
+        ));
+    }
+
+    Ok(())
+}
+
 pub fn parse_local_skill_metadata(
     manifest_content: &str,
     folder_name: &str,
@@ -51,6 +119,19 @@ pub fn parse_local_skill_metadata(
         name,
         description: parsed_description.and_then(non_empty_trimmed),
     })
+}
+
+fn validate_non_empty_path(path: &str, field: &str, skill_id: &str) -> Result<(), AppError> {
+    if path.trim().is_empty() {
+        return Err(AppError::recoverable_error(
+            "skill.workspaceLink.invalidPath",
+            "工作区技能链接路径无效。",
+            "请修复 .orchlet/skills/skill-links.json 中的路径后重试。",
+            Some(format!("skillId={} field={}", skill_id, field)),
+        ));
+    }
+
+    Ok(())
 }
 
 fn frontmatter_block(content: &str) -> Option<String> {
@@ -100,7 +181,7 @@ fn non_empty_trimmed(value: String) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_local_skill_metadata, skill_name_from_path};
+    use super::{parse_local_skill_metadata, skill_name_from_path, workspace_skill_link_name};
     use std::path::Path;
 
     #[test]
@@ -129,5 +210,13 @@ mod tests {
     #[test]
     fn derives_folder_name_from_path() {
         assert_eq!(skill_name_from_path(Path::new("/tmp/my-skill")), "my-skill");
+    }
+
+    #[test]
+    fn derives_stable_workspace_link_name() {
+        assert_eq!(
+            workspace_skill_link_name("01K00000000000000000000000", "Code Review!"),
+            "code-review-01K00000000000000000000000"
+        );
     }
 }

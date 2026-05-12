@@ -1,0 +1,9 @@
+{
+  "code": "skill.workspaceLinks.invalidJson",
+  "message": "工作区技能链接不是有效 JSON。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请先备份或修复 .orchlet/skills/skill-links.json 后重试。",
+  "details": "/fixtures/workspaces/alpha/.orchlet/skills/skill-links.json: expected value",
+  "correlationId": null
+}

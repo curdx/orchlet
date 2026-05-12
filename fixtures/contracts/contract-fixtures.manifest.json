@@ -298,6 +298,39 @@
       "requirements": ["FR55", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
     },
     {
+      "domain": "skill",
+      "command": "workspace_skill_links_list",
+      "requestFixture": "fixtures/contracts/skill/workspace-skill-links-list.request.json",
+      "successResultFixture": "fixtures/contracts/skill/workspace-skill-links-list.result.json",
+      "errorFixture": "fixtures/contracts/skill/workspace-skill-links-list.error.json",
+      "rustRequestDto": "ListWorkspaceSkillLinksRequest",
+      "rustSuccessDto": "ListWorkspaceSkillLinksResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR59", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "skill",
+      "command": "workspace_skill_link",
+      "requestFixture": "fixtures/contracts/skill/workspace-skill-link.request.json",
+      "successResultFixture": "fixtures/contracts/skill/workspace-skill-link.result.json",
+      "errorFixture": "fixtures/contracts/skill/workspace-skill-link.error.json",
+      "rustRequestDto": "LinkWorkspaceSkillRequest",
+      "rustSuccessDto": "LinkWorkspaceSkillResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR57", "NFR8", "NFR14", "NFR17", "NFR28", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "skill",
+      "command": "workspace_skill_unlink",
+      "requestFixture": "fixtures/contracts/skill/workspace-skill-unlink.request.json",
+      "successResultFixture": "fixtures/contracts/skill/workspace-skill-unlink.result.json",
+      "errorFixture": "fixtures/contracts/skill/workspace-skill-unlink.error.json",
+      "rustRequestDto": "UnlinkWorkspaceSkillRequest",
+      "rustSuccessDto": "UnlinkWorkspaceSkillResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR58", "FR59", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

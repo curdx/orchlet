@@ -13,6 +13,7 @@ import {
   Hash,
   History,
   Image as ImageIcon,
+  Link2,
   ListTodo,
   MessageSquare,
   MoreVertical,
@@ -26,6 +27,7 @@ import {
   Smile,
   SquareTerminal,
   Trash2,
+  Unlink,
   User,
   UserPlus,
   Users,
@@ -85,6 +87,7 @@ import type {
 import type {
   SkillImportStatus,
   SkillLibraryEntry,
+  WorkspaceSkillLinkEntry,
 } from "../../../contracts/generated/skill";
 import { IconButton, Toast, useToastStore } from "../../../shared/ui";
 import type { WorkspaceApi } from "../../../shared/api/workspace-api";
@@ -110,7 +113,10 @@ type WorkspaceSelectionPageProps = {
     NotificationApi,
     "updateUnreadSummary" | "getPendingNavigation" | "subscribeNavigation"
   >;
-  skillsApi?: Pick<SkillsApi, "listSkills" | "importLocalFolder">;
+  skillsApi?: Pick<
+    SkillsApi,
+    "listSkills" | "importLocalFolder" | "listWorkspaceLinks" | "linkWorkspaceSkill" | "unlinkWorkspaceSkill"
+  >;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
@@ -201,6 +207,8 @@ export function WorkspaceSelectionPage({
   const [isSyncActionPending, setIsSyncActionPending] = useState(false);
   const [isValidatingIntegrity, setIsValidatingIntegrity] = useState(false);
   const [isImportingSkill, setIsImportingSkill] = useState(false);
+  const [pendingSkillLinkId, setPendingSkillLinkId] = useState<string | null>(null);
+  const [pendingSkillUnlinkId, setPendingSkillUnlinkId] = useState<string | null>(null);
   const [isInvitingMember, setIsInvitingMember] = useState(false);
   const [openedWorkspace, setOpenedWorkspace] = useState<OpenedWorkspace | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
@@ -276,7 +284,9 @@ export function WorkspaceSelectionPage({
   const recentWorkspaces = recentQuery.data ?? [];
   const activeWorkspace = openedWorkspace ?? windowContext?.activeWorkspace ?? null;
   const activeWorkspaceId = activeWorkspace?.metadata.projectId ?? null;
+  const activeWorkspaceRoot = activeWorkspace?.rootPath ?? null;
   const conversationQueryKey = ["chat-conversations", activeWorkspaceId] as const;
+  const workspaceSkillLinksQueryKey = ["workspace-skill-links", activeWorkspaceRoot] as const;
   const memberQuery = useQuery({
     queryKey: ["members", activeWorkspaceId],
     queryFn: () =>
@@ -311,6 +321,17 @@ export function WorkspaceSelectionPage({
     retry: false,
   });
   const skills = skillQuery.data?.skills ?? [];
+  const workspaceSkillLinksQuery = useQuery({
+    queryKey: workspaceSkillLinksQueryKey,
+    queryFn: () => localSkillsApi.listWorkspaceLinks(activeWorkspaceRoot ?? ""),
+    enabled: Boolean(activeWorkspaceRoot),
+    retry: false,
+  });
+  const linkedSkills = workspaceSkillLinksQuery.data?.skills ?? [];
+  const linkedSkillIds = useMemo(
+    () => new Set(linkedSkills.map((skill) => skill.skillId)),
+    [linkedSkills],
+  );
   const selectedConversation =
     conversations.find((conversation) => conversation.conversationId === selectedConversationId) ??
     conversations[0] ??
@@ -455,6 +476,21 @@ export function WorkspaceSelectionPage({
       action: appError.userAction ?? undefined,
     });
   }, [skillQuery.error, showToast]);
+
+  useEffect(() => {
+    if (!workspaceSkillLinksQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(workspaceSkillLinksQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载工作区技能",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [workspaceSkillLinksQuery.error, showToast]);
 
   useEffect(() => {
     membersRef.current = members;
@@ -2015,6 +2051,67 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  async function handleLinkWorkspaceSkill(skillId: string) {
+    if (!activeWorkspaceRoot) {
+      return;
+    }
+
+    setPendingSkillLinkId(skillId);
+
+    try {
+      const result = await localSkillsApi.linkWorkspaceSkill(activeWorkspaceRoot, skillId);
+
+      queryClient.setQueryData(workspaceSkillLinksQueryKey, { skills: result.skills });
+      showToast({
+        tone: "info",
+        title: result.status === "updatedExisting" ? "工作区技能已更新" : "工作区技能已关联",
+        message: result.skill.name,
+        action: workspaceSkillLinkModeAction(result.skill),
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "关联技能失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingSkillLinkId(null);
+    }
+  }
+
+  async function handleUnlinkWorkspaceSkill(skillId: string) {
+    if (!activeWorkspaceRoot) {
+      return;
+    }
+
+    setPendingSkillUnlinkId(skillId);
+
+    try {
+      const result = await localSkillsApi.unlinkWorkspaceSkill(activeWorkspaceRoot, skillId);
+
+      queryClient.setQueryData(workspaceSkillLinksQueryKey, { skills: result.skills });
+      showToast({
+        tone: "info",
+        title: "工作区技能已取消关联",
+        message: "技能仍保留在我的技能库中。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "取消关联失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingSkillUnlinkId(null);
+    }
+  }
+
   function showDeferredToast(title: string, message: string) {
     showToast({
       tone: "info",
@@ -2326,9 +2423,16 @@ export function WorkspaceSelectionPage({
             {activeWorkspace ? (
               <SkillLibraryPanel
                 skills={skills}
+                linkedSkills={linkedSkills}
+                linkedSkillIds={linkedSkillIds}
                 isLoading={skillQuery.isLoading}
+                isLoadingLinks={workspaceSkillLinksQuery.isLoading}
                 isImporting={isImportingSkill}
+                pendingLinkId={pendingSkillLinkId}
+                pendingUnlinkId={pendingSkillUnlinkId}
                 onImport={() => void handleImportSkill()}
+                onLink={(skillId) => void handleLinkWorkspaceSkill(skillId)}
+                onUnlink={(skillId) => void handleUnlinkWorkspaceSkill(skillId)}
               />
             ) : null}
 
@@ -2438,14 +2542,28 @@ const builtInRuntimeOptions = [
 
 function SkillLibraryPanel({
   skills,
+  linkedSkills,
+  linkedSkillIds,
   isLoading,
+  isLoadingLinks,
   isImporting,
+  pendingLinkId,
+  pendingUnlinkId,
   onImport,
+  onLink,
+  onUnlink,
 }: {
   skills: SkillLibraryEntry[];
+  linkedSkills: WorkspaceSkillLinkEntry[];
+  linkedSkillIds: Set<string>;
   isLoading: boolean;
+  isLoadingLinks: boolean;
   isImporting: boolean;
+  pendingLinkId: string | null;
+  pendingUnlinkId: string | null;
   onImport: () => void;
+  onLink: (skillId: string) => void;
+  onUnlink: (skillId: string) => void;
 }) {
   return (
     <section
@@ -2471,12 +2589,72 @@ function SkillLibraryPanel({
       </div>
 
       <div className="mt-4">
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold text-[#3f4b41]">当前工作区技能</h3>
+            <span className="text-[11px] text-[#7a8678]">{linkedSkills.length} 个关联</span>
+          </div>
+
+          {isLoadingLinks ? (
+            <p className="mt-2 rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+              正在加载工作区技能
+            </p>
+          ) : linkedSkills.length > 0 ? (
+            <ul className="mt-2 grid gap-2" aria-label="当前工作区技能列表">
+              {linkedSkills.map((skill) => (
+                <li
+                  key={skill.skillId}
+                  className="grid gap-2 rounded-md border border-[#d9e6d4] bg-white p-3"
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
+                      <Link2 aria-hidden="true" size={16} strokeWidth={2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-[#263229]">
+                        {skill.name}
+                      </span>
+                      <span className="mt-1 block truncate font-mono text-[11px] text-[#879182]" title={skill.linkPath}>
+                        {skill.linkPath}
+                      </span>
+                      {skill.linkMode === "manifest" ? (
+                        <span className="mt-2 block rounded-md border border-[#ead8a8] bg-[#fff8e4] px-2 py-1 text-xs text-[#6f5b1f]">
+                          清单链接：{skill.unavailableReason ?? "symlink 不可用"}
+                        </span>
+                      ) : null}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={pendingUnlinkId === skill.skillId}
+                      onClick={() => onUnlink(skill.skillId)}
+                      className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-[#d7c8c5] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#6d3d38] transition hover:border-[#b9857f] hover:bg-[#fff5f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9d5e58] disabled:cursor-wait disabled:opacity-70"
+                    >
+                      <Unlink aria-hidden="true" size={13} strokeWidth={2} />
+                      {pendingUnlinkId === skill.skillId ? "移除中" : "取消关联"}
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+              当前工作区还没有关联技能
+            </p>
+          )}
+        </div>
+
+        <div className="mt-5">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-xs font-semibold text-[#3f4b41]">我的技能</h3>
+            <span className="text-[11px] text-[#7a8678]">{skills.length} 个可用</span>
+          </div>
+
         {isLoading ? (
-          <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+          <p className="mt-2 rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
             正在加载技能库
           </p>
         ) : skills.length > 0 ? (
-          <ul className="grid gap-2" aria-label="本地技能列表">
+          <ul className="mt-2 grid gap-2" aria-label="本地技能列表">
             {skills.map((skill) => (
               <li
                 key={skill.skillId}
@@ -2497,18 +2675,31 @@ function SkillLibraryPanel({
                       {skill.sourcePath}
                     </span>
                   </span>
-                  <span className="shrink-0 rounded-md border border-[#cfe0c9] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#37533e]">
-                    本地
-                  </span>
+                  {linkedSkillIds.has(skill.skillId) ? (
+                    <span className="shrink-0 rounded-md border border-[#cfe0c9] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#37533e]">
+                      已关联
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={pendingLinkId === skill.skillId}
+                      onClick={() => onLink(skill.skillId)}
+                      className="inline-flex min-h-8 shrink-0 items-center justify-center gap-1 rounded-md border border-[#cfe0c9] bg-[#f8fbf6] px-2.5 py-1.5 text-xs font-semibold text-[#37533e] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
+                    >
+                      <Link2 aria-hidden="true" size={13} strokeWidth={2} />
+                      {pendingLinkId === skill.skillId ? "关联中" : "关联"}
+                    </button>
+                  )}
                 </div>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+          <p className="mt-2 rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
             我的技能库里暂无可用技能
           </p>
         )}
+        </div>
       </div>
     </section>
   );
@@ -4844,6 +5035,12 @@ function segmentedButtonClass(active: boolean) {
 
 function skillImportStatusAction(status: SkillImportStatus) {
   return status === "updatedExisting" ? "已更新已有技能记录。" : "已保存到本地技能库。";
+}
+
+function workspaceSkillLinkModeAction(skill: WorkspaceSkillLinkEntry) {
+  return skill.linkMode === "manifest"
+    ? "symlink 不可用，已保存为工作区清单链接。"
+    : "已创建工作区技能 symlink。";
 }
 
 function reportStatusLabel(report: DataIntegrityReport) {

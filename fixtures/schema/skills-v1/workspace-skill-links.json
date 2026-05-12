@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "schemaVersion": 1,
+      "skillId": "01K00000000000000000000100",
+      "name": "Local Review",
+      "description": "Review helper",
+      "sourcePath": "/fixtures/skills/local-review",
+      "manifestPath": "/fixtures/skills/local-review/SKILL.md",
+      "linkPath": "/fixtures/workspaces/alpha/.orchlet/skills/local-review-01K00000000000000000000100",
+      "linkMode": "manifest",
+      "unavailableReason": "symlink unavailable in fixture environment",
+      "linkedAtMs": 1760000020000,
+      "updatedAtMs": 1760000020000
+    }
+  ],
+  "duplicatePolicy": "skillId and linkPath are unique within a workspace",
+  "fallbackPolicy": "manifest link records are valid when symlink creation is unavailable",
+  "excludedPayloads": ["skill folder contents are not copied into workspace link records"]
+}
