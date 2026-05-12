@@ -74,6 +74,8 @@ export type {
   UpdateMemberStatusResult,
 } from "./member";
 export type {
+  NotificationIgnoreAllRequest,
+  NotificationIgnoreAllResult,
   NotificationTrayState,
   NotificationNavigationAction,
   NotificationNavigationKind,

@@ -37,7 +37,8 @@ pub use member::{
     UpdateMemberStatusRequest, UpdateMemberStatusResult,
 };
 pub use notification::{
-    NotificationNavigationAction, NotificationNavigationKind, NotificationNavigationPendingRequest,
+    NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
+    NotificationNavigationKind, NotificationNavigationPendingRequest,
     NotificationNavigationPendingResult, NotificationNavigationRequest,
     NotificationNavigationResult, NotificationTrayState, NotificationUnreadConversation,
     NotificationUnreadSummary, NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,

@@ -119,3 +119,19 @@ pub struct NotificationNavigationPendingRequest {}
 pub struct NotificationNavigationPendingResult {
     pub action: Option<NotificationNavigationAction>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
+pub struct NotificationIgnoreAllRequest {
+    pub workspace_id: Option<String>,
+    pub source_window_label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "notification.ts")]
+pub struct NotificationIgnoreAllResult {
+    pub summary: NotificationUnreadSummary,
+    pub ignored_count: u32,
+}

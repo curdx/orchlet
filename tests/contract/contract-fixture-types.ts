@@ -68,6 +68,8 @@ import type {
   UpdateMemberStatusResult,
 } from "../../src/contracts/generated/member";
 import type {
+  NotificationIgnoreAllRequest,
+  NotificationIgnoreAllResult,
   NotificationNavigationAction,
   NotificationNavigationKind,
   NotificationNavigationPendingRequest,
@@ -196,6 +198,10 @@ import dispatchChatMessageResult from "../../fixtures/contracts/orchestration/di
 import dispatchQueueResumeError from "../../fixtures/contracts/orchestration/dispatch-queue-resume.error.json";
 import dispatchQueueResumeRequest from "../../fixtures/contracts/orchestration/dispatch-queue-resume.request.json";
 import dispatchQueueResumeResult from "../../fixtures/contracts/orchestration/dispatch-queue-resume.result.json";
+import notificationIgnoreAllError from "../../fixtures/contracts/notification/notification-ignore-all.error.json";
+import notificationIgnoreAllEvent from "../../fixtures/contracts/notification/notification-ignore-all.event.json";
+import notificationIgnoreAllRequest from "../../fixtures/contracts/notification/notification-ignore-all.request.json";
+import notificationIgnoreAllResult from "../../fixtures/contracts/notification/notification-ignore-all.result.json";
 import notificationNavigationDispatchError from "../../fixtures/contracts/notification/notification-navigation-dispatch.error.json";
 import notificationNavigationDispatchRequest from "../../fixtures/contracts/notification/notification-navigation-dispatch.request.json";
 import notificationNavigationDispatchResult from "../../fixtures/contracts/notification/notification-navigation-dispatch.result.json";
@@ -460,6 +466,15 @@ export const notificationNavigationDispatchErrorFixture: AppError = appError(
 );
 export const notificationNavigationEventFixture: NotificationNavigationAction =
   notificationNavigationAction(notificationNavigationEvent);
+export const notificationIgnoreAllRequestFixture: NotificationIgnoreAllRequest =
+  notificationIgnoreAllRequest;
+export const notificationIgnoreAllResultFixture: NotificationIgnoreAllResult = {
+  summary: notificationUnreadSummary(notificationIgnoreAllResult.summary),
+  ignoredCount: notificationIgnoreAllResult.ignoredCount,
+};
+export const notificationIgnoreAllErrorFixture: AppError = appError(notificationIgnoreAllError);
+export const notificationIgnoreAllEventFixture: NotificationUnreadSummary =
+  notificationUnreadSummary(notificationIgnoreAllEvent);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -612,6 +627,7 @@ type ErrorJson =
   | typeof notificationUnreadUpdateError
   | typeof notificationNavigationPendingError
   | typeof notificationNavigationDispatchError
+  | typeof notificationIgnoreAllError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -631,7 +647,9 @@ function notificationUnreadSummary(
   summary:
     | typeof notificationUnreadGetResult.summary
     | typeof notificationUnreadUpdateResult.summary
-    | typeof notificationUnreadEvent,
+    | typeof notificationUnreadEvent
+    | typeof notificationIgnoreAllResult.summary
+    | typeof notificationIgnoreAllEvent,
 ): NotificationUnreadSummary {
   return {
     ...summary,

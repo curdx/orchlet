@@ -37,6 +37,8 @@ import type {
   ListMembersRequest,
   ListMembersResult,
   MemberProfile,
+  NotificationIgnoreAllRequest,
+  NotificationIgnoreAllResult,
   NotificationNavigationAction,
   NotificationNavigationPendingResult,
   NotificationNavigationRequest,
@@ -122,6 +124,7 @@ function renderWorkspaceSelection(api: {
     updateUnreadSummary: (
       request: NotificationUnreadUpdateRequest,
     ) => Promise<NotificationUnreadUpdateResult>;
+    ignoreAllUnread: (request: NotificationIgnoreAllRequest) => Promise<NotificationIgnoreAllResult>;
     getPendingNavigation: () => Promise<NotificationNavigationPendingResult>;
     dispatchNavigation: (
       request: NotificationNavigationRequest,
@@ -201,6 +204,11 @@ function renderWorkspaceSelection(api: {
         notificationApi={{
           updateUnreadSummary: (request) =>
             Promise.resolve({ summary: notificationSummary({ request }) }),
+          ignoreAllUnread: () =>
+            Promise.resolve({
+              summary: notificationSummary(),
+              ignoredCount: 0,
+            }),
           getPendingNavigation: () => Promise.resolve({ action: null }),
           dispatchNavigation: (request: NotificationNavigationRequest) =>
             Promise.resolve({ action: notificationNavigationAction(request) }),
@@ -1242,6 +1250,7 @@ describe("App workspace entry", () => {
           },
           dispatchNavigation: (request) =>
             Promise.resolve({ action: notificationNavigationAction(request) }),
+          ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={() => Promise.resolve()}
@@ -1291,6 +1300,7 @@ describe("App workspace entry", () => {
           getUnreadSummary: () => Promise.resolve({ summary }),
           subscribeUnreadSummary: () => Promise.resolve(() => undefined),
           dispatchNavigation,
+          ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={onOpenWindowMode}
@@ -1337,6 +1347,7 @@ describe("App workspace entry", () => {
           getUnreadSummary: () => Promise.resolve({ summary }),
           subscribeUnreadSummary: () => Promise.resolve(() => undefined),
           dispatchNavigation,
+          ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={() => Promise.resolve()}
@@ -1382,6 +1393,7 @@ describe("App workspace entry", () => {
           subscribeUnreadSummary: () => Promise.resolve(() => undefined),
           dispatchNavigation: (request) =>
             Promise.resolve({ action: notificationNavigationAction(request) }),
+          ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
         }}
         terminalApi={{ openTerminal }}
         onPreferencesChange={() => Promise.resolve()}
@@ -1394,6 +1406,104 @@ describe("App workspace entry", () => {
     expect(openTerminal).toHaveBeenCalledWith({
       memberId: "01K00000000000000000000021",
     });
+  });
+
+  it("ignores all unread notifications after the command succeeds", async () => {
+    const user = userEvent.setup();
+    const summary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: "01K00000000000000000000080",
+            title: "Project Room",
+            unreadCount: 2,
+            lastMessagePreview: "Review ready",
+            updatedAtMs: 1760000003000,
+          },
+        ],
+      },
+    });
+    const clearedSummary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [],
+        totalUnreadCount: 0,
+      },
+    });
+    const ignoreAllUnread = vi.fn(() =>
+      Promise.resolve({
+        summary: clearedSummary,
+        ignoredCount: 1,
+      }),
+    );
+
+    render(
+      <NotificationPreviewPage
+        snapshot={notificationPreviewSnapshot()}
+        api={{
+          getUnreadSummary: () => Promise.resolve({ summary }),
+          subscribeUnreadSummary: () => Promise.resolve(() => undefined),
+          dispatchNavigation: (request) =>
+            Promise.resolve({ action: notificationNavigationAction(request) }),
+          ignoreAllUnread,
+        }}
+        onPreferencesChange={() => Promise.resolve()}
+        onOpenWindowMode={() => Promise.resolve()}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "忽略全部" }));
+
+    expect(ignoreAllUnread).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      sourceWindowLabel: "notification-preview",
+    });
+    expect(await screen.findByText("暂无未读会话")).toBeInTheDocument();
+    expect(screen.getByLabelText("通知未读总数")).toHaveTextContent("0");
+    expect(screen.getByText("无未读")).toBeInTheDocument();
+  });
+
+  it("keeps visible unread notifications and shows a recoverable error when ignore-all fails", async () => {
+    const user = userEvent.setup();
+    const summary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: "01K00000000000000000000080",
+            title: "Project Room",
+            unreadCount: 2,
+            lastMessagePreview: "Review ready",
+            updatedAtMs: 1760000003000,
+          },
+        ],
+      },
+    });
+
+    render(
+      <NotificationPreviewPage
+        snapshot={notificationPreviewSnapshot()}
+        api={{
+          getUnreadSummary: () => Promise.resolve({ summary }),
+          subscribeUnreadSummary: () => Promise.resolve(() => undefined),
+          dispatchNavigation: (request) =>
+            Promise.resolve({ action: notificationNavigationAction(request) }),
+          ignoreAllUnread: () => Promise.reject(new Error("无法忽略全部未读通知。")),
+        }}
+        onPreferencesChange={() => Promise.resolve()}
+        onOpenWindowMode={() => Promise.resolve()}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "忽略全部" }));
+
+    expect(await screen.findByText("无法忽略全部未读通知。")).toBeInTheDocument();
+    expect(screen.getByText("Project Room")).toBeInTheDocument();
+    expect(screen.getByLabelText("通知未读总数")).toHaveTextContent("2");
   });
 
   it("opens the main workspace unread view from a pending notification navigation action", async () => {

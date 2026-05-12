@@ -27,6 +27,7 @@ const requiredCommands = new Set([
   "notification_unread_summary_update",
   "notification_navigation_pending_get",
   "notification_navigation_dispatch",
+  "notification_ignore_all_unread",
   "contacts_list",
   "contact_create",
   "contact_update",

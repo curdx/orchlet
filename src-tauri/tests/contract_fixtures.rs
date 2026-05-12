@@ -10,21 +10,22 @@ use orchlet_lib::contracts::{
     DispatchRequestStatus, DispatchTargetResolutionSource, InviteMemberRequest, InviteMemberResult,
     InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
     ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
-    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, NotificationNavigationAction,
-    NotificationNavigationKind, NotificationNavigationPendingRequest,
-    NotificationNavigationPendingResult, NotificationNavigationRequest,
-    NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
-    NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
-    NotificationUnreadUpdateResult, OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest,
-    RemoveMemberResult, SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
-    StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
-    TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
-    TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
-    TerminalInputResult, TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload,
-    TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus, TerminalStatusEventPayload,
-    TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
-    TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
-    TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, NotificationIgnoreAllRequest,
+    NotificationIgnoreAllResult, NotificationNavigationAction, NotificationNavigationKind,
+    NotificationNavigationPendingRequest, NotificationNavigationPendingResult,
+    NotificationNavigationRequest, NotificationNavigationResult, NotificationUnreadSummary,
+    NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
+    NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenWorkspaceRequest,
+    OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
+    SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
+    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
+    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
+    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
+    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
+    TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
+    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
+    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
+    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
     TerminalTabsListResult, UpdateContactRequest, UpdateContactResult,
     UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
@@ -444,6 +445,14 @@ fn notification_contract_fixtures_deserialize_into_rust_dtos() {
     );
     let navigation_event: NotificationNavigationAction =
         read_fixture("../fixtures/contracts/notification/notification-navigation.event.json");
+    let ignore_request: NotificationIgnoreAllRequest =
+        read_fixture("../fixtures/contracts/notification/notification-ignore-all.request.json");
+    let ignore_result: NotificationIgnoreAllResult =
+        read_fixture("../fixtures/contracts/notification/notification-ignore-all.result.json");
+    let ignore_error: AppError =
+        read_fixture("../fixtures/contracts/notification/notification-ignore-all.error.json");
+    let ignore_event: NotificationUnreadSummary =
+        read_fixture("../fixtures/contracts/notification/notification-ignore-all.event.json");
 
     assert_eq!(get_result.summary.total_unread_count, 3);
     assert_eq!(get_result.summary.tray.badge_label.as_deref(), Some("3"));
@@ -489,6 +498,15 @@ fn notification_contract_fixtures_deserialize_into_rust_dtos() {
         navigation_event.kind,
         NotificationNavigationKind::Conversation
     );
+    assert_eq!(
+        ignore_request.source_window_label.as_deref(),
+        Some("notification-preview")
+    );
+    assert_eq!(ignore_result.ignored_count, 2);
+    assert_eq!(ignore_result.summary.total_unread_count, 0);
+    assert!(!ignore_result.summary.tray.has_unread);
+    assert_eq!(ignore_error.code, "notification.ignoreAll.emitFailed");
+    assert_eq!(ignore_event.total_unread_count, 0);
 }
 
 #[test]

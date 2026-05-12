@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "workspaceId": "01K00000000000000000000000",
+  "workspaceName": "orchlet-demo",
+  "totalUnreadCount": 0,
+  "conversations": [],
+  "tray": {
+    "unreadCount": 0,
+    "badgeLabel": null,
+    "hasUnread": false
+  },
+  "updatedAtMs": 1760000007000,
+  "sourceWindowLabel": "notification-preview"
+}

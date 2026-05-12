@@ -2,6 +2,8 @@ import { listen } from "@tauri-apps/api/event";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
 import type {
+  NotificationIgnoreAllRequest,
+  NotificationIgnoreAllResult,
   NotificationNavigationAction,
   NotificationNavigationPendingResult,
   NotificationNavigationRequest,
@@ -21,6 +23,7 @@ export type NotificationApi = {
   updateUnreadSummary: (
     request: NotificationUnreadUpdateRequest,
   ) => Promise<NotificationUnreadUpdateResult>;
+  ignoreAllUnread: (request: NotificationIgnoreAllRequest) => Promise<NotificationIgnoreAllResult>;
   getPendingNavigation: () => Promise<NotificationNavigationPendingResult>;
   dispatchNavigation: (
     request: NotificationNavigationRequest,
@@ -35,6 +38,7 @@ export type NotificationApi = {
 
 let browserUnreadSummary = createEmptyUnreadSummary();
 let browserNavigationAction: NotificationNavigationAction | null = null;
+const browserIgnoredConversations = new Map<string, number>();
 const browserUnreadHandlers = new Set<(summary: NotificationUnreadSummary) => void>();
 const browserNavigationHandlers = new Set<(action: NotificationNavigationAction) => void>();
 
@@ -51,7 +55,11 @@ export const notificationApi: NotificationApi = {
 
   async updateUnreadSummary(request) {
     if (!isTauriRuntime()) {
-      const totalUnreadCount = request.conversations.reduce(
+      const conversations = filterBrowserIgnoredConversations(
+        request.workspaceId,
+        request.conversations,
+      );
+      const totalUnreadCount = conversations.reduce(
         (total, conversation) => total + conversation.unreadCount,
         0,
       );
@@ -60,7 +68,7 @@ export const notificationApi: NotificationApi = {
         workspaceId: request.workspaceId,
         workspaceName: request.workspaceName,
         totalUnreadCount,
-        conversations: request.conversations,
+        conversations,
         tray: {
           unreadCount: totalUnreadCount,
           badgeLabel: totalUnreadCount > 0 ? unreadBadgeLabel(totalUnreadCount) : null,
@@ -75,6 +83,54 @@ export const notificationApi: NotificationApi = {
     }
 
     return invokeCommand<NotificationUnreadUpdateResult>("notification_unread_summary_update", {
+      request,
+    });
+  },
+
+  async ignoreAllUnread(request) {
+    if (!isTauriRuntime()) {
+      const workspaceId = request.workspaceId ?? browserUnreadSummary.workspaceId;
+      const ignoresCurrentSummary = workspaceId === browserUnreadSummary.workspaceId;
+      const ignoredCount = ignoresCurrentSummary ? browserUnreadSummary.conversations.length : 0;
+
+      if (ignoresCurrentSummary) {
+        browserUnreadSummary.conversations.forEach((conversation) => {
+          browserIgnoredConversations.set(
+            ignoredConversationKey(workspaceId, conversation.conversationId),
+            conversation.updatedAtMs,
+          );
+        });
+      }
+
+      const conversations = filterBrowserIgnoredConversations(
+        browserUnreadSummary.workspaceId,
+        browserUnreadSummary.conversations,
+      );
+      const totalUnreadCount = conversations.reduce(
+        (total, conversation) => total + conversation.unreadCount,
+        0,
+      );
+      browserUnreadSummary = {
+        ...browserUnreadSummary,
+        totalUnreadCount,
+        conversations,
+        tray: {
+          unreadCount: totalUnreadCount,
+          badgeLabel: totalUnreadCount > 0 ? unreadBadgeLabel(totalUnreadCount) : null,
+          hasUnread: totalUnreadCount > 0,
+        },
+        updatedAtMs: Date.now(),
+        sourceWindowLabel: request.sourceWindowLabel,
+      };
+      browserUnreadHandlers.forEach((handler) => handler(browserUnreadSummary));
+
+      return {
+        summary: browserUnreadSummary,
+        ignoredCount,
+      };
+    }
+
+    return invokeCommand<NotificationIgnoreAllResult>("notification_ignore_all_unread", {
       request,
     });
   },
@@ -159,4 +215,29 @@ function createEmptyUnreadSummary(): NotificationUnreadSummary {
 
 function unreadBadgeLabel(count: number) {
   return count > 99 ? "99+" : String(count);
+}
+
+function filterBrowserIgnoredConversations(
+  workspaceId: string | null,
+  conversations: NotificationUnreadSummary["conversations"],
+) {
+  return conversations.filter((conversation) => {
+    const key = ignoredConversationKey(workspaceId, conversation.conversationId);
+    const ignoredAtMs = browserIgnoredConversations.get(key);
+
+    if (ignoredAtMs === undefined) {
+      return true;
+    }
+
+    if (conversation.updatedAtMs <= ignoredAtMs) {
+      return false;
+    }
+
+    browserIgnoredConversations.delete(key);
+    return true;
+  });
+}
+
+function ignoredConversationKey(workspaceId: string | null, conversationId: string) {
+  return `${workspaceId ?? ""}:${conversationId}`;
 }

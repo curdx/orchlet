@@ -4,7 +4,8 @@ use crate::{
         NOTIFICATION_UNREAD_CHANGED_EVENT,
     },
     contracts::{
-        AppError, NotificationNavigationPendingRequest, NotificationNavigationPendingResult,
+        AppError, NotificationIgnoreAllRequest, NotificationIgnoreAllResult,
+        NotificationNavigationPendingRequest, NotificationNavigationPendingResult,
         NotificationNavigationRequest, NotificationNavigationResult,
         NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
         NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult,
@@ -70,4 +71,24 @@ pub fn notification_navigation_dispatch(
         })?;
 
     Ok(NotificationNavigationResult { action })
+}
+
+#[tauri::command]
+pub fn notification_ignore_all_unread(
+    app: AppHandle,
+    notification_state: State<'_, NotificationRuntimeState>,
+    request: NotificationIgnoreAllRequest,
+) -> Result<NotificationIgnoreAllResult, AppError> {
+    let result = notification_state.ignore_all_unread(request);
+    app.emit(NOTIFICATION_UNREAD_CHANGED_EVENT, result.summary.clone())
+        .map_err(|error| {
+            AppError::recoverable_error(
+                "notification.ignoreAll.emitFailed",
+                "无法忽略全部未读通知。",
+                "通知仍保持未读；请稍后重试。",
+                Some(error.to_string()),
+            )
+        })?;
+
+    Ok(result)
 }

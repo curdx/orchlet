@@ -1,0 +1,9 @@
+{
+  "code": "notification.ignoreAll.emitFailed",
+  "message": "无法忽略全部未读通知。",
+  "userAction": "通知仍保持未读；请稍后重试。",
+  "details": "event channel closed",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "warning"
+}

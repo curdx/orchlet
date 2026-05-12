@@ -1,11 +1,13 @@
 use std::{
+    collections::HashMap,
     sync::{Mutex, MutexGuard},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::contracts::{
-    AppError, NotificationNavigationAction, NotificationNavigationKind,
-    NotificationNavigationRequest, NotificationTrayState, NotificationUnreadSummary,
+    AppError, NotificationIgnoreAllRequest, NotificationIgnoreAllResult,
+    NotificationNavigationAction, NotificationNavigationKind, NotificationNavigationRequest,
+    NotificationTrayState, NotificationUnreadConversation, NotificationUnreadSummary,
     NotificationUnreadUpdateRequest,
 };
 
@@ -28,26 +30,89 @@ impl NotificationRuntimeState {
         request: NotificationUnreadUpdateRequest,
     ) -> NotificationUnreadSummary {
         let mut state = self.state();
-        let total_unread_count = request
-            .conversations
-            .iter()
-            .map(|conversation| conversation.unread_count)
-            .sum();
+        let workspace_id = request.workspace_id;
+        let conversations = filter_ignored_conversations(
+            &mut state.ignored_conversations,
+            workspace_id.as_deref(),
+            request.conversations,
+        );
+        let total_unread_count = total_unread_count(&conversations);
         let updated_at_ms = now_ms().max(state.summary.updated_at_ms + 1);
         let tray = tray_state_for(total_unread_count);
 
         state.summary = NotificationUnreadSummary {
             schema_version: NOTIFICATION_UNREAD_SCHEMA_VERSION,
-            workspace_id: request.workspace_id,
+            workspace_id,
             workspace_name: request.workspace_name,
             total_unread_count,
-            conversations: request.conversations,
+            conversations,
             tray,
             updated_at_ms,
             source_window_label: request.source_window_label,
         };
 
         state.summary.clone()
+    }
+
+    pub fn ignore_all_unread(
+        &self,
+        request: NotificationIgnoreAllRequest,
+    ) -> NotificationIgnoreAllResult {
+        let mut state = self.state();
+        let target_workspace_id = request
+            .workspace_id
+            .clone()
+            .or_else(|| state.summary.workspace_id.clone());
+        let ignores_current_summary = target_workspace_id == state.summary.workspace_id;
+        let ignored_count = if ignores_current_summary {
+            let workspace_id = state.summary.workspace_id.as_deref();
+            let ignored_pairs: Vec<(String, u64)> = state
+                .summary
+                .conversations
+                .iter()
+                .map(|conversation| {
+                    (
+                        ignored_key(workspace_id, &conversation.conversation_id),
+                        conversation.updated_at_ms,
+                    )
+                })
+                .collect();
+            let ignored_count = ignored_pairs.len() as u32;
+
+            for (key, updated_at_ms) in ignored_pairs {
+                state.ignored_conversations.insert(key, updated_at_ms);
+            }
+
+            ignored_count
+        } else {
+            0
+        };
+
+        let workspace_id = state.summary.workspace_id.clone();
+        let current_conversations = state.summary.conversations.clone();
+        let conversations = filter_ignored_conversations(
+            &mut state.ignored_conversations,
+            workspace_id.as_deref(),
+            current_conversations,
+        );
+        let total_unread_count = total_unread_count(&conversations);
+        let updated_at_ms = now_ms().max(state.summary.updated_at_ms + 1);
+
+        state.summary = NotificationUnreadSummary {
+            schema_version: NOTIFICATION_UNREAD_SCHEMA_VERSION,
+            workspace_id,
+            workspace_name: state.summary.workspace_name.clone(),
+            total_unread_count,
+            conversations,
+            tray: tray_state_for(total_unread_count),
+            updated_at_ms,
+            source_window_label: request.source_window_label,
+        };
+
+        NotificationIgnoreAllResult {
+            summary: state.summary.clone(),
+            ignored_count,
+        }
     }
 
     pub fn pending_navigation_action(&self) -> Option<NotificationNavigationAction> {
@@ -92,6 +157,7 @@ impl NotificationRuntimeState {
 struct NotificationState {
     summary: NotificationUnreadSummary,
     navigation_action: Option<NotificationNavigationAction>,
+    ignored_conversations: HashMap<String, u64>,
 }
 
 impl Default for NotificationState {
@@ -108,8 +174,41 @@ impl Default for NotificationState {
                 source_window_label: None,
             },
             navigation_action: None,
+            ignored_conversations: HashMap::new(),
         }
     }
+}
+
+fn filter_ignored_conversations(
+    ignored_conversations: &mut HashMap<String, u64>,
+    workspace_id: Option<&str>,
+    conversations: Vec<NotificationUnreadConversation>,
+) -> Vec<NotificationUnreadConversation> {
+    conversations
+        .into_iter()
+        .filter(|conversation| {
+            let key = ignored_key(workspace_id, &conversation.conversation_id);
+            match ignored_conversations.get(&key).copied() {
+                Some(ignored_at_ms) if conversation.updated_at_ms <= ignored_at_ms => false,
+                Some(_) => {
+                    ignored_conversations.remove(&key);
+                    true
+                }
+                None => true,
+            }
+        })
+        .collect()
+}
+
+fn ignored_key(workspace_id: Option<&str>, conversation_id: &str) -> String {
+    format!("{}:{}", workspace_id.unwrap_or(""), conversation_id)
+}
+
+fn total_unread_count(conversations: &[NotificationUnreadConversation]) -> u32 {
+    conversations
+        .iter()
+        .map(|conversation| conversation.unread_count)
+        .sum()
 }
 
 fn validate_navigation_request(request: &NotificationNavigationRequest) -> Result<(), AppError> {
@@ -159,8 +258,8 @@ fn now_ms() -> u64 {
 mod tests {
     use super::NotificationRuntimeState;
     use crate::contracts::{
-        NotificationNavigationKind, NotificationNavigationRequest, NotificationUnreadConversation,
-        NotificationUnreadUpdateRequest,
+        NotificationIgnoreAllRequest, NotificationNavigationKind, NotificationNavigationRequest,
+        NotificationUnreadConversation, NotificationUnreadUpdateRequest,
     };
 
     #[test]
@@ -249,5 +348,66 @@ mod tests {
             .expect_err("member terminal navigation requires a member id");
 
         assert_eq!(error.code, "notification.navigation.missingMemberTerminal");
+    }
+
+    #[test]
+    fn ignore_all_filters_current_unread_without_marking_future_activity_ignored() {
+        let state = NotificationRuntimeState::default();
+        state.update_unread_summary(NotificationUnreadUpdateRequest {
+            workspace_id: Some("workspace-1".to_owned()),
+            workspace_name: Some("alpha".to_owned()),
+            conversations: vec![NotificationUnreadConversation {
+                conversation_id: "conversation-1".to_owned(),
+                title: "General".to_owned(),
+                unread_count: 2,
+                last_message_preview: Some("hello".to_owned()),
+                terminal_member_id: None,
+                updated_at_ms: 10,
+            }],
+            source_window_label: Some("main".to_owned()),
+        });
+
+        let ignored = state.ignore_all_unread(NotificationIgnoreAllRequest {
+            workspace_id: Some("workspace-1".to_owned()),
+            source_window_label: Some("notification-preview".to_owned()),
+        });
+
+        assert_eq!(ignored.ignored_count, 1);
+        assert_eq!(ignored.summary.total_unread_count, 0);
+        assert!(ignored.summary.conversations.is_empty());
+        assert!(!ignored.summary.tray.has_unread);
+
+        let repeated = state.update_unread_summary(NotificationUnreadUpdateRequest {
+            workspace_id: Some("workspace-1".to_owned()),
+            workspace_name: Some("alpha".to_owned()),
+            conversations: vec![NotificationUnreadConversation {
+                conversation_id: "conversation-1".to_owned(),
+                title: "General".to_owned(),
+                unread_count: 2,
+                last_message_preview: Some("hello".to_owned()),
+                terminal_member_id: None,
+                updated_at_ms: 10,
+            }],
+            source_window_label: Some("main".to_owned()),
+        });
+
+        assert_eq!(repeated.total_unread_count, 0);
+
+        let newer = state.update_unread_summary(NotificationUnreadUpdateRequest {
+            workspace_id: Some("workspace-1".to_owned()),
+            workspace_name: Some("alpha".to_owned()),
+            conversations: vec![NotificationUnreadConversation {
+                conversation_id: "conversation-1".to_owned(),
+                title: "General".to_owned(),
+                unread_count: 3,
+                last_message_preview: Some("new".to_owned()),
+                terminal_member_id: None,
+                updated_at_ms: 11,
+            }],
+            source_window_label: Some("main".to_owned()),
+        });
+
+        assert_eq!(newer.total_unread_count, 3);
+        assert_eq!(newer.conversations.len(), 1);
     }
 }

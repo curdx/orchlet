@@ -263,6 +263,19 @@
       "requirements": ["FR53", "NFR6", "NFR35", "NFR36"]
     },
     {
+      "domain": "notification",
+      "command": "notification_ignore_all_unread",
+      "requestFixture": "fixtures/contracts/notification/notification-ignore-all.request.json",
+      "successResultFixture": "fixtures/contracts/notification/notification-ignore-all.result.json",
+      "errorFixture": "fixtures/contracts/notification/notification-ignore-all.error.json",
+      "rustRequestDto": "NotificationIgnoreAllRequest",
+      "rustSuccessDto": "NotificationIgnoreAllResult",
+      "rustErrorDto": "AppError",
+      "eventFixture": "fixtures/contracts/notification/notification-ignore-all.event.json",
+      "rustEventDto": "NotificationUnreadSummary",
+      "requirements": ["FR54", "NFR6", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

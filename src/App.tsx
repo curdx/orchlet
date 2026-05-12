@@ -120,7 +120,7 @@ export function NotificationPreviewPage({
   snapshot: WindowContextSnapshot | null;
   api?: Pick<
     NotificationApi,
-    "getUnreadSummary" | "subscribeUnreadSummary" | "dispatchNavigation"
+    "getUnreadSummary" | "subscribeUnreadSummary" | "dispatchNavigation" | "ignoreAllUnread"
   >;
   terminalApi?: Pick<TerminalApi, "openTerminal">;
   onPreferencesChange: (update: {
@@ -222,6 +222,16 @@ export function NotificationPreviewPage({
     });
   }
 
+  async function handleIgnoreAllUnread() {
+    await runPreviewAction(async () => {
+      const result = await api.ignoreAllUnread({
+        workspaceId: navigationWorkspaceId,
+        sourceWindowLabel,
+      });
+      setSummary(result.summary);
+    });
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7f2] text-[#17211b]">
       <div className="mx-auto flex min-h-screen w-full max-w-4xl flex-col px-5 py-5">
@@ -293,7 +303,8 @@ export function NotificationPreviewPage({
                 <p className="rounded-md border border-[#e2b8a7] bg-[#fff7f3] p-3 text-sm text-[#8b3e25]">
                   {errorMessage}
                 </p>
-              ) : conversations.length > 0 ? (
+              ) : null}
+              {conversations.length > 0 ? (
                 <ul className="grid gap-2" aria-label="未读会话列表">
                   {conversations.map((conversation) => (
                     <li
@@ -349,6 +360,14 @@ export function NotificationPreviewPage({
                 className="rounded-md border border-[#b9d0b2] bg-[#eef6ea] px-3 py-1.5 text-xs font-semibold text-[#2f5038] transition hover:bg-[#e4f0df] disabled:border-[#d8e2d4] disabled:bg-white disabled:text-[#a4aea1]"
               >
                 查看全部未读
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleIgnoreAllUnread()}
+                disabled={isActionPending || totalUnreadCount === 0}
+                className="rounded-md border border-[#d8c7b8] bg-white px-3 py-1.5 text-xs font-semibold text-[#7a4f33] transition hover:bg-[#fbf4ee] disabled:border-[#d8e2d4] disabled:text-[#a4aea1]"
+              >
+                忽略全部
               </button>
               <button
                 type="button"
