@@ -1,0 +1,629 @@
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
+
+use ulid::Ulid;
+
+use crate::{
+    contracts::{
+        AppError, AppErrorSeverity, DataIntegrityCheckResult, DataIntegrityReport,
+        DataIntegritySeverity, DataIntegrityStatus, OpenedWorkspace, StorageCategory,
+        StorageManifestEntry, WorkspaceAccessMode,
+    },
+    domain::workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME},
+    infrastructure::persistence::{
+        json_store::{
+            workspace_fallback_store::{load_workspace_fallbacks, workspace_fallback_path},
+            workspace_metadata_store::read_workspace_metadata,
+            workspace_registry_store::{load_workspace_registry, now_ms, workspace_registry_path},
+        },
+        sqlite::{
+            contact_repository::{contact_database_path, validate_contact_store},
+            conversation_repository::validate_private_conversation_store,
+            member_repository::validate_member_store,
+            workspace_database::workspace_database_path,
+        },
+        storage_manifest::storage_manifest_entries,
+    },
+};
+
+pub const DATA_INTEGRITY_REPORT_SCHEMA_VERSION: u32 = 1;
+
+pub fn validate_data_integrity(
+    app_data_dir: impl AsRef<Path>,
+    active_workspace: Option<OpenedWorkspace>,
+    requested_workspace_root: Option<PathBuf>,
+) -> DataIntegrityReport {
+    let app_data_dir = app_data_dir.as_ref();
+    let manifest = storage_manifest_entries();
+    let has_requested_workspace_root = requested_workspace_root.is_some();
+    let requested_workspace_id = requested_workspace_root
+        .as_deref()
+        .and_then(workspace_id_from_root);
+    let requested_matches_active_workspace = active_workspace
+        .as_ref()
+        .zip(requested_workspace_root.as_ref())
+        .is_some_and(|(workspace, requested_root)| {
+            Path::new(&workspace.root_path) == requested_root.as_path()
+        });
+    let active_workspace_id = active_workspace
+        .as_ref()
+        .map(|workspace| workspace.metadata.project_id.clone());
+    let active_workspace_root = active_workspace
+        .as_ref()
+        .map(|workspace| PathBuf::from(&workspace.root_path));
+    let workspace_root = requested_workspace_root.or_else(|| active_workspace_root.clone());
+    let workspace_id = if has_requested_workspace_root {
+        requested_workspace_id.or_else(|| {
+            requested_matches_active_workspace
+                .then(|| active_workspace_id.clone())
+                .flatten()
+        })
+    } else {
+        active_workspace_id.or_else(|| workspace_root.as_deref().and_then(workspace_id_from_root))
+    };
+    let workspace_metadata_optional = active_workspace
+        .as_ref()
+        .zip(workspace_root.as_ref())
+        .map(|(workspace, workspace_root)| {
+            Path::new(&workspace.root_path) == workspace_root.as_path()
+                && workspace.access_mode == WorkspaceAccessMode::ReadOnly
+                && workspace.fallback_state.is_some()
+        })
+        .unwrap_or(false);
+    let mut checks = Vec::new();
+
+    checks.push(validate_manifest_completeness(&manifest));
+    checks.push(check_result(
+        "workspace.registry.load_validate",
+        StorageCategory::WorkspaceRegistry,
+        vec![workspace_registry_path(app_data_dir)],
+        load_workspace_registry(app_data_dir)
+            .map(|_| "workspace-registry.json is readable and matches schema version.".to_owned()),
+    ));
+    checks.push(check_result(
+        "workspace.fallbacks.load_validate",
+        StorageCategory::WorkspaceFallbacks,
+        vec![workspace_fallback_path(app_data_dir)],
+        load_workspace_fallbacks(app_data_dir)
+            .map(|_| "workspace-fallbacks.json is readable and matches schema version.".to_owned()),
+    ));
+    checks.push(validate_workspace_metadata(
+        workspace_root.as_deref(),
+        workspace_metadata_optional,
+    ));
+    checks.push(validate_member_profiles(
+        app_data_dir,
+        workspace_id.as_deref(),
+    ));
+    checks.push(validate_contact_profiles(app_data_dir));
+    checks.push(validate_private_conversations(
+        app_data_dir,
+        workspace_id.as_deref(),
+    ));
+
+    report_from_checks(manifest, checks)
+}
+
+fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataIntegrityCheckResult {
+    let mut ids = HashSet::new();
+    let mut categories = HashSet::new();
+    let mut duplicate_ids = Vec::new();
+    let mut duplicate_categories = Vec::new();
+
+    for entry in manifest {
+        if !ids.insert(entry.id.clone()) {
+            duplicate_ids.push(entry.id.clone());
+        }
+
+        if !categories.insert(entry.category.clone()) {
+            duplicate_categories.push(format!("{:?}", entry.category));
+        }
+    }
+
+    let expected_categories = [
+        StorageCategory::WorkspaceMetadata,
+        StorageCategory::WorkspaceRegistry,
+        StorageCategory::WorkspaceFallbacks,
+        StorageCategory::MemberProfiles,
+        StorageCategory::ContactProfiles,
+        StorageCategory::PrivateConversations,
+    ];
+    let missing_categories = expected_categories
+        .iter()
+        .filter(|category| !categories.contains(*category))
+        .map(|category| format!("{:?}", category))
+        .collect::<Vec<_>>();
+
+    if duplicate_ids.is_empty() && duplicate_categories.is_empty() && missing_categories.is_empty()
+    {
+        return DataIntegrityCheckResult {
+            check_id: "storage.manifest.current_entries".to_owned(),
+            category: StorageCategory::StorageManifest,
+            status: DataIntegrityStatus::Passed,
+            severity: DataIntegritySeverity::Info,
+            message: "Storage manifest covers all currently implemented stores.".to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: Some(format!("entries={}", manifest.len())),
+        };
+    }
+
+    DataIntegrityCheckResult {
+        check_id: "storage.manifest.current_entries".to_owned(),
+        category: StorageCategory::StorageManifest,
+        status: DataIntegrityStatus::Failed,
+        severity: DataIntegritySeverity::Error,
+        message: "Storage manifest is incomplete or ambiguous.".to_owned(),
+        affected_paths: Vec::new(),
+        user_action: Some(
+            "Fix storage manifest entries before adding new persisted data.".to_owned(),
+        ),
+        details: Some(format!(
+            "duplicateIds={:?}; duplicateCategories={:?}; missingCategories={:?}",
+            duplicate_ids, duplicate_categories, missing_categories
+        )),
+    }
+}
+
+fn validate_contact_profiles(app_data_dir: &Path) -> DataIntegrityCheckResult {
+    check_result(
+        "contact.profiles.schema_validate",
+        StorageCategory::ContactProfiles,
+        vec![contact_database_path(app_data_dir)],
+        validate_contact_store(app_data_dir)
+            .map(|_| "Global contact store is readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_private_conversations(
+    app_data_dir: &Path,
+    workspace_id: Option<&str>,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_id) = workspace_id else {
+        return DataIntegrityCheckResult {
+            check_id: "conversation.private.schema_validate".to_owned(),
+            category: StorageCategory::PrivateConversations,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace id is available for private conversation validation."
+                .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+    check_result(
+        "conversation.private.schema_validate",
+        StorageCategory::PrivateConversations,
+        vec![database_path],
+        validate_private_conversation_store(app_data_dir, workspace_id)
+            .map(|_| "Private conversation store is readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_member_profiles(
+    app_data_dir: &Path,
+    workspace_id: Option<&str>,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_id) = workspace_id else {
+        return DataIntegrityCheckResult {
+            check_id: "member.profiles.schema_validate".to_owned(),
+            category: StorageCategory::MemberProfiles,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace id is available for member profile validation."
+                .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+    check_result(
+        "member.profiles.schema_validate",
+        StorageCategory::MemberProfiles,
+        vec![database_path],
+        validate_member_store(app_data_dir, workspace_id).map(|_| {
+            "Member profile database is readable and has exactly one default owner.".to_owned()
+        }),
+    )
+}
+
+fn workspace_id_from_root(workspace_root: &Path) -> Option<String> {
+    read_workspace_metadata(workspace_root)
+        .ok()
+        .flatten()
+        .map(|metadata| metadata.project_id)
+}
+
+fn validate_workspace_metadata(
+    workspace_root: Option<&Path>,
+    metadata_optional: bool,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_root) = workspace_root else {
+        return DataIntegrityCheckResult {
+            check_id: "workspace.metadata.read_validate".to_owned(),
+            category: StorageCategory::WorkspaceMetadata,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace root is available for workspace metadata validation."
+                .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let metadata_path = workspace_metadata_path(workspace_root);
+
+    match read_workspace_metadata(workspace_root) {
+        Ok(Some(_)) => DataIntegrityCheckResult {
+            check_id: "workspace.metadata.read_validate".to_owned(),
+            category: StorageCategory::WorkspaceMetadata,
+            status: DataIntegrityStatus::Passed,
+            severity: DataIntegritySeverity::Info,
+            message: ".orchlet/workspace.json is readable and matches schema version.".to_owned(),
+            affected_paths: vec![metadata_path.to_string_lossy().into_owned()],
+            user_action: None,
+            details: None,
+        },
+        Ok(None) if metadata_optional => DataIntegrityCheckResult {
+            check_id: "workspace.metadata.read_validate".to_owned(),
+            category: StorageCategory::WorkspaceMetadata,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Warning,
+            message: "Workspace-local metadata is absent because the active workspace is using read-only fallback."
+                .to_owned(),
+            affected_paths: vec![metadata_path.to_string_lossy().into_owned()],
+            user_action: Some(
+                "Grant write permission to the workspace directory and reopen it to materialize .orchlet/workspace.json."
+                    .to_owned(),
+            ),
+            details: None,
+        },
+        Ok(None) => DataIntegrityCheckResult {
+            check_id: "workspace.metadata.read_validate".to_owned(),
+            category: StorageCategory::WorkspaceMetadata,
+            status: DataIntegrityStatus::Failed,
+            severity: DataIntegritySeverity::Error,
+            message: ".orchlet/workspace.json is missing for the selected workspace.".to_owned(),
+            affected_paths: vec![metadata_path.to_string_lossy().into_owned()],
+            user_action: Some("Reopen the workspace so orchlet can create or recover metadata.".to_owned()),
+            details: None,
+        },
+        Err(error) => failed_check(
+            "workspace.metadata.read_validate",
+            StorageCategory::WorkspaceMetadata,
+            vec![metadata_path],
+            error,
+        ),
+    }
+}
+
+fn check_result(
+    check_id: &str,
+    category: StorageCategory,
+    affected_paths: Vec<PathBuf>,
+    result: Result<String, AppError>,
+) -> DataIntegrityCheckResult {
+    match result {
+        Ok(message) => DataIntegrityCheckResult {
+            check_id: check_id.to_owned(),
+            category,
+            status: DataIntegrityStatus::Passed,
+            severity: DataIntegritySeverity::Info,
+            message,
+            affected_paths: affected_paths
+                .into_iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+            user_action: None,
+            details: None,
+        },
+        Err(error) => failed_check(check_id, category, affected_paths, error),
+    }
+}
+
+fn failed_check(
+    check_id: &str,
+    category: StorageCategory,
+    affected_paths: Vec<PathBuf>,
+    error: AppError,
+) -> DataIntegrityCheckResult {
+    DataIntegrityCheckResult {
+        check_id: check_id.to_owned(),
+        category,
+        status: DataIntegrityStatus::Failed,
+        severity: severity_from_app_error(&error.severity),
+        message: error.message,
+        affected_paths: affected_paths
+            .into_iter()
+            .map(|path| path.to_string_lossy().into_owned())
+            .collect(),
+        user_action: error.user_action,
+        details: error.details,
+    }
+}
+
+fn severity_from_app_error(severity: &AppErrorSeverity) -> DataIntegritySeverity {
+    match severity {
+        AppErrorSeverity::Info => DataIntegritySeverity::Info,
+        AppErrorSeverity::Warning => DataIntegritySeverity::Warning,
+        AppErrorSeverity::Error => DataIntegritySeverity::Error,
+    }
+}
+
+fn report_from_checks(
+    manifest: Vec<StorageManifestEntry>,
+    checks: Vec<DataIntegrityCheckResult>,
+) -> DataIntegrityReport {
+    let total_checks = checks.len() as u32;
+    let passed_checks = checks
+        .iter()
+        .filter(|check| check.status == DataIntegrityStatus::Passed)
+        .count() as u32;
+    let failed_checks = checks
+        .iter()
+        .filter(|check| check.status == DataIntegrityStatus::Failed)
+        .count() as u32;
+    let skipped_checks = checks
+        .iter()
+        .filter(|check| check.status == DataIntegrityStatus::Skipped)
+        .count() as u32;
+
+    DataIntegrityReport {
+        schema_version: DATA_INTEGRITY_REPORT_SCHEMA_VERSION,
+        report_id: Ulid::new().to_string(),
+        generated_at_ms: now_ms(),
+        manifest,
+        checks,
+        total_checks,
+        passed_checks,
+        failed_checks,
+        skipped_checks,
+        has_failures: failed_checks > 0,
+        batched: true,
+    }
+}
+
+fn workspace_metadata_path(workspace_root: &Path) -> PathBuf {
+    workspace_root
+        .join(WORKSPACE_DIR_NAME)
+        .join(WORKSPACE_METADATA_FILE_NAME)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use tempfile::tempdir;
+
+    use super::validate_data_integrity;
+    use crate::{
+        app::members::initialize_members,
+        contracts::{
+            DataIntegritySeverity, DataIntegrityStatus, OpenedWorkspace, StorageCategory,
+            WorkspaceAccessMode, WorkspaceFallbackState, WorkspaceMetadata,
+            WorkspaceRegistryAction, WorkspaceRegistryEntry,
+        },
+        infrastructure::persistence::{
+            json_store::{
+                workspace_metadata_store::create_workspace_metadata,
+                workspace_registry_store::{save_workspace_registry, WorkspaceRegistryDocument},
+            },
+            storage_manifest::storage_manifest_entries,
+        },
+    };
+
+    #[test]
+    fn storage_manifest_covers_current_stores() {
+        let manifest = storage_manifest_entries();
+        let categories = manifest
+            .iter()
+            .map(|entry| entry.category.clone())
+            .collect::<Vec<_>>();
+
+        assert_eq!(manifest.len(), 6);
+        assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
+        assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
+        assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
+        assert!(categories.contains(&StorageCategory::MemberProfiles));
+        assert!(categories.contains(&StorageCategory::ContactProfiles));
+        assert!(categories.contains(&StorageCategory::PrivateConversations));
+        assert!(manifest
+            .iter()
+            .all(|entry| entry.schema_version == 1 && entry.fixture_required));
+    }
+
+    #[test]
+    fn validation_passes_empty_app_data_and_skips_workspace_without_active_root() {
+        let app_data = tempdir().expect("app data");
+        let report = validate_data_integrity(app_data.path(), None, None);
+
+        assert_eq!(report.total_checks, 7);
+        assert_eq!(report.failed_checks, 0);
+        assert_eq!(report.skipped_checks, 3);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceMetadata
+                && check.status == DataIntegrityStatus::Skipped
+        }));
+    }
+
+    #[test]
+    fn validation_passes_valid_workspace_metadata() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let metadata = create_workspace_metadata(workspace.path()).expect("metadata created");
+        initialize_members(app_data.path(), &metadata.project_id).expect("members initialized");
+
+        let report = validate_data_integrity(app_data.path(), None, Some(workspace.path().into()));
+
+        assert_eq!(report.failed_checks, 0);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceMetadata
+                && check.status == DataIntegrityStatus::Passed
+        }));
+    }
+
+    #[test]
+    fn validation_skips_missing_workspace_metadata_for_active_read_only_fallback() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let active_workspace =
+            opened_workspace(workspace.path(), WorkspaceAccessMode::ReadOnly, true);
+        initialize_members(app_data.path(), &active_workspace.metadata.project_id)
+            .expect("members initialized");
+
+        let report = validate_data_integrity(app_data.path(), Some(active_workspace), None);
+
+        assert_eq!(report.failed_checks, 0);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceMetadata
+                && check.status == DataIntegrityStatus::Skipped
+                && check.severity == DataIntegritySeverity::Warning
+        }));
+    }
+
+    #[test]
+    fn validation_uses_active_workspace_id_for_matching_requested_read_only_root() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let active_workspace =
+            opened_workspace(workspace.path(), WorkspaceAccessMode::ReadOnly, true);
+        initialize_members(app_data.path(), &active_workspace.metadata.project_id)
+            .expect("members initialized");
+
+        let report = validate_data_integrity(
+            app_data.path(),
+            Some(active_workspace),
+            Some(workspace.path().into()),
+        );
+
+        assert_eq!(report.failed_checks, 0);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceMetadata
+                && check.status == DataIntegrityStatus::Skipped
+                && check.severity == DataIntegritySeverity::Warning
+        }));
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::MemberProfiles
+                && check.status == DataIntegrityStatus::Passed
+        }));
+    }
+
+    #[test]
+    fn validation_does_not_apply_read_only_skip_to_unrelated_requested_root() {
+        let app_data = tempdir().expect("app data");
+        let active_workspace_root = tempdir().expect("active workspace");
+        let requested_workspace_root = tempdir().expect("requested workspace");
+        let active_workspace = opened_workspace(
+            active_workspace_root.path(),
+            WorkspaceAccessMode::ReadOnly,
+            true,
+        );
+        initialize_members(app_data.path(), &active_workspace.metadata.project_id)
+            .expect("members initialized");
+
+        let report = validate_data_integrity(
+            app_data.path(),
+            Some(active_workspace),
+            Some(requested_workspace_root.path().into()),
+        );
+
+        assert_eq!(report.failed_checks, 1);
+        assert_eq!(report.skipped_checks, 2);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceMetadata
+                && check.status == DataIntegrityStatus::Failed
+        }));
+    }
+
+    #[test]
+    fn validation_reports_invalid_registry_without_hiding_other_checks() {
+        let app_data = tempdir().expect("app data");
+        fs::write(
+            app_data.path().join("workspace-registry.json"),
+            r#"{"schemaVersion":1,"entries":[{"projectId":"bad","path":"","name":"","firstOpenedAtMs":0,"lastOpenedAtMs":0}]}"#,
+        )
+        .expect("invalid registry written");
+
+        let report = validate_data_integrity(app_data.path(), None, None);
+
+        assert_eq!(report.failed_checks, 1);
+        assert!(report.has_failures);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceRegistry
+                && check.status == DataIntegrityStatus::Failed
+        }));
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceFallbacks
+                && check.status == DataIntegrityStatus::Passed
+        }));
+    }
+
+    #[test]
+    fn validation_reports_duplicate_manifest_entries() {
+        let mut manifest = storage_manifest_entries();
+        manifest.push(manifest[0].clone());
+        let check = super::validate_manifest_completeness(&manifest);
+
+        assert_eq!(check.status, DataIntegrityStatus::Failed);
+    }
+
+    #[test]
+    fn validation_passes_persisted_empty_registry() {
+        let app_data = tempdir().expect("app data");
+        save_workspace_registry(app_data.path(), &WorkspaceRegistryDocument::default())
+            .expect("registry saved");
+
+        let report = validate_data_integrity(app_data.path(), None, None);
+
+        assert_eq!(report.failed_checks, 0);
+        assert_eq!(report.skipped_checks, 3);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceRegistry
+                && check.status == DataIntegrityStatus::Passed
+        }));
+    }
+
+    fn opened_workspace(
+        root: &std::path::Path,
+        access_mode: WorkspaceAccessMode,
+        with_fallback: bool,
+    ) -> OpenedWorkspace {
+        let root_path = root.to_string_lossy().into_owned();
+        let metadata = WorkspaceMetadata {
+            schema_version: 1,
+            project_id: "01K00000000000000000000000".to_owned(),
+            name: "workspace".to_owned(),
+            created_at_ms: 1_760_000_000_000,
+            updated_at_ms: 1_760_000_000_000,
+        };
+
+        OpenedWorkspace {
+            root_path: root_path.clone(),
+            metadata: metadata.clone(),
+            created: true,
+            access_mode,
+            fallback_state: with_fallback.then(|| WorkspaceFallbackState {
+                reason: "read-only".to_owned(),
+                fallback_path: "/app-data/workspace-fallbacks.json".to_owned(),
+                limited_actions: vec!["workspace metadata writes".to_owned()],
+                user_action: "grant write permission".to_owned(),
+            }),
+            registry_entry: WorkspaceRegistryEntry {
+                project_id: metadata.project_id,
+                path: root_path,
+                name: metadata.name,
+                first_opened_at_ms: metadata.created_at_ms,
+                last_opened_at_ms: metadata.updated_at_ms,
+            },
+            registry_action: WorkspaceRegistryAction::Created,
+        }
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "conversation": {
+    "conversationId": "01K00000000000000000000050",
+    "workspaceId": "01K00000000000000000000000",
+    "kind": "private",
+    "title": "External Admin",
+    "participantKind": "contact",
+    "participantId": "01K00000000000000000000040",
+    "createdAtMs": 1760000008000,
+    "updatedAtMs": 1760000008000,
+    "lastActivityAtMs": 1760000008000
+  },
+  "created": true
+}

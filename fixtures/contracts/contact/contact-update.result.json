@@ -1,0 +1,24 @@
+{
+  "contact": {
+    "contactId": "01K00000000000000000000040",
+    "displayName": "External Admin Updated",
+    "contactKind": "contact",
+    "inviteSource": "adminContactInvite",
+    "notes": null,
+    "sourceLabel": null,
+    "createdAtMs": 1760000006000,
+    "updatedAtMs": 1760000007000
+  },
+  "contacts": [
+    {
+      "contactId": "01K00000000000000000000040",
+      "displayName": "External Admin Updated",
+      "contactKind": "contact",
+      "inviteSource": "adminContactInvite",
+      "notes": null,
+      "sourceLabel": null,
+      "createdAtMs": 1760000006000,
+      "updatedAtMs": 1760000007000
+    }
+  ]
+}

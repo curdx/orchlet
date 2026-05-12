@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "case": "snapshot-recovery",
+  "description": "Synthetic terminal stream fixture for restoring a snapshot then applying newer chunks.",
+  "baseSnapshot": {
+    "sessionId": "terminal-session-fixture-03",
+    "lastSeq": 2,
+    "text": "boot\nready\n"
+  },
+  "events": [
+    {
+      "schemaVersion": 1,
+      "sessionId": "terminal-session-fixture-03",
+      "seq": 3,
+      "chunk": "$ pwd\n",
+      "kind": "stdout",
+      "emittedAtMs": 1760000012000
+    },
+    {
+      "schemaVersion": 1,
+      "sessionId": "terminal-session-fixture-03",
+      "seq": 4,
+      "chunk": "/fixtures/workspaces/alpha\n",
+      "kind": "stdout",
+      "emittedAtMs": 1760000012010
+    }
+  ],
+  "expectedSnapshot": {
+    "sessionId": "terminal-session-fixture-03",
+    "lastSeq": 4,
+    "text": "boot\nready\n$ pwd\n/fixtures/workspaces/alpha\n"
+  }
+}

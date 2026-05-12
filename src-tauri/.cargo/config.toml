@@ -1,0 +1,5 @@
+[alias]
+test-rust = "test"
+test-contracts = "test --test contract_fixtures"
+test-schema-fixtures = "test --test schema_data_fixtures"
+test-smoke = "test --test smoke_scaffold"

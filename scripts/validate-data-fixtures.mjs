@@ -1,0 +1,234 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+
+const root = process.cwd();
+
+validateWorkspaceMetadata("fixtures/schema/valid-workspace/.orchlet/workspace.json");
+validateWorkspaceMetadata("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/workspace.json");
+validateWorkspaceRegistry("fixtures/data-integrity/valid-json-stores/app-data/workspace-registry.json");
+validateWorkspaceFallbacks("fixtures/data-integrity/valid-json-stores/app-data/workspace-fallbacks.json");
+validateSqliteScaffold("fixtures/schema/sqlite-workspace-v1/schema-manifest.json");
+validateMemberProfiles("fixtures/schema/members-v1/member-profiles.json");
+validateContactProfiles("fixtures/schema/contacts-v1/contact-profiles.json");
+validateDataIntegrityReport("fixtures/data-integrity/reports/passed-report.json");
+validateDataIntegrityReport("fixtures/data-integrity/reports/failed-registry-report.json");
+validateTerminalStreams("fixtures/terminal-streams");
+
+console.log("validated schema, data-integrity and terminal stream fixtures");
+
+function validateWorkspaceMetadata(path) {
+  const metadata = readJson(path);
+  assert(metadata.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assertValidUlid(metadata.projectId, `${path}.projectId`);
+  assertNonEmptyString(metadata.name, `${path}.name`);
+  assertPositiveTimestamp(metadata.createdAtMs, `${path}.createdAtMs`);
+  assert(
+    metadata.updatedAtMs >= metadata.createdAtMs,
+    `${path}.updatedAtMs must be >= createdAtMs`,
+  );
+}
+
+function validateWorkspaceRegistry(path) {
+  const registry = readJson(path);
+  assert(registry.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(Array.isArray(registry.entries), `${path}.entries must be an array`);
+  for (const entry of registry.entries) {
+    assertValidUlid(entry.projectId, `${path}.entries[].projectId`);
+    assertNonEmptyString(entry.path, `${path}.entries[].path`);
+    assertNonEmptyString(entry.name, `${path}.entries[].name`);
+    assertPositiveTimestamp(entry.firstOpenedAtMs, `${path}.entries[].firstOpenedAtMs`);
+    assert(
+      entry.lastOpenedAtMs >= entry.firstOpenedAtMs,
+      `${path}.entries[].lastOpenedAtMs must be >= firstOpenedAtMs`,
+    );
+  }
+}
+
+function validateWorkspaceFallbacks(path) {
+  const fallbacks = readJson(path);
+  assert(fallbacks.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(Array.isArray(fallbacks.entries), `${path}.entries must be an array`);
+  for (const entry of fallbacks.entries) {
+    assertNonEmptyString(entry.path, `${path}.entries[].path`);
+    assertValidUlid(entry.projectId, `${path}.entries[].projectId`);
+    assertNonEmptyString(entry.name, `${path}.entries[].name`);
+    assertPositiveTimestamp(entry.createdAtMs, `${path}.entries[].createdAtMs`);
+    assert(
+      entry.updatedAtMs >= entry.createdAtMs,
+      `${path}.entries[].updatedAtMs must be >= createdAtMs`,
+    );
+  }
+}
+
+function validateSqliteScaffold(path) {
+  const schema = readJson(path);
+  assert(schema.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(schema.status === "implemented", `${path}.status must be implemented`);
+  assert(schema.databaseScope === "workspace", `${path}.databaseScope must be workspace`);
+  assert(
+    Array.isArray(schema.tables) &&
+      schema.tables.includes("schema_migrations") &&
+      schema.tables.includes("members") &&
+      schema.tables.includes("conversations"),
+    `${path} must include current member and private conversation schema tables`,
+  );
+  assert(schema.tables.length === 3, `${path} must not include future chat/message tables`);
+  assert(!schema.tables.includes("terminal_sessions"), `${path} must not include future terminal tables`);
+  assert(Array.isArray(schema.migrationFiles), `${path}.migrationFiles must be an array`);
+  assert(
+    schema.migrationFiles.includes("202605112300__members.sql"),
+    `${path} must include the member migration file`,
+  );
+  assert(
+    schema.migrationFiles.includes("202605120930__member_permissions.sql"),
+    `${path} must include the member permissions migration file`,
+  );
+  assert(
+    schema.migrationFiles.includes("202605121210__private_conversations.sql"),
+    `${path} must include the private conversations migration file`,
+  );
+  assert(
+    Array.isArray(schema.ownedByFutureStories) && schema.ownedByFutureStories.includes("messages"),
+    `${path} must identify future story ownership`,
+  );
+}
+
+function validateMemberProfiles(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assertValidUlid(fixture.workspaceId, `${path}.workspaceId`);
+  assert(Array.isArray(fixture.members) && fixture.members.length >= 2, `${path}.members must include owner and invitee`);
+
+  const ownerCount = fixture.members.filter((member) => member.role === "owner").length;
+  assert(ownerCount === 1, `${path} must include exactly one owner`);
+
+  for (const member of fixture.members) {
+    assertValidUlid(member.memberId, `${path}.members[].memberId`);
+    assert(member.workspaceId === fixture.workspaceId, `${path}.members[].workspaceId must match fixture workspaceId`);
+    assert(["owner", "admin", "assistant", "member"].includes(member.role), `${path} invalid member role`);
+    assertNonEmptyString(member.displayName, `${path}.members[].displayName`);
+    assert(Number.isInteger(member.instanceIndex) && member.instanceIndex >= 1, `${path}.members[].instanceIndex must be positive`);
+    assertNonEmptyString(member.instanceLabel, `${path}.members[].instanceLabel`);
+    assert(["online", "offline", "working", "doNotDisturb"].includes(member.status), `${path} invalid member status`);
+    assert(member.runtime && typeof member.runtime === "object", `${path}.members[].runtime is required`);
+    assert(
+      ["none", "builtInAiCli", "customCli", "shell"].includes(member.runtime.kind),
+      `${path} invalid runtime kind`,
+    );
+    if (member.runtime.kind !== "none") {
+      assertNonEmptyString(member.runtime.label, `${path}.members[].runtime.label`);
+      assertNonEmptyString(member.runtime.command, `${path}.members[].runtime.command`);
+    }
+    assert(typeof member.permissions?.canMention === "boolean", `${path}.members[].permissions.canMention must be boolean`);
+    assert(typeof member.permissions?.canRemove === "boolean", `${path}.members[].permissions.canRemove must be boolean`);
+    assert(typeof member.isolation?.sandboxed === "boolean", `${path}.members[].isolation.sandboxed must be boolean`);
+    assert(typeof member.isolation?.unlimitedAccess === "boolean", `${path}.members[].isolation.unlimitedAccess must be boolean`);
+    assertPositiveTimestamp(member.createdAtMs, `${path}.members[].createdAtMs`);
+    assert(member.updatedAtMs >= member.createdAtMs, `${path}.members[].updatedAtMs must be >= createdAtMs`);
+  }
+}
+
+function validateContactProfiles(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(fixture.databaseScope === "global", `${path}.databaseScope must be global`);
+  assert(fixture.databaseFile === "global/orchlet.sqlite", `${path}.databaseFile must be global/orchlet.sqlite`);
+  assert(Array.isArray(fixture.contacts) && fixture.contacts.length >= 1, `${path}.contacts must include contacts`);
+
+  for (const contact of fixture.contacts) {
+    assertValidUlid(contact.contactId, `${path}.contacts[].contactId`);
+    assertNonEmptyString(contact.displayName, `${path}.contacts[].displayName`);
+    assert(["contact", "administrator"].includes(contact.contactKind), `${path} invalid contactKind`);
+    assert(contact.inviteSource === "adminContactInvite", `${path} invalid inviteSource`);
+    if (contact.notes !== null) assertNonEmptyString(contact.notes, `${path}.contacts[].notes`);
+    if (contact.sourceLabel !== null) assertNonEmptyString(contact.sourceLabel, `${path}.contacts[].sourceLabel`);
+    assertPositiveTimestamp(contact.createdAtMs, `${path}.contacts[].createdAtMs`);
+    assert(contact.updatedAtMs >= contact.createdAtMs, `${path}.contacts[].updatedAtMs must be >= createdAtMs`);
+  }
+}
+
+function validateDataIntegrityReport(path) {
+  const report = readJson(path);
+  assert(report.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assertValidUlid(report.reportId, `${path}.reportId`);
+  assertPositiveTimestamp(report.generatedAtMs, `${path}.generatedAtMs`);
+  assert(Array.isArray(report.checks), `${path}.checks must be an array`);
+
+  const counts = report.checks.reduce(
+    (next, check) => {
+      assert(["passed", "failed", "skipped"].includes(check.status), `${path} invalid check status`);
+      assert(["info", "warning", "error"].includes(check.severity), `${path} invalid severity`);
+      next.total += 1;
+      if (check.status === "passed") next.passed += 1;
+      if (check.status === "failed") next.failed += 1;
+      if (check.status === "skipped") next.skipped += 1;
+      return next;
+    },
+    { total: 0, passed: 0, failed: 0, skipped: 0 },
+  );
+
+  assert(report.totalChecks === counts.total, `${path}.totalChecks does not match checks length`);
+  assert(report.passedChecks === counts.passed, `${path}.passedChecks does not match checks`);
+  assert(report.failedChecks === counts.failed, `${path}.failedChecks does not match checks`);
+  assert(report.skippedChecks === counts.skipped, `${path}.skippedChecks does not match checks`);
+  assert(report.hasFailures === counts.failed > 0, `${path}.hasFailures does not match failures`);
+}
+
+function validateTerminalStreams(directory) {
+  const absoluteDirectory = resolve(root, directory);
+  const files = readdirSync(absoluteDirectory)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => join(directory, file));
+
+  assert(files.length >= 3, "terminal stream fixtures must cover ordering and snapshot paths");
+
+  for (const file of files) {
+    const fixture = readJson(file);
+    assert(fixture.schemaVersion === 1, `${file} schemaVersion must be 1`);
+    assert(Array.isArray(fixture.events), `${file}.events must be an array`);
+    assert(fixture.expectedSnapshot, `${file} must include expectedSnapshot`);
+
+    const baseText = fixture.baseSnapshot?.text ?? "";
+    const events = [...fixture.events].sort((a, b) => a.seq - b.seq);
+    const sessionIds = new Set(events.map((event) => event.sessionId));
+
+    assert(sessionIds.size === 1, `${file} must use one sessionId`);
+
+    let lastSeq = fixture.baseSnapshot?.lastSeq ?? 0;
+    let text = baseText;
+
+    for (const event of events) {
+      assert(event.schemaVersion === 1, `${file} event schemaVersion must be 1`);
+      assert(event.seq === lastSeq + 1, `${file} seq must be contiguous after sorting`);
+      assert(["stdout", "stderr", "system"].includes(event.kind), `${file} invalid event kind`);
+      assertPositiveTimestamp(event.emittedAtMs, `${file}.events[].emittedAtMs`);
+      text += event.chunk;
+      lastSeq = event.seq;
+    }
+
+    assert(fixture.expectedSnapshot.lastSeq === lastSeq, `${file} snapshot lastSeq mismatch`);
+    assert(fixture.expectedSnapshot.text === text, `${file} snapshot text mismatch`);
+  }
+}
+
+function readJson(path) {
+  return JSON.parse(readFileSync(resolve(root, path), "utf8"));
+}
+
+function assertNonEmptyString(value, path) {
+  assert(typeof value === "string" && value.trim().length > 0, `${path} must be a non-empty string`);
+}
+
+function assertPositiveTimestamp(value, path) {
+  assert(Number.isInteger(value) && value > 0, `${path} must be a positive integer timestamp`);
+}
+
+function assertValidUlid(value, path) {
+  assert(typeof value === "string" && /^[0-9A-HJKMNP-TV-Z]{26}$/.test(value), `${path} must be a ULID string`);
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message);
+  }
+}

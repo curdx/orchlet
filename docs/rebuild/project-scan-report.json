@@ -1,0 +1,62 @@
+{
+  "workflowVersion": "1.2.0",
+  "generatedAt": "2026-05-11T10:26:01+08:00",
+  "mode": "initial_scan",
+  "scanLevel": "deep",
+  "projectRoot": "/Users/wdx/opc/golutra",
+  "projectKnowledge": "/Users/wdx/opc/golutra/docs",
+  "classification": {
+    "repositoryType": "single-repo desktop app",
+    "projectTypes": ["desktop", "web-frontend", "rust-backend"],
+    "primaryStack": ["Tauri 2", "Vue 3", "Pinia", "Vite", "Tailwind CSS", "Rust", "redb", "portable-pty", "xterm"]
+  },
+  "filesScannedSummary": {
+    "sourceFilesTsVueRs": 223,
+    "frontendTsVueFiles": 108,
+    "rustFiles": 115,
+    "testFiles": 1
+  },
+  "generatedOutputs": [
+    "docs/index.md",
+    "docs/rebuild/project-overview.md",
+    "docs/rebuild/feature-inventory.md",
+    "docs/rebuild/current-architecture.md",
+    "docs/rebuild/ipc-events-and-contracts.md",
+    "docs/rebuild/data-and-storage.md",
+    "docs/rebuild/source-tree-analysis.md",
+    "docs/rebuild/modernization-blueprint.md",
+    "docs/rebuild/parity-checklist.md",
+    "docs/rebuild/project-scan-report.json"
+  ],
+  "completedSteps": [
+    {
+      "step": "step_1",
+      "status": "completed",
+      "timestamp": "2026-05-11T10:26:01+08:00",
+      "summary": "Classified golutra as a single-repo Tauri desktop app with Vue frontend and Rust backend."
+    },
+    {
+      "step": "step_2",
+      "status": "completed",
+      "timestamp": "2026-05-11T10:26:01+08:00",
+      "summary": "Inventoried README, CONTRIBUTING, SECURITY, legal docs, package manifests, Tauri config and source tree."
+    },
+    {
+      "step": "step_3",
+      "status": "completed",
+      "timestamp": "2026-05-11T10:26:01+08:00",
+      "summary": "Extracted frontend, backend, IPC, storage, terminal, chat, notification and settings architecture."
+    },
+    {
+      "step": "step_4",
+      "status": "completed",
+      "timestamp": "2026-05-11T10:26:01+08:00",
+      "summary": "Generated documentation and parity checklist for future modernization/rebuild planning."
+    }
+  ],
+  "openRisks": [
+    "External golutra-mcp repository was not scanned.",
+    "Runtime behavior was inferred from source; no Tauri desktop app was launched during this documentation pass.",
+    "Registry latest versions were checked with npm/cargo, but official migration guides must be reviewed before implementation."
+  ]
+}

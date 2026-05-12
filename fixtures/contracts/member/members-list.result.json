@@ -1,0 +1,29 @@
+{
+  "members": [
+    {
+      "memberId": "01K00000000000000000000030",
+      "workspaceId": "01K00000000000000000000000",
+      "role": "owner",
+      "displayName": "Owner",
+      "instanceIndex": 1,
+      "instanceLabel": "Owner",
+      "status": "online",
+      "runtime": {
+        "kind": "none",
+        "runtimeId": null,
+        "label": null,
+        "command": null
+      },
+      "permissions": {
+        "canMention": false,
+        "canRemove": false
+      },
+      "isolation": {
+        "sandboxed": false,
+        "unlimitedAccess": true
+      },
+      "createdAtMs": 1760000000000,
+      "updatedAtMs": 1760000000000
+    }
+  ]
+}

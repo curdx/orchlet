@@ -1,0 +1,9 @@
+{
+  "code": "conversation.participant.memberNotFound",
+  "message": "未找到私聊成员。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新成员列表后重试。",
+  "details": "workspaceId=01K00000000000000000000000 memberId=01K00000000000000000000999",
+  "correlationId": null
+}

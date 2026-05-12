@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "path": "/fixtures/workspaces/read-only-alpha",
+      "projectId": "01K00000000000000000000001",
+      "name": "read-only-alpha",
+      "createdAtMs": 1760000002000,
+      "updatedAtMs": 1760000003000
+    }
+  ]
+}

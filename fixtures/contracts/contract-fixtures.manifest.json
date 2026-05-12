@@ -1,0 +1,115 @@
+{
+  "schemaVersion": 1,
+  "contracts": [
+    {
+      "domain": "workspace",
+      "command": "workspace_open",
+      "requestFixture": "fixtures/contracts/workspace/workspace-open.request.json",
+      "successResultFixture": "fixtures/contracts/workspace/workspace-open.result.json",
+      "errorFixture": "fixtures/contracts/workspace/workspace-open.error.json",
+      "rustRequestDto": "OpenWorkspaceRequest",
+      "rustSuccessDto": "OpenWorkspaceResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["NFR35", "NFR36"]
+    },
+    {
+      "domain": "data-integrity",
+      "command": "data_integrity_validate",
+      "requestFixture": "fixtures/contracts/data-integrity/data-integrity-validate.request.json",
+      "successResultFixture": "fixtures/contracts/data-integrity/data-integrity-validate.result.json",
+      "errorFixture": "fixtures/contracts/data-integrity/data-integrity-validate.error.json",
+      "rustRequestDto": "DataIntegrityValidateRequest",
+      "rustSuccessDto": "DataIntegrityValidateResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["NFR35", "NFR36"]
+    },
+    {
+      "domain": "member",
+      "command": "members_list",
+      "requestFixture": "fixtures/contracts/member/members-list.request.json",
+      "successResultFixture": "fixtures/contracts/member/members-list.result.json",
+      "errorFixture": "fixtures/contracts/member/members-list.error.json",
+      "rustRequestDto": "ListMembersRequest",
+      "rustSuccessDto": "ListMembersResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR10", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "member",
+      "command": "member_invite",
+      "requestFixture": "fixtures/contracts/member/member-invite.request.json",
+      "successResultFixture": "fixtures/contracts/member/member-invite.result.json",
+      "errorFixture": "fixtures/contracts/member/member-invite.error.json",
+      "rustRequestDto": "InviteMemberRequest",
+      "rustSuccessDto": "InviteMemberResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR11", "FR12", "FR13", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "member",
+      "command": "member_remove",
+      "requestFixture": "fixtures/contracts/member/member-remove.request.json",
+      "successResultFixture": "fixtures/contracts/member/member-remove.result.json",
+      "errorFixture": "fixtures/contracts/member/member-remove.error.json",
+      "rustRequestDto": "RemoveMemberRequest",
+      "rustSuccessDto": "RemoveMemberResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "contact",
+      "command": "contacts_list",
+      "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",
+      "successResultFixture": "fixtures/contracts/contact/contacts-list.result.json",
+      "errorFixture": "fixtures/contracts/contact/contacts-list.error.json",
+      "rustRequestDto": "ListContactsRequest",
+      "rustSuccessDto": "ListContactsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR14", "FR18", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "contact",
+      "command": "contact_create",
+      "requestFixture": "fixtures/contracts/contact/contact-create.request.json",
+      "successResultFixture": "fixtures/contracts/contact/contact-create.result.json",
+      "errorFixture": "fixtures/contracts/contact/contact-create.error.json",
+      "rustRequestDto": "CreateContactRequest",
+      "rustSuccessDto": "CreateContactResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR14", "FR18", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "contact",
+      "command": "contact_update",
+      "requestFixture": "fixtures/contracts/contact/contact-update.request.json",
+      "successResultFixture": "fixtures/contracts/contact/contact-update.result.json",
+      "errorFixture": "fixtures/contracts/contact/contact-update.error.json",
+      "rustRequestDto": "UpdateContactRequest",
+      "rustSuccessDto": "UpdateContactResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR14", "FR18", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "contact",
+      "command": "contact_delete",
+      "requestFixture": "fixtures/contracts/contact/contact-delete.request.json",
+      "successResultFixture": "fixtures/contracts/contact/contact-delete.result.json",
+      "errorFixture": "fixtures/contracts/contact/contact-delete.error.json",
+      "rustRequestDto": "DeleteContactRequest",
+      "rustSuccessDto": "DeleteContactResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR14", "FR18", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_private_conversation_start",
+      "requestFixture": "fixtures/contracts/chat/chat-private-conversation-start.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-private-conversation-start.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-private-conversation-start.error.json",
+      "rustRequestDto": "StartPrivateConversationRequest",
+      "rustSuccessDto": "StartPrivateConversationResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR15", "FR21", "NFR35", "NFR36"]
+    }
+  ]
+}

@@ -1,0 +1,927 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import App from "./App";
+import { WorkspaceSelectionPage } from "./pages/workspace-selection";
+import { useToastStore } from "./shared/ui";
+import type {
+  DataIntegrityReport,
+  ContactProfile,
+  CreateContactRequest,
+  CreateContactResult,
+  DeleteContactRequest,
+  DeleteContactResult,
+  InviteMemberRequest,
+  InviteMemberResult,
+  ListContactsRequest,
+  ListContactsResult,
+  ListMembersRequest,
+  ListMembersResult,
+  MemberProfile,
+  OpenWorkspaceResult,
+  RecentWorkspaceEntry,
+  RemoveMemberRequest,
+  RemoveMemberResult,
+  StartPrivateConversationRequest,
+  StartPrivateConversationResult,
+  UpdateContactRequest,
+  UpdateContactResult,
+  WindowContextSnapshot,
+  WorkspaceSelectionStatus,
+} from "./contracts/generated";
+
+const status: WorkspaceSelectionStatus = {
+  windowMode: "workspaceSelection",
+  canOpenWorkspace: true,
+  recentWorkspaceCount: 0,
+};
+
+beforeEach(() => {
+  useToastStore.getState().clearToast();
+  document.documentElement.removeAttribute("data-theme");
+  document.documentElement.lang = "";
+});
+
+function renderWorkspaceSelection(api: {
+  getWorkspaceSelectionStatus: () => Promise<WorkspaceSelectionStatus>;
+  listRecentWorkspaces?: () => Promise<RecentWorkspaceEntry[]>;
+  pickAndOpenWorkspace: () => Promise<OpenWorkspaceResult | null>;
+  openWorkspace?: (
+    path: string,
+    options?: { conflictResolution?: "move" | "copy" | null },
+  ) => Promise<OpenWorkspaceResult>;
+  openWorkspaceInFileManager?: (path: string) => Promise<{ path: string; opened: boolean }>;
+  memberApi?: Partial<{
+    listMembers: (request: ListMembersRequest) => Promise<ListMembersResult>;
+    inviteMember: (request: InviteMemberRequest) => Promise<InviteMemberResult>;
+    removeMember: (request: RemoveMemberRequest) => Promise<RemoveMemberResult>;
+  }>;
+  contactApi?: Partial<{
+    listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
+    createContact: (request: CreateContactRequest) => Promise<CreateContactResult>;
+    updateContact: (request: UpdateContactRequest) => Promise<UpdateContactResult>;
+    deleteContact: (request: DeleteContactRequest) => Promise<DeleteContactResult>;
+  }>;
+  chatApi?: Partial<{
+    startPrivateConversation: (
+      request: StartPrivateConversationRequest,
+    ) => Promise<StartPrivateConversationResult>;
+  }>;
+}) {
+  const { memberApi, contactApi, chatApi, ...workspaceApi } = api;
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+    },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceSelectionPage
+        api={{
+          listRecentWorkspaces: () => Promise.resolve([]),
+          openWorkspace: () => Promise.reject(new Error("openWorkspace mock missing")),
+          openWorkspaceInFileManager: () =>
+            Promise.reject(new Error("openWorkspaceInFileManager mock missing")),
+          ...workspaceApi,
+        }}
+        memberApi={{
+          listMembers: () => Promise.resolve({ members: [] }),
+          inviteMember: () => Promise.reject(new Error("inviteMember mock missing")),
+          removeMember: () => Promise.reject(new Error("removeMember mock missing")),
+          ...memberApi,
+        }}
+        contactApi={{
+          listContacts: () => Promise.resolve({ contacts: [] }),
+          createContact: () => Promise.reject(new Error("createContact mock missing")),
+          updateContact: () => Promise.reject(new Error("updateContact mock missing")),
+          deleteContact: () => Promise.reject(new Error("deleteContact mock missing")),
+          ...contactApi,
+        }}
+        chatApi={{
+          startPrivateConversation: () =>
+            Promise.reject(new Error("startPrivateConversation mock missing")),
+          ...chatApi,
+        }}
+      />
+    </QueryClientProvider>,
+  );
+}
+
+function openedWorkspaceResult(overrides: Partial<OpenWorkspaceResult> = {}): OpenWorkspaceResult {
+  return {
+    status: "opened",
+    conflict: null,
+    workspace: {
+      rootPath: "/tmp/orchlet-demo",
+      created: true,
+      accessMode: "readWrite",
+      fallbackState: null,
+      registryAction: "created",
+      registryEntry: {
+        projectId: "01K00000000000000000000000",
+        path: "/tmp/orchlet-demo",
+        name: "orchlet-demo",
+        firstOpenedAtMs: 1760000000000,
+        lastOpenedAtMs: 1760000000000,
+      },
+      metadata: {
+        schemaVersion: 1,
+        projectId: "01K00000000000000000000000",
+        name: "orchlet-demo",
+        createdAtMs: 1760000000000,
+        updatedAtMs: 1760000000000,
+      },
+    },
+    ...overrides,
+  };
+}
+
+function windowContextSnapshot(
+  overrides: Partial<WindowContextSnapshot> = {},
+): WindowContextSnapshot {
+  return {
+    schemaVersion: 1,
+    currentWindow: {
+      label: "main",
+      mode: "workspaceSelection",
+    },
+    activeWorkspace: null,
+    preferences: {
+      theme: "system",
+      language: "zh-CN",
+    },
+    updatedAtMs: 1760000000000,
+    sourceWindowLabel: null,
+    ...overrides,
+  };
+}
+
+function dataIntegrityReport(
+  overrides: Partial<DataIntegrityReport> = {},
+): DataIntegrityReport {
+  return {
+    schemaVersion: 1,
+    reportId: "01KDATAINTEGRITY0000000000",
+    generatedAtMs: 1760000000000,
+    manifest: [],
+    checks: [],
+    totalChecks: 0,
+    passedChecks: 0,
+    failedChecks: 0,
+    skippedChecks: 0,
+    hasFailures: false,
+    batched: true,
+    ...overrides,
+  };
+}
+
+function memberProfile(overrides: Partial<MemberProfile> = {}): MemberProfile {
+  const base: MemberProfile = {
+    memberId: "01KMEMBER000000000000000000",
+    workspaceId: "01K00000000000000000000000",
+    role: "owner",
+    displayName: "Workspace Owner",
+    instanceIndex: 1,
+    instanceLabel: "Workspace Owner",
+    status: "online",
+    runtime: {
+      kind: "none",
+      runtimeId: null,
+      label: null,
+      command: null,
+    },
+    permissions: {
+      canMention: false,
+      canRemove: false,
+    },
+    isolation: {
+      sandboxed: false,
+      unlimitedAccess: true,
+    },
+    createdAtMs: 1760000000000,
+    updatedAtMs: 1760000000000,
+  };
+  const profile: MemberProfile = {
+    ...base,
+    ...overrides,
+  };
+
+  return {
+    ...profile,
+    instanceLabel: overrides.instanceLabel ?? overrides.displayName ?? profile.instanceLabel,
+  };
+}
+
+function contactProfile(overrides: Partial<ContactProfile> = {}): ContactProfile {
+  return {
+    contactId: "01KCONTACT0000000000000000",
+    displayName: "External Admin",
+    contactKind: "administrator",
+    inviteSource: "adminContactInvite",
+    notes: "Local administrator contact",
+    sourceLabel: "Invite Admin Modal",
+    createdAtMs: 1760000000000,
+    updatedAtMs: 1760000000000,
+    ...overrides,
+  };
+}
+
+describe("App workspace entry", () => {
+  it("opens to a usable workspace selection surface", async () => {
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "orchlet" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "打开文件夹" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("选择一个文件夹开始或恢复工作区")).toBeInTheDocument();
+    expect(screen.getByText("最近的工作区")).toBeInTheDocument();
+    expect(screen.getByText("暂无最近工作区")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "请在 Tauri 桌面应用中打开文件夹。",
+    );
+  });
+
+  it("exposes accessible labels for icon-only shell actions", () => {
+    render(<App />);
+
+    expect(screen.getByLabelText("刷新最近工作区")).toBeInTheDocument();
+    expect(screen.getByLabelText("打开设置")).toBeInTheDocument();
+  });
+
+  it("applies browser fallback theme and language updates without restart", async () => {
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "深色" }));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    await user.click(screen.getByRole("button", { name: "English" }));
+    expect(document.documentElement.lang).toBe("en-US");
+  });
+
+  it("renders opened workspace state after successful metadata creation", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByRole("heading", { name: "工作区已打开" })).toBeInTheDocument();
+    expect(screen.getByText("orchlet-demo")).toBeInTheDocument();
+    expect(screen.getByText("01K00000000000000000000000")).toBeInTheDocument();
+    expect(screen.getByText("Schema v1")).toBeInTheDocument();
+    expect(screen.getByText("可写模式")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "打开文件管理器" })).toBeInTheDocument();
+  });
+
+  it("loads default owner and saves invited assistant instances without launching terminal", async () => {
+    const user = userEvent.setup();
+    const owner = memberProfile();
+    const invitedAssistant = memberProfile({
+      memberId: "01KMEMBER000000000000000001",
+      role: "assistant",
+      displayName: "Codex Reviewer",
+      instanceIndex: 1,
+      instanceLabel: "Codex Reviewer 1",
+      status: "offline",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "gemini-cli",
+        label: "Gemini CLI",
+        command: "gemini",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+      isolation: {
+        sandboxed: true,
+        unlimitedAccess: false,
+      },
+    });
+    const secondInvitedAssistant = memberProfile({
+      ...invitedAssistant,
+      memberId: "01KMEMBER000000000000000002",
+      instanceIndex: 2,
+      instanceLabel: "Codex Reviewer 2",
+    });
+    const listMembers = vi
+      .fn()
+      .mockResolvedValueOnce({ members: [owner] })
+      .mockResolvedValueOnce({ members: [owner, invitedAssistant, secondInvitedAssistant] });
+    const inviteMember = vi.fn(() =>
+      Promise.resolve({
+        member: invitedAssistant,
+        invitedMembers: [invitedAssistant, secondInvitedAssistant],
+        members: [owner, invitedAssistant, secondInvitedAssistant],
+      }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers, inviteMember },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByText("Workspace Owner")).toBeInTheDocument();
+    expect(screen.getByText("Owner · 在线 · 无运行时")).toBeInTheDocument();
+
+    const membersPanel = screen.getByRole("region", { name: "Owner 与邀请成员" });
+
+    await user.type(within(membersPanel).getByLabelText("显示名称"), "Codex Reviewer");
+    await user.selectOptions(within(membersPanel).getByLabelText("内置运行时"), "gemini-cli");
+    fireEvent.change(within(membersPanel).getByLabelText("实例数量"), { target: { value: "2" } });
+    await user.click(within(membersPanel).getByRole("button", { name: "发送邀请" }));
+
+    expect(inviteMember).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      memberType: "assistant",
+      displayName: "Codex Reviewer",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "gemini-cli",
+        label: "Gemini CLI",
+        command: "gemini",
+      },
+      instanceCount: 2,
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+      isolation: {
+        sandboxed: true,
+        unlimitedAccess: false,
+      },
+    });
+    expect(await screen.findByText("Codex Reviewer 1")).toBeInTheDocument();
+    expect(screen.getByText("Codex Reviewer 2")).toBeInTheDocument();
+    expect(screen.getAllByText("Assistant · 离线 · Gemini CLI")).toHaveLength(2);
+    expect(screen.getAllByText((content) => content.includes("@可用"))).toHaveLength(2);
+    expect(await screen.findByRole("status")).toHaveTextContent("终端不会自动启动");
+  });
+
+  it("shows member action menu and removes members according to permissions", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const owner = memberProfile();
+    const assistant = memberProfile({
+      memberId: "01KMEMBER000000000000000003",
+      role: "assistant",
+      displayName: "Agent",
+      instanceLabel: "Agent 1",
+      status: "offline",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+      isolation: {
+        sandboxed: true,
+        unlimitedAccess: false,
+      },
+    });
+    const listMembers = vi
+      .fn()
+      .mockResolvedValueOnce({ members: [owner, assistant] })
+      .mockResolvedValueOnce({ members: [owner] });
+    const removeMember = vi.fn(() =>
+      Promise.resolve({
+        removedMemberId: assistant.memberId,
+        members: [owner],
+      }),
+    );
+    const startPrivateConversation = vi.fn(() =>
+      Promise.resolve({
+        conversation: {
+          conversationId: "01KCONVERSATION000000000000",
+          workspaceId: "01K00000000000000000000000",
+          kind: "private",
+          title: "Agent 1",
+          participantKind: "member",
+          participantId: assistant.memberId,
+          createdAtMs: 1760000000000,
+          updatedAtMs: 1760000000000,
+          lastActivityAtMs: 1760000000000,
+        },
+        created: true,
+      } satisfies StartPrivateConversationResult),
+    );
+
+    try {
+      renderWorkspaceSelection({
+        getWorkspaceSelectionStatus: () => Promise.resolve(status),
+        pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+        memberApi: { listMembers, removeMember },
+        chatApi: { startPrivateConversation },
+      });
+
+      await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+      expect(await screen.findByText("Agent 1")).toBeInTheDocument();
+      expect(screen.getByText((content) => content.includes("@可用"))).toBeInTheDocument();
+      expect(screen.getAllByText((content) => content.includes("沙盒 · 受限"))).toHaveLength(1);
+
+      await user.click(screen.getByRole("button", { name: "Agent 1 操作" }));
+      await user.click(screen.getByRole("menuitem", { name: "发送消息" }));
+
+      expect(startPrivateConversation).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        participantKind: "member",
+        participantId: assistant.memberId,
+      });
+      expect(await screen.findByRole("status")).toHaveTextContent("私聊已创建");
+
+      await user.click(screen.getByRole("button", { name: "Agent 1 操作" }));
+      await user.click(screen.getByRole("menuitem", { name: "@成员" }));
+
+      expect(await screen.findByRole("status")).toHaveTextContent("@Agent 1");
+
+      await user.click(screen.getByRole("button", { name: "Agent 1 操作" }));
+      await user.click(screen.getByRole("menuitem", { name: "移除成员" }));
+
+      expect(confirm).toHaveBeenCalledWith("移除 Agent 1？");
+      expect(removeMember).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        memberId: assistant.memberId,
+      });
+      expect(await screen.findByRole("status")).toHaveTextContent("成员已移除");
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("creates edits deletes contacts and starts private chat from a contact", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const owner = memberProfile();
+    const adminMember = memberProfile({
+      memberId: "01KMEMBER000000000000000004",
+      role: "admin",
+      displayName: "External Admin",
+      instanceLabel: "External Admin",
+      status: "offline",
+      runtime: {
+        kind: "none",
+        runtimeId: null,
+        label: null,
+        command: null,
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+      isolation: {
+        sandboxed: true,
+        unlimitedAccess: false,
+      },
+    });
+    const contact = contactProfile();
+    const updatedContact = contactProfile({
+      displayName: "External Admin Updated",
+      contactKind: "contact",
+      notes: null,
+      sourceLabel: null,
+      updatedAtMs: 1760000001000,
+    });
+    const listMembers = vi
+      .fn()
+      .mockResolvedValueOnce({ members: [owner] })
+      .mockResolvedValueOnce({ members: [owner, adminMember] });
+    const listContacts = vi
+      .fn()
+      .mockResolvedValueOnce({ contacts: [] })
+      .mockResolvedValueOnce({ contacts: [contact] })
+      .mockResolvedValueOnce({ contacts: [updatedContact] })
+      .mockResolvedValueOnce({ contacts: [] });
+    const createContact = vi.fn(() =>
+      Promise.resolve({
+        contact,
+        contacts: [contact],
+        adminMember,
+      }),
+    );
+    const updateContact = vi.fn(() =>
+      Promise.resolve({
+        contact: updatedContact,
+        contacts: [updatedContact],
+      }),
+    );
+    const deleteContact = vi.fn(() =>
+      Promise.resolve({
+        deletedContactId: updatedContact.contactId,
+        contacts: [],
+      }),
+    );
+    const startPrivateConversation = vi.fn(() =>
+      Promise.resolve({
+        conversation: {
+          conversationId: "01KCONVERSATION000000000001",
+          workspaceId: "01K00000000000000000000000",
+          kind: "private",
+          title: "External Admin",
+          participantKind: "contact",
+          participantId: contact.contactId,
+          createdAtMs: 1760000000000,
+          updatedAtMs: 1760000000000,
+          lastActivityAtMs: 1760000000000,
+        },
+        created: true,
+      } satisfies StartPrivateConversationResult),
+    );
+
+    try {
+      renderWorkspaceSelection({
+        getWorkspaceSelectionStatus: () => Promise.resolve(status),
+        pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+        memberApi: { listMembers },
+        contactApi: { listContacts, createContact, updateContact, deleteContact },
+        chatApi: { startPrivateConversation },
+      });
+
+      await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+      const contactsPanel = await screen.findByRole("region", {
+        name: "联系人与管理员邀请",
+      });
+
+      await user.selectOptions(within(contactsPanel).getByLabelText("邀请类型"), "administrator");
+      await user.type(within(contactsPanel).getByLabelText("显示名称"), "External Admin");
+      await user.type(within(contactsPanel).getByLabelText("备注"), "Local administrator contact");
+      await user.click(within(contactsPanel).getByRole("button", { name: "添加联系人" }));
+
+      expect(createContact).toHaveBeenCalledWith({
+        displayName: "External Admin",
+        contactKind: "administrator",
+        notes: "Local administrator contact",
+        sourceLabel: "管理员/联系人邀请",
+        workspaceId: "01K00000000000000000000000",
+      });
+      expect(await screen.findByText("本地管理员 · adminContactInvite")).toBeInTheDocument();
+      expect(await screen.findByText("Admin · 离线 · 无运行时")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+      expect(startPrivateConversation).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        participantKind: "contact",
+        participantId: contact.contactId,
+      });
+      expect(await screen.findByText("最近私聊：External Admin")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "编辑" }));
+      await user.clear(within(contactsPanel).getByLabelText("显示名称"));
+      await user.type(within(contactsPanel).getByLabelText("显示名称"), "External Admin Updated");
+      await user.selectOptions(within(contactsPanel).getByLabelText("邀请类型"), "contact");
+      await user.clear(within(contactsPanel).getByLabelText("备注"));
+      await user.click(within(contactsPanel).getByRole("button", { name: "保存联系人" }));
+
+      expect(updateContact).toHaveBeenCalledWith({
+        contactId: contact.contactId,
+        displayName: "External Admin Updated",
+        contactKind: "contact",
+        notes: null,
+        sourceLabel: "联系人区域",
+      });
+      expect(await screen.findByText("External Admin Updated")).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "删除" }));
+
+      expect(confirm).toHaveBeenCalledWith("删除联系人 External Admin Updated？");
+      expect(deleteContact).toHaveBeenCalledWith({ contactId: updatedContact.contactId });
+      expect(await screen.findByRole("status")).toHaveTextContent("已有私聊记录不会被静默删除");
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("renders read-only fallback details after workspace-local metadata cannot be written", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () =>
+        Promise.resolve(
+          openedWorkspaceResult({
+            workspace: {
+              ...openedWorkspaceResult().workspace!,
+              accessMode: "readOnly",
+              fallbackState: {
+                reason: "无法创建 .orchlet/workspace.json。 无法创建 .orchlet 工作区目录。",
+                fallbackPath: "/app-data/workspace-fallbacks.json",
+                limitedActions: ["工作区本地元数据写入", "依赖 .orchlet 的后续本地设置写入"],
+                userAction: "授予该工作区目录写权限后重新打开。",
+              },
+            },
+          }),
+        ),
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByText("只读模式")).toBeInTheDocument();
+    expect(screen.getByText("工作区本地数据只读")).toBeInTheDocument();
+    expect(screen.getByText(/工作区本地元数据写入/)).toBeInTheDocument();
+    expect(screen.getByText(/workspace-fallbacks\.json/)).toBeInTheDocument();
+    expect(screen.getByText("授予该工作区目录写权限后重新打开。")).toBeInTheDocument();
+  });
+
+  it("surfaces synchronized context controls and opens requested window modes", async () => {
+    const user = userEvent.setup();
+    const onPreferencesChange = vi.fn(() => Promise.resolve());
+    const onOpenWindowMode = vi.fn(() => Promise.resolve());
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(null),
+    });
+
+    expect(screen.queryByLabelText("窗口上下文")).not.toBeInTheDocument();
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <WorkspaceSelectionPage
+          api={{
+            getWorkspaceSelectionStatus: () => Promise.resolve(status),
+            listRecentWorkspaces: () => Promise.resolve([]),
+            pickAndOpenWorkspace: () => Promise.resolve(null),
+            openWorkspace: () => Promise.reject(new Error("unused")),
+            openWorkspaceInFileManager: () => Promise.reject(new Error("unused")),
+          }}
+          windowContext={windowContextSnapshot()}
+          onPreferencesChange={onPreferencesChange}
+          onOpenWindowMode={onOpenWindowMode}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "浅色" }));
+    await user.click(screen.getByRole("button", { name: "打开终端窗口" }));
+
+    expect(onPreferencesChange).toHaveBeenCalledWith({ theme: "light" });
+    expect(onOpenWindowMode).toHaveBeenCalledWith("terminal");
+  });
+
+  it("runs data integrity validation and renders failed affected paths", async () => {
+    const user = userEvent.setup();
+    const validate = vi.fn(() =>
+      Promise.resolve({
+        report: dataIntegrityReport({
+          checks: [
+            {
+              checkId: "workspace.registry.load_validate",
+              category: "workspaceRegistry",
+              status: "failed",
+              severity: "error",
+              message: "工作区 registry 不是有效 JSON。",
+              affectedPaths: ["/app-data/workspace-registry.json"],
+              userAction: "请先备份或修复应用数据中的 workspace-registry.json 后重试。",
+              details: "invalid json",
+            },
+          ],
+          totalChecks: 1,
+          failedChecks: 1,
+          hasFailures: true,
+        }),
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <WorkspaceSelectionPage
+          api={{
+            getWorkspaceSelectionStatus: () => Promise.resolve(status),
+            listRecentWorkspaces: () => Promise.resolve([]),
+            pickAndOpenWorkspace: () => Promise.resolve(null),
+            openWorkspace: () => Promise.reject(new Error("unused")),
+            openWorkspaceInFileManager: () => Promise.reject(new Error("unused")),
+          }}
+          windowContext={windowContextSnapshot({
+            activeWorkspace: openedWorkspaceResult().workspace,
+          })}
+          integrityApi={{ validate }}
+        />
+      </QueryClientProvider>,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "运行数据验证" }));
+
+    expect(validate).toHaveBeenCalledWith({ workspaceRoot: "/tmp/orchlet-demo" });
+    expect(await screen.findByText("发现需要处理的数据问题")).toBeInTheDocument();
+    expect(screen.getByText("工作区 registry 不是有效 JSON。")).toBeInTheDocument();
+    expect(screen.getByText("/app-data/workspace-registry.json")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("数据验证发现问题");
+  });
+
+  it("opens the current workspace in the system file manager", async () => {
+    const user = userEvent.setup();
+    const openWorkspaceInFileManager = vi.fn(() =>
+      Promise.resolve({ path: "/tmp/orchlet-demo", opened: true }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      openWorkspaceInFileManager,
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开文件管理器" }));
+
+    expect(openWorkspaceInFileManager).toHaveBeenCalledWith("/tmp/orchlet-demo");
+    expect(await screen.findByRole("status")).toHaveTextContent("已请求打开文件管理器");
+  });
+
+  it("shows recoverable feedback when file manager opening fails", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      openWorkspaceInFileManager: () =>
+        Promise.reject({
+          code: "workspace.fileManager.openFailed",
+          message: "无法打开系统文件管理器。",
+          severity: "warning",
+          recoverable: true,
+          userAction: "请检查系统文件管理器是否可用，或手动打开该路径。",
+          details: "/tmp/orchlet-demo: opener unavailable",
+          correlationId: null,
+        }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开文件管理器" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("无法打开系统文件管理器。");
+    expect(screen.getByRole("status")).toHaveTextContent("手动打开该路径");
+  });
+
+  it("keeps the current page unchanged when directory selection is cancelled", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(null),
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(screen.queryByText("工作区已打开")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("renders recent workspaces sorted from the API and filters by name or path", async () => {
+    const user = userEvent.setup();
+    const openWorkspace = vi.fn(() => Promise.resolve(openedWorkspaceResult()));
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () =>
+        Promise.resolve({ ...status, recentWorkspaceCount: 2 }),
+      listRecentWorkspaces: () =>
+        Promise.resolve([
+          {
+            projectId: "01K00000000000000000000002",
+            path: "/work/newer",
+            name: "newer",
+            firstOpenedAtMs: 1760000000000,
+            lastOpenedAtMs: 1760000002000,
+          },
+          {
+            projectId: "01K00000000000000000000001",
+            path: "/work/alpha",
+            name: "alpha",
+            firstOpenedAtMs: 1760000000000,
+            lastOpenedAtMs: 1760000001000,
+          },
+        ]),
+      pickAndOpenWorkspace: () => Promise.resolve(null),
+      openWorkspace,
+    });
+
+    expect(await screen.findByText("newer")).toBeInTheDocument();
+    expect(screen.getByText("alpha")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("搜索文件夹..."), "alpha");
+
+    expect(screen.queryByText("newer")).not.toBeInTheDocument();
+    expect(screen.getByText("alpha")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "打开 alpha" }));
+
+    expect(openWorkspace).toHaveBeenCalledWith("/work/alpha");
+  });
+
+  it("shows conflict modal and retries with move resolution", async () => {
+    const user = userEvent.setup();
+    const openWorkspace = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "conflict",
+        workspace: null,
+        conflict: {
+          projectId: "01K00000000000000000000001",
+          name: "alpha",
+          existingPath: "/work/original",
+          selectedPath: "/work/moved",
+        },
+      } satisfies OpenWorkspaceResult)
+      .mockResolvedValueOnce(openedWorkspaceResult());
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () =>
+        Promise.resolve({ ...status, recentWorkspaceCount: 1 }),
+      listRecentWorkspaces: () =>
+        Promise.resolve([
+          {
+            projectId: "01K00000000000000000000001",
+            path: "/work/moved",
+            name: "alpha",
+            firstOpenedAtMs: 1760000000000,
+            lastOpenedAtMs: 1760000001000,
+          },
+        ]),
+      pickAndOpenWorkspace: () => Promise.resolve(null),
+      openWorkspace,
+    });
+
+    await user.click(await screen.findByRole("button", { name: "打开 alpha" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "工作区位置变化" });
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText("/work/original")).toBeInTheDocument();
+    expect(within(dialog).getByText("/work/moved")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "移动了" }));
+
+    expect(openWorkspace).toHaveBeenLastCalledWith("/work/moved", {
+      conflictResolution: "move",
+    });
+  });
+
+  it("shows recoverable toast when recent workspaces fail to load", async () => {
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      listRecentWorkspaces: () =>
+        Promise.reject({
+          code: "workspace.registry.invalidJson",
+          message: "工作区 registry 不是有效 JSON。",
+          severity: "error",
+          recoverable: true,
+          userAction: "请先备份或修复应用数据中的 workspace-registry.json 后重试。",
+          details: "workspace-registry.json",
+          correlationId: null,
+        }),
+      pickAndOpenWorkspace: () => Promise.resolve(null),
+    });
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "工作区 registry 不是有效 JSON。",
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "请先备份或修复应用数据中的 workspace-registry.json 后重试。",
+    );
+  });
+
+  it("shows recoverable toast for invalid metadata errors", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () =>
+        Promise.reject({
+          code: "workspace.metadata.invalidJson",
+          message: "工作区元数据不是有效 JSON。",
+          severity: "error",
+          recoverable: true,
+          userAction: "请先备份或修复 .orchlet/workspace.json 后重试。",
+          details: ".orchlet/workspace.json",
+          correlationId: null,
+        }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("工作区元数据不是有效 JSON。");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "请先备份或修复 .orchlet/workspace.json 后重试。",
+    );
+  });
+});

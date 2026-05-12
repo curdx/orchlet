@@ -1,0 +1,9 @@
+{
+  "code": "contact.appDataDirFailed",
+  "message": "无法定位应用数据目录。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "联系人数据未加载；请检查系统应用数据目录权限后重试。",
+  "details": "app data unavailable",
+  "correlationId": null
+}

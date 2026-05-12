@@ -1,0 +1,62 @@
+import { invoke } from "@tauri-apps/api/core";
+
+import type { AppError } from "../../contracts/generated/common";
+import type { WorkspaceSelectionStatus } from "../../contracts/generated/workspace";
+
+declare global {
+  interface Window {
+    __TAURI_INTERNALS__?: unknown;
+  }
+}
+
+export function isTauriRuntime() {
+  return typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__);
+}
+
+function invokeBrowserFallback<T>(
+  command: string,
+  _args?: Record<string, unknown>,
+): Promise<T> {
+  if (command === "workspace_selection_status") {
+    return Promise.resolve({
+      windowMode: "workspaceSelection",
+      canOpenWorkspace: true,
+      recentWorkspaceCount: 0,
+    } satisfies WorkspaceSelectionStatus as T);
+  }
+
+  if (command === "workspace_recent_list") {
+    return Promise.resolve([] as T);
+  }
+
+  if (command === "members_list") {
+    return Promise.resolve({ members: [] } as T);
+  }
+
+  if (command === "contacts_list") {
+    return Promise.resolve({ contacts: [] } as T);
+  }
+
+  return Promise.reject({
+    code: "ipc.command.unavailable",
+    message: `命令 ${command} 在当前运行环境不可用。`,
+    severity: "error",
+    recoverable: true,
+    userAction: "请在 Tauri 桌面运行时中重试。",
+    details: null,
+    correlationId: null,
+  } satisfies AppError);
+}
+
+export function invokeCommand<T>(
+  command: string,
+  args?: Record<string, unknown>,
+): Promise<T> {
+  if (!isTauriRuntime()) {
+    return invokeBrowserFallback<T>(command, args);
+  }
+
+  return invoke<T>(command, args);
+}
+
+export type { WorkspaceSelectionStatus };

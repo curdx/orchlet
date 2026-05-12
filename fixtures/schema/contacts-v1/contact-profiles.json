@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "databaseScope": "global",
+  "databaseFile": "global/orchlet.sqlite",
+  "contacts": [
+    {
+      "contactId": "01K00000000000000000000040",
+      "displayName": "External Admin",
+      "contactKind": "administrator",
+      "inviteSource": "adminContactInvite",
+      "notes": "Local administrator contact",
+      "sourceLabel": "Invite Admin Modal",
+      "createdAtMs": 1760000006000,
+      "updatedAtMs": 1760000006000
+    }
+  ]
+}

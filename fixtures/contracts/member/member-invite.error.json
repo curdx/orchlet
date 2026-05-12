@@ -1,0 +1,9 @@
+{
+  "code": "member.runtime.commandMissing",
+  "message": "成员运行时缺少命令。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请选择内置 CLI、shell 或填写自定义命令后重试。",
+  "details": null,
+  "correlationId": null
+}

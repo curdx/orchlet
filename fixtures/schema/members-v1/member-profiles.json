@@ -1,0 +1,106 @@
+{
+  "schemaVersion": 1,
+  "workspaceId": "01K00000000000000000000000",
+  "members": [
+    {
+      "memberId": "01K00000000000000000000030",
+      "workspaceId": "01K00000000000000000000000",
+      "role": "owner",
+      "displayName": "Owner",
+      "instanceIndex": 1,
+      "instanceLabel": "Owner",
+      "status": "online",
+      "runtime": {
+        "kind": "none",
+        "runtimeId": null,
+        "label": null,
+        "command": null
+      },
+      "permissions": {
+        "canMention": false,
+        "canRemove": false
+      },
+      "isolation": {
+        "sandboxed": false,
+        "unlimitedAccess": true
+      },
+      "createdAtMs": 1760000000000,
+      "updatedAtMs": 1760000000000
+    },
+    {
+      "memberId": "01K00000000000000000000031",
+      "workspaceId": "01K00000000000000000000000",
+      "role": "assistant",
+      "displayName": "Codex Reviewer",
+      "instanceIndex": 1,
+      "instanceLabel": "Codex Reviewer 1",
+      "status": "offline",
+      "runtime": {
+        "kind": "builtInAiCli",
+        "runtimeId": "codex",
+        "label": "Codex CLI",
+        "command": "codex"
+      },
+      "permissions": {
+        "canMention": true,
+        "canRemove": true
+      },
+      "isolation": {
+        "sandboxed": true,
+        "unlimitedAccess": false
+      },
+      "createdAtMs": 1760000001000,
+      "updatedAtMs": 1760000001000
+    },
+    {
+      "memberId": "01K00000000000000000000032",
+      "workspaceId": "01K00000000000000000000000",
+      "role": "assistant",
+      "displayName": "Codex Reviewer",
+      "instanceIndex": 2,
+      "instanceLabel": "Codex Reviewer 2",
+      "status": "offline",
+      "runtime": {
+        "kind": "builtInAiCli",
+        "runtimeId": "codex",
+        "label": "Codex CLI",
+        "command": "codex"
+      },
+      "permissions": {
+        "canMention": true,
+        "canRemove": true
+      },
+      "isolation": {
+        "sandboxed": true,
+        "unlimitedAccess": false
+      },
+      "createdAtMs": 1760000001000,
+      "updatedAtMs": 1760000001000
+    },
+    {
+      "memberId": "01K00000000000000000000033",
+      "workspaceId": "01K00000000000000000000000",
+      "role": "admin",
+      "displayName": "External Admin",
+      "instanceIndex": 1,
+      "instanceLabel": "External Admin",
+      "status": "offline",
+      "runtime": {
+        "kind": "none",
+        "runtimeId": null,
+        "label": null,
+        "command": null
+      },
+      "permissions": {
+        "canMention": true,
+        "canRemove": true
+      },
+      "isolation": {
+        "sandboxed": true,
+        "unlimitedAccess": false
+      },
+      "createdAtMs": 1760000006000,
+      "updatedAtMs": 1760000006000
+    }
+  ]
+}

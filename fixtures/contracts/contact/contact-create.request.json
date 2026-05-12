@@ -1,0 +1,7 @@
+{
+  "displayName": "External Admin",
+  "contactKind": "administrator",
+  "notes": "Local administrator contact",
+  "sourceLabel": "Invite Admin Modal",
+  "workspaceId": "01K00000000000000000000000"
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "projectId": "01K00000000000000000000000",
+      "path": "/fixtures/workspaces/alpha",
+      "name": "alpha",
+      "firstOpenedAtMs": 1760000000000,
+      "lastOpenedAtMs": 1760000001000
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "notification-preview",
+  "description": "Capability for the notification preview window placeholder",
+  "windows": ["notification-preview"],
+  "permissions": [
+    "core:default"
+  ]
+}

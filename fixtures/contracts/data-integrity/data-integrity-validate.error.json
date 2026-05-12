@@ -1,0 +1,9 @@
+{
+  "code": "dataIntegrity.appDataDirFailed",
+  "message": "无法定位应用数据目录。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "数据验证未运行；请检查系统应用数据目录权限后重试。",
+  "details": "app data directory unavailable in fixture runtime",
+  "correlationId": null
+}

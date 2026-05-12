@@ -1,0 +1,20 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "memberType": "assistant",
+  "displayName": "Codex Reviewer",
+  "runtime": {
+    "kind": "builtInAiCli",
+    "runtimeId": "codex",
+    "label": "Codex CLI",
+    "command": "codex"
+  },
+  "instanceCount": 2,
+  "permissions": {
+    "canMention": true,
+    "canRemove": true
+  },
+  "isolation": {
+    "sandboxed": true,
+    "unlimitedAccess": false
+  }
+}

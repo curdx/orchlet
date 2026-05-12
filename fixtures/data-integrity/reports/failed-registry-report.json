@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "reportId": "01K00000000000000000000021",
+  "generatedAtMs": 1760000005000,
+  "manifest": [],
+  "checks": [
+    {
+      "checkId": "storage.manifest.current_entries",
+      "category": "storageManifest",
+      "status": "passed",
+      "severity": "info",
+      "message": "Storage manifest covers all currently implemented stores.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": "entries=6"
+    },
+    {
+      "checkId": "workspace.registry.load_validate",
+      "category": "workspaceRegistry",
+      "status": "failed",
+      "severity": "error",
+      "message": "工作区 registry 项目标识无效。",
+      "affectedPaths": ["/fixtures/app-data/workspace-registry.json"],
+      "userAction": "最近工作区未更新；请修复 registry 中的 projectId 后重试。",
+      "details": "projectId must be a ULID string: not-a-ulid"
+    },
+    {
+      "checkId": "workspace.fallbacks.load_validate",
+      "category": "workspaceFallbacks",
+      "status": "passed",
+      "severity": "info",
+      "message": "workspace-fallbacks.json is readable and matches schema version.",
+      "affectedPaths": ["/fixtures/app-data/workspace-fallbacks.json"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "workspace.metadata.read_validate",
+      "category": "workspaceMetadata",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace root is available for workspace metadata validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "member.profiles.schema_validate",
+      "category": "memberProfiles",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace id is available for member profile validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "contact.profiles.schema_validate",
+      "category": "contactProfiles",
+      "status": "passed",
+      "severity": "info",
+      "message": "Global contact store is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/global/orchlet.sqlite"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "conversation.private.schema_validate",
+      "category": "privateConversations",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace id is available for private conversation validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
+    }
+  ],
+  "totalChecks": 7,
+  "passedChecks": 3,
+  "failedChecks": 1,
+  "skippedChecks": 3,
+  "hasFailures": true,
+  "batched": true
+}

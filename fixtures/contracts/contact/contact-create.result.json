@@ -1,0 +1,49 @@
+{
+  "contact": {
+    "contactId": "01K00000000000000000000040",
+    "displayName": "External Admin",
+    "contactKind": "administrator",
+    "inviteSource": "adminContactInvite",
+    "notes": "Local administrator contact",
+    "sourceLabel": "Invite Admin Modal",
+    "createdAtMs": 1760000006000,
+    "updatedAtMs": 1760000006000
+  },
+  "contacts": [
+    {
+      "contactId": "01K00000000000000000000040",
+      "displayName": "External Admin",
+      "contactKind": "administrator",
+      "inviteSource": "adminContactInvite",
+      "notes": "Local administrator contact",
+      "sourceLabel": "Invite Admin Modal",
+      "createdAtMs": 1760000006000,
+      "updatedAtMs": 1760000006000
+    }
+  ],
+  "adminMember": {
+    "memberId": "01K00000000000000000000033",
+    "workspaceId": "01K00000000000000000000000",
+    "role": "admin",
+    "displayName": "External Admin",
+    "instanceIndex": 1,
+    "instanceLabel": "External Admin",
+    "status": "offline",
+    "runtime": {
+      "kind": "none",
+      "runtimeId": null,
+      "label": null,
+      "command": null
+    },
+    "permissions": {
+      "canMention": true,
+      "canRemove": true
+    },
+    "isolation": {
+      "sandboxed": true,
+      "unlimitedAccess": false
+    },
+    "createdAtMs": 1760000006000,
+    "updatedAtMs": 1760000006000
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "case": "out-of-order-arrival",
+  "description": "Synthetic terminal stream fixture proving consumers must sort by seq, not arrival order.",
+  "events": [
+    {
+      "schemaVersion": 1,
+      "sessionId": "terminal-session-fixture-02",
+      "seq": 2,
+      "chunk": "second\n",
+      "kind": "stdout",
+      "emittedAtMs": 1760000011010
+    },
+    {
+      "schemaVersion": 1,
+      "sessionId": "terminal-session-fixture-02",
+      "seq": 1,
+      "chunk": "first\n",
+      "kind": "stdout",
+      "emittedAtMs": 1760000011000
+    },
+    {
+      "schemaVersion": 1,
+      "sessionId": "terminal-session-fixture-02",
+      "seq": 3,
+      "chunk": "third\n",
+      "kind": "stdout",
+      "emittedAtMs": 1760000011020
+    }
+  ],
+  "expectedSnapshot": {
+    "sessionId": "terminal-session-fixture-02",
+    "lastSeq": 3,
+    "text": "first\nsecond\nthird\n"
+  }
+}

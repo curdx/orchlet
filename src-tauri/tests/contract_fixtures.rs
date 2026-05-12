@@ -1,0 +1,183 @@
+use std::{fs, path::Path};
+
+use orchlet_lib::contracts::{
+    AppError, ContactKind, ConversationParticipantKind, CreateContactRequest, CreateContactResult,
+    DataIntegrityValidateRequest, DataIntegrityValidateResult, DeleteContactRequest,
+    DeleteContactResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
+    ListContactsRequest, ListContactsResult, ListMembersRequest, ListMembersResult, MemberRole,
+    MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest, OpenWorkspaceResult,
+    RemoveMemberRequest, RemoveMemberResult, StartPrivateConversationRequest,
+    StartPrivateConversationResult, UpdateContactRequest, UpdateContactResult, WorkspaceOpenStatus,
+};
+use serde::de::DeserializeOwned;
+
+#[test]
+fn workspace_contract_fixtures_deserialize_into_rust_dtos() {
+    let request: OpenWorkspaceRequest =
+        read_fixture("../fixtures/contracts/workspace/workspace-open.request.json");
+    let result: OpenWorkspaceResult =
+        read_fixture("../fixtures/contracts/workspace/workspace-open.result.json");
+    let error: AppError = read_fixture("../fixtures/contracts/workspace/workspace-open.error.json");
+
+    assert_eq!(request.path, "/fixtures/workspaces/alpha");
+    assert_eq!(request.conflict_resolution, None);
+    assert_eq!(result.status, WorkspaceOpenStatus::Opened);
+    assert_eq!(
+        result
+            .workspace
+            .as_ref()
+            .expect("workspace fixture")
+            .metadata
+            .name,
+        "alpha"
+    );
+    assert_eq!(error.code, "workspace.metadata.invalidJson");
+    assert!(error.recoverable);
+}
+
+#[test]
+fn data_integrity_contract_fixtures_deserialize_into_rust_dtos() {
+    let request: DataIntegrityValidateRequest =
+        read_fixture("../fixtures/contracts/data-integrity/data-integrity-validate.request.json");
+    let result: DataIntegrityValidateResult =
+        read_fixture("../fixtures/contracts/data-integrity/data-integrity-validate.result.json");
+    let error: AppError =
+        read_fixture("../fixtures/contracts/data-integrity/data-integrity-validate.error.json");
+
+    assert_eq!(
+        request.workspace_root.as_deref(),
+        Some("/fixtures/workspaces/alpha")
+    );
+    assert_eq!(result.report.total_checks, 5);
+    assert_eq!(result.report.passed_checks, 5);
+    assert!(!result.report.has_failures);
+    assert_eq!(error.code, "dataIntegrity.appDataDirFailed");
+    assert!(error.recoverable);
+}
+
+#[test]
+fn member_contract_fixtures_deserialize_into_rust_dtos() {
+    let list_request: ListMembersRequest =
+        read_fixture("../fixtures/contracts/member/members-list.request.json");
+    let list_result: ListMembersResult =
+        read_fixture("../fixtures/contracts/member/members-list.result.json");
+    let list_error: AppError = read_fixture("../fixtures/contracts/member/members-list.error.json");
+    let invite_request: InviteMemberRequest =
+        read_fixture("../fixtures/contracts/member/member-invite.request.json");
+    let invite_result: InviteMemberResult =
+        read_fixture("../fixtures/contracts/member/member-invite.result.json");
+    let invite_error: AppError =
+        read_fixture("../fixtures/contracts/member/member-invite.error.json");
+    let remove_request: RemoveMemberRequest =
+        read_fixture("../fixtures/contracts/member/member-remove.request.json");
+    let remove_result: RemoveMemberResult =
+        read_fixture("../fixtures/contracts/member/member-remove.result.json");
+    let remove_error: AppError =
+        read_fixture("../fixtures/contracts/member/member-remove.error.json");
+
+    assert_eq!(list_request.workspace_id, "01K00000000000000000000000");
+    assert_eq!(list_result.members.len(), 1);
+    assert_eq!(list_result.members[0].role, MemberRole::Owner);
+    assert_eq!(list_error.code, "member.workspace.invalidId");
+    assert_eq!(invite_request.member_type, InvitedMemberType::Assistant);
+    assert_eq!(invite_request.instance_count, Some(2));
+    assert_eq!(invite_request.runtime.kind, MemberRuntimeKind::BuiltInAiCli);
+    assert_eq!(invite_result.member.status, MemberStatus::Offline);
+    assert_eq!(invite_result.invited_members.len(), 2);
+    assert_eq!(invite_result.members.len(), 3);
+    assert_eq!(invite_result.member.instance_label, "Codex Reviewer 1");
+    assert_eq!(invite_error.code, "member.runtime.commandMissing");
+    assert_eq!(remove_request.member_id, "01K00000000000000000000031");
+    assert_eq!(remove_result.removed_member_id, remove_request.member_id);
+    assert_eq!(remove_result.members.len(), 1);
+    assert_eq!(remove_error.code, "member.remove.forbidden");
+}
+
+#[test]
+fn contact_contract_fixtures_deserialize_into_rust_dtos() {
+    let _list_request: ListContactsRequest =
+        read_fixture("../fixtures/contracts/contact/contacts-list.request.json");
+    let list_result: ListContactsResult =
+        read_fixture("../fixtures/contracts/contact/contacts-list.result.json");
+    let list_error: AppError =
+        read_fixture("../fixtures/contracts/contact/contacts-list.error.json");
+    let create_request: CreateContactRequest =
+        read_fixture("../fixtures/contracts/contact/contact-create.request.json");
+    let create_result: CreateContactResult =
+        read_fixture("../fixtures/contracts/contact/contact-create.result.json");
+    let create_error: AppError =
+        read_fixture("../fixtures/contracts/contact/contact-create.error.json");
+    let update_request: UpdateContactRequest =
+        read_fixture("../fixtures/contracts/contact/contact-update.request.json");
+    let update_result: UpdateContactResult =
+        read_fixture("../fixtures/contracts/contact/contact-update.result.json");
+    let update_error: AppError =
+        read_fixture("../fixtures/contracts/contact/contact-update.error.json");
+    let delete_request: DeleteContactRequest =
+        read_fixture("../fixtures/contracts/contact/contact-delete.request.json");
+    let delete_result: DeleteContactResult =
+        read_fixture("../fixtures/contracts/contact/contact-delete.result.json");
+    let delete_error: AppError =
+        read_fixture("../fixtures/contracts/contact/contact-delete.error.json");
+
+    assert_eq!(list_result.contacts.len(), 1);
+    assert_eq!(
+        list_result.contacts[0].contact_kind,
+        ContactKind::Administrator
+    );
+    assert_eq!(list_error.code, "contact.appDataDirFailed");
+    assert_eq!(create_request.contact_kind, ContactKind::Administrator);
+    assert_eq!(
+        create_request.workspace_id.as_deref(),
+        Some("01K00000000000000000000000")
+    );
+    assert_eq!(create_result.contact.display_name, "External Admin");
+    assert_eq!(
+        create_result
+            .admin_member
+            .as_ref()
+            .expect("admin member fixture")
+            .role,
+        MemberRole::Admin
+    );
+    assert_eq!(create_error.code, "contact.displayName.empty");
+    assert_eq!(update_request.contact_kind, ContactKind::Contact);
+    assert_eq!(update_result.contact.display_name, "External Admin Updated");
+    assert_eq!(update_error.code, "contact.get.notFound");
+    assert_eq!(delete_result.deleted_contact_id, delete_request.contact_id);
+    assert_eq!(delete_error.code, "contact.delete.notFound");
+}
+
+#[test]
+fn chat_contract_fixtures_deserialize_into_rust_dtos() {
+    let request: StartPrivateConversationRequest =
+        read_fixture("../fixtures/contracts/chat/chat-private-conversation-start.request.json");
+    let result: StartPrivateConversationResult =
+        read_fixture("../fixtures/contracts/chat/chat-private-conversation-start.result.json");
+    let error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-private-conversation-start.error.json");
+
+    assert_eq!(request.workspace_id, "01K00000000000000000000000");
+    assert_eq!(
+        request.participant_kind,
+        ConversationParticipantKind::Contact
+    );
+    assert!(result.created);
+    assert_eq!(result.conversation.title, "External Admin");
+    assert_eq!(error.code, "conversation.participant.memberNotFound");
+}
+
+fn read_fixture<T: DeserializeOwned>(relative_path: &str) -> T {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+    let raw = fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!("failed to read fixture {}: {}", path.display(), error);
+    });
+
+    serde_json::from_str(&raw).unwrap_or_else(|error| {
+        panic!(
+            "failed to deserialize fixture {}: {}",
+            path.display(),
+            error
+        );
+    })
+}

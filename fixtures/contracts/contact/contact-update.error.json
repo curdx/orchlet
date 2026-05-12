@@ -1,0 +1,9 @@
+{
+  "code": "contact.get.notFound",
+  "message": "未找到联系人。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新联系人列表后重试。",
+  "details": "contactId=01K00000000000000000000999",
+  "correlationId": null
+}

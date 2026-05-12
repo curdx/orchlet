@@ -1,0 +1,9 @@
+{
+  "code": "contact.displayName.empty",
+  "message": "联系人显示名称不能为空。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请输入联系人名称后重试。",
+  "details": null,
+  "correlationId": null
+}

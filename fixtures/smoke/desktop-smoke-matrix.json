@@ -1,0 +1,160 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-11",
+  "statusValues": ["pass", "fail", "manual"],
+  "requiredFlows": [
+    "launch",
+    "openWorkspace",
+    "startShell",
+    "sendMessage",
+    "terminalOutput",
+    "notificationJump",
+    "restartRecovery"
+  ],
+  "platforms": [
+    {
+      "platform": "windows",
+      "runner": "windows-latest",
+      "flows": [
+        {
+          "id": "launch",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Packaged desktop automation is not implemented yet."
+        },
+        {
+          "id": "openWorkspace",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Covered by current workspace fixtures and future packaged smoke."
+        },
+        {
+          "id": "startShell",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Terminal PTY is future scope."
+        },
+        {
+          "id": "sendMessage",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Chat dispatch is future scope."
+        },
+        {
+          "id": "terminalOutput",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Synthetic terminal stream fixtures cover ordering only."
+        },
+        {
+          "id": "notificationJump",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Notification navigation is future scope."
+        },
+        {
+          "id": "restartRecovery",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Restart recovery is future smoke automation scope."
+        }
+      ]
+    },
+    {
+      "platform": "macos",
+      "runner": "macos-latest",
+      "flows": [
+        {
+          "id": "launch",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Local Tauri build can launch manually; automated app smoke is not implemented yet."
+        },
+        {
+          "id": "openWorkspace",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Covered by current workspace fixtures and future packaged smoke."
+        },
+        {
+          "id": "startShell",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Terminal PTY is future scope."
+        },
+        {
+          "id": "sendMessage",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Chat dispatch is future scope."
+        },
+        {
+          "id": "terminalOutput",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Synthetic terminal stream fixtures cover ordering only."
+        },
+        {
+          "id": "notificationJump",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Notification navigation is future scope."
+        },
+        {
+          "id": "restartRecovery",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Restart recovery is future smoke automation scope."
+        }
+      ]
+    },
+    {
+      "platform": "linux",
+      "runner": "ubuntu-latest",
+      "flows": [
+        {
+          "id": "launch",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Packaged desktop automation is not implemented yet."
+        },
+        {
+          "id": "openWorkspace",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Covered by current workspace fixtures and future packaged smoke."
+        },
+        {
+          "id": "startShell",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Terminal PTY is future scope."
+        },
+        {
+          "id": "sendMessage",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Chat dispatch is future scope."
+        },
+        {
+          "id": "terminalOutput",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Synthetic terminal stream fixtures cover ordering only."
+        },
+        {
+          "id": "notificationJump",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Notification navigation is future scope."
+        },
+        {
+          "id": "restartRecovery",
+          "status": "manual",
+          "evidence": null,
+          "notes": "Restart recovery is future smoke automation scope."
+        }
+      ]
+    }
+  ]
+}

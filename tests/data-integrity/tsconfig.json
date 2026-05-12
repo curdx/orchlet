@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["./data-integrity-fixture-types.ts", "../../src/contracts/generated/**/*.ts"]
+}

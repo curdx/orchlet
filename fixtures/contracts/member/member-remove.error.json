@@ -1,0 +1,9 @@
+{
+  "code": "member.remove.forbidden",
+  "message": "该成员不能被移除。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "Owner 或不可移除成员不能通过当前操作删除。",
+  "details": "role=Owner canRemove=false",
+  "correlationId": null
+}

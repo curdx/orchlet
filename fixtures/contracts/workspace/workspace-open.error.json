@@ -1,0 +1,9 @@
+{
+  "code": "workspace.metadata.invalidJson",
+  "message": "工作区元数据不是有效 JSON。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "当前工作区未打开；请先备份或修复 .orchlet/workspace.json 后重试。",
+  "details": "/fixtures/workspaces/alpha/.orchlet/workspace.json: expected value at line 1 column 1",
+  "correlationId": null
+}

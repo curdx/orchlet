@@ -1,0 +1,25 @@
+{
+  "status": "opened",
+  "workspace": {
+    "rootPath": "/fixtures/workspaces/alpha",
+    "metadata": {
+      "schemaVersion": 1,
+      "projectId": "01K00000000000000000000000",
+      "name": "alpha",
+      "createdAtMs": 1760000000000,
+      "updatedAtMs": 1760000001000
+    },
+    "created": true,
+    "accessMode": "readWrite",
+    "fallbackState": null,
+    "registryEntry": {
+      "projectId": "01K00000000000000000000000",
+      "path": "/fixtures/workspaces/alpha",
+      "name": "alpha",
+      "firstOpenedAtMs": 1760000000000,
+      "lastOpenedAtMs": 1760000001000
+    },
+    "registryAction": "created"
+  },
+  "conflict": null
+}

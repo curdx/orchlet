@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "case": "ordered-output",
+  "description": "Synthetic terminal stream fixture for ordered stdout chunks. This does not start a PTY.",
+  "events": [
+    {
+      "schemaVersion": 1,
+      "sessionId": "terminal-session-fixture-01",
+      "seq": 1,
+      "chunk": "$ echo ready\n",
+      "kind": "stdout",
+      "emittedAtMs": 1760000010000
+    },
+    {
+      "schemaVersion": 1,
+      "sessionId": "terminal-session-fixture-01",
+      "seq": 2,
+      "chunk": "ready\n",
+      "kind": "stdout",
+      "emittedAtMs": 1760000010010
+    }
+  ],
+  "expectedSnapshot": {
+    "sessionId": "terminal-session-fixture-01",
+    "lastSeq": 2,
+    "text": "$ echo ready\nready\n"
+  }
+}

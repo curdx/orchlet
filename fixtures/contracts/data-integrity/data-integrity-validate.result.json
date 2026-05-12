@@ -1,0 +1,151 @@
+{
+  "report": {
+    "schemaVersion": 1,
+    "reportId": "01K00000000000000000000010",
+    "generatedAtMs": 1760000003000,
+    "manifest": [
+      {
+        "id": "workspace.metadata",
+        "owner": "workspace",
+        "category": "workspaceMetadata",
+        "description": "Workspace-local orchlet identity metadata.",
+        "pathPolicy": "workspaceLocalRelative",
+        "relativePath": ".orchlet/workspace.json",
+        "fileName": null,
+        "format": "json",
+        "schemaVersion": 1,
+        "readers": [
+          "src-tauri/src/infrastructure/persistence/json_store/workspace_metadata_store.rs"
+        ],
+        "writers": [
+          "src-tauri/src/infrastructure/persistence/json_store/workspace_metadata_store.rs"
+        ],
+        "privacyClass": "localPath",
+        "fixtureRequired": true,
+        "validationCheckId": "workspace.metadata.read_validate",
+        "notes": "Missing file is valid only when no workspace is active or the active workspace is in read-only fallback."
+      },
+      {
+        "id": "workspace.registry",
+        "owner": "workspace",
+        "category": "workspaceRegistry",
+        "description": "App-data workspace registry and recent workspace source.",
+        "pathPolicy": "appDataFile",
+        "relativePath": null,
+        "fileName": "workspace-registry.json",
+        "format": "json",
+        "schemaVersion": 1,
+        "readers": [
+          "src-tauri/src/infrastructure/persistence/json_store/workspace_registry_store.rs"
+        ],
+        "writers": [
+          "src-tauri/src/infrastructure/persistence/json_store/workspace_registry_store.rs"
+        ],
+        "privacyClass": "appState",
+        "fixtureRequired": true,
+        "validationCheckId": "workspace.registry.load_validate",
+        "notes": "Recent workspaces are derived from this file; there is no separate recent-workspaces store."
+      },
+      {
+        "id": "workspace.fallbacks",
+        "owner": "workspace",
+        "category": "workspaceFallbacks",
+        "description": "App-data fallback identities for read-only workspace-local metadata.",
+        "pathPolicy": "appDataFile",
+        "relativePath": null,
+        "fileName": "workspace-fallbacks.json",
+        "format": "json",
+        "schemaVersion": 1,
+        "readers": [
+          "src-tauri/src/infrastructure/persistence/json_store/workspace_fallback_store.rs"
+        ],
+        "writers": [
+          "src-tauri/src/infrastructure/persistence/json_store/workspace_fallback_store.rs"
+        ],
+        "privacyClass": "appState",
+        "fixtureRequired": true,
+        "validationCheckId": "workspace.fallbacks.load_validate",
+        "notes": "This store preserves stable project ids when workspace-local metadata cannot be written."
+      },
+      {
+        "id": "member.profiles",
+        "owner": "member",
+        "category": "memberProfiles",
+        "description": "Workspace member profiles, default owner, invite runtime selections, permissions and isolation flags.",
+        "pathPolicy": "appDataWorkspaceFile",
+        "relativePath": "workspaces/<workspaceId>/orchlet.sqlite",
+        "fileName": "orchlet.sqlite",
+        "format": "sqlite",
+        "schemaVersion": 1,
+        "readers": [
+          "src-tauri/src/infrastructure/persistence/sqlite/member_repository.rs"
+        ],
+        "writers": [
+          "src-tauri/src/infrastructure/persistence/sqlite/member_repository.rs"
+        ],
+        "privacyClass": "workspaceData",
+        "fixtureRequired": true,
+        "validationCheckId": "member.profiles.schema_validate",
+        "notes": "Contains member identity, runtime selection, permissions and isolation flags only; terminal sessions are not started or persisted by member invite stories."
+      }
+    ],
+    "checks": [
+      {
+        "checkId": "storage.manifest.current_entries",
+        "category": "storageManifest",
+        "status": "passed",
+        "severity": "info",
+        "message": "Storage manifest covers all currently implemented stores.",
+        "affectedPaths": [],
+        "userAction": null,
+        "details": "entries=4"
+      },
+      {
+        "checkId": "workspace.registry.load_validate",
+        "category": "workspaceRegistry",
+        "status": "passed",
+        "severity": "info",
+        "message": "workspace-registry.json is readable and matches schema version.",
+        "affectedPaths": ["/fixtures/app-data/workspace-registry.json"],
+        "userAction": null,
+        "details": null
+      },
+      {
+        "checkId": "workspace.fallbacks.load_validate",
+        "category": "workspaceFallbacks",
+        "status": "passed",
+        "severity": "info",
+        "message": "workspace-fallbacks.json is readable and matches schema version.",
+        "affectedPaths": ["/fixtures/app-data/workspace-fallbacks.json"],
+        "userAction": null,
+        "details": null
+      },
+      {
+        "checkId": "workspace.metadata.read_validate",
+        "category": "workspaceMetadata",
+        "status": "passed",
+        "severity": "info",
+        "message": ".orchlet/workspace.json is readable and matches schema version.",
+        "affectedPaths": ["/fixtures/workspaces/alpha/.orchlet/workspace.json"],
+        "userAction": null,
+        "details": null
+      },
+      {
+        "checkId": "member.profiles.schema_validate",
+        "category": "memberProfiles",
+        "status": "passed",
+        "severity": "info",
+        "message": "Member profile database is readable and has exactly one default owner.",
+        "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
+        "userAction": null,
+        "details": null
+      }
+    ],
+    "totalChecks": 5,
+    "passedChecks": 5,
+    "failedChecks": 0,
+    "skippedChecks": 0,
+    "hasFailures": false,
+    "batched": true
+  }
+}
