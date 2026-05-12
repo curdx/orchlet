@@ -1,0 +1,31 @@
+{
+  "summary": {
+    "schemaVersion": 1,
+    "workspaceId": "01K00000000000000000000000",
+    "workspaceName": "orchlet-demo",
+    "totalUnreadCount": 3,
+    "conversations": [
+      {
+        "conversationId": "01K00000000000000000000060",
+        "title": "默认频道",
+        "unreadCount": 1,
+        "lastMessagePreview": "Ready for review",
+        "updatedAtMs": 1760000003000
+      },
+      {
+        "conversationId": "01K00000000000000000000080",
+        "title": "Project Room",
+        "unreadCount": 2,
+        "lastMessagePreview": "Build finished",
+        "updatedAtMs": 1760000004000
+      }
+    ],
+    "tray": {
+      "unreadCount": 3,
+      "badgeLabel": "3",
+      "hasUnread": true
+    },
+    "updatedAtMs": 1760000005000,
+    "sourceWindowLabel": "main"
+  }
+}

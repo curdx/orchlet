@@ -1,0 +1,9 @@
+{
+  "code": "notification.unread.summaryUnavailable",
+  "message": "无法读取未读状态。",
+  "userAction": "请重新打开通知预览或刷新工作区。",
+  "details": "runtime state unavailable",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "warning"
+}

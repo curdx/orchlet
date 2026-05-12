@@ -74,6 +74,15 @@ export type {
   UpdateMemberStatusResult,
 } from "./member";
 export type {
+  NotificationTrayState,
+  NotificationUnreadConversation,
+  NotificationUnreadSummary,
+  NotificationUnreadSummaryRequest,
+  NotificationUnreadSummaryResult,
+  NotificationUnreadUpdateRequest,
+  NotificationUnreadUpdateResult,
+} from "./notification";
+export type {
   DispatchChatMessageRequest,
   DispatchChatMessageResult,
   DispatchFailureProfile,

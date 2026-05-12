@@ -215,6 +215,30 @@
       "requirements": ["FR48", "NFR12", "NFR35", "NFR36"]
     },
     {
+      "domain": "notification",
+      "command": "notification_unread_summary_get",
+      "requestFixture": "fixtures/contracts/notification/notification-unread-summary-get.request.json",
+      "successResultFixture": "fixtures/contracts/notification/notification-unread-summary-get.result.json",
+      "errorFixture": "fixtures/contracts/notification/notification-unread-summary-get.error.json",
+      "rustRequestDto": "NotificationUnreadSummaryRequest",
+      "rustSuccessDto": "NotificationUnreadSummaryResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR52", "NFR6", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "notification",
+      "command": "notification_unread_summary_update",
+      "requestFixture": "fixtures/contracts/notification/notification-unread-summary-update.request.json",
+      "successResultFixture": "fixtures/contracts/notification/notification-unread-summary-update.result.json",
+      "errorFixture": "fixtures/contracts/notification/notification-unread-summary-update.error.json",
+      "rustRequestDto": "NotificationUnreadUpdateRequest",
+      "rustSuccessDto": "NotificationUnreadUpdateResult",
+      "rustErrorDto": "AppError",
+      "eventFixture": "fixtures/contracts/notification/notification-unread.event.json",
+      "rustEventDto": "NotificationUnreadSummary",
+      "requirements": ["FR52", "NFR6", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

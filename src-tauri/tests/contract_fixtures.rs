@@ -10,7 +10,9 @@ use orchlet_lib::contracts::{
     DispatchRequestStatus, DispatchTargetResolutionSource, InviteMemberRequest, InviteMemberResult,
     InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
     ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
-    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest,
+    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, NotificationUnreadSummary,
+    NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
+    NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenWorkspaceRequest,
     OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
     SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
@@ -396,6 +398,44 @@ fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
         serde_json::to_value(DispatchRequestStatus::Skipped).expect("skipped status value"),
         serde_json::json!("skipped")
     );
+}
+
+#[test]
+fn notification_contract_fixtures_deserialize_into_rust_dtos() {
+    let _get_request: NotificationUnreadSummaryRequest = read_fixture(
+        "../fixtures/contracts/notification/notification-unread-summary-get.request.json",
+    );
+    let get_result: NotificationUnreadSummaryResult = read_fixture(
+        "../fixtures/contracts/notification/notification-unread-summary-get.result.json",
+    );
+    let get_error: AppError = read_fixture(
+        "../fixtures/contracts/notification/notification-unread-summary-get.error.json",
+    );
+    let update_request: NotificationUnreadUpdateRequest = read_fixture(
+        "../fixtures/contracts/notification/notification-unread-summary-update.request.json",
+    );
+    let update_result: NotificationUnreadUpdateResult = read_fixture(
+        "../fixtures/contracts/notification/notification-unread-summary-update.result.json",
+    );
+    let update_error: AppError = read_fixture(
+        "../fixtures/contracts/notification/notification-unread-summary-update.error.json",
+    );
+    let event: NotificationUnreadSummary =
+        read_fixture("../fixtures/contracts/notification/notification-unread.event.json");
+
+    assert_eq!(get_result.summary.total_unread_count, 3);
+    assert_eq!(get_result.summary.tray.badge_label.as_deref(), Some("3"));
+    assert_eq!(get_result.summary.conversations.len(), 2);
+    assert_eq!(get_error.code, "notification.unread.summaryUnavailable");
+    assert_eq!(
+        update_request.workspace_id.as_deref(),
+        Some("01K00000000000000000000000")
+    );
+    assert_eq!(update_request.conversations[1].unread_count, 2);
+    assert_eq!(update_result.summary.total_unread_count, 3);
+    assert_eq!(update_error.code, "notification.unread.emitFailed");
+    assert_eq!(event.total_unread_count, 3);
+    assert!(event.tray.has_unread);
 }
 
 #[test]

@@ -37,6 +37,7 @@ import {
   contactApi,
   dataIntegrityApi,
   memberApi,
+  notificationApi,
   normalizeAppError,
   terminalDispatchApi,
   terminalApi,
@@ -47,6 +48,7 @@ import type { ContactApi } from "../../../shared/api/contact-api";
 import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
 import type { MemberApi } from "../../../shared/api/member-api";
+import type { NotificationApi } from "../../../shared/api/notification-api";
 import type { TerminalDispatchApi } from "../../../shared/api/terminal-dispatch-api";
 import type { TerminalApi } from "../../../shared/api/terminal-api";
 import type {
@@ -97,6 +99,7 @@ type WorkspaceSelectionPageProps = {
   onOpenWindowMode?: (mode: WindowMode) => Promise<void>;
   integrityApi?: Pick<DataIntegrityApi, "validate">;
   memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember" | "updateMemberStatus">;
+  notificationApi?: Pick<NotificationApi, "updateUnreadSummary">;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
@@ -173,6 +176,7 @@ export function WorkspaceSelectionPage({
   onOpenWindowMode,
   integrityApi = dataIntegrityApi,
   memberApi: membersApi = memberApi,
+  notificationApi: notificationsApi = notificationApi,
   terminalApi: terminalsApi = terminalApi,
   terminalDispatchApi: dispatchApi = terminalDispatchApi,
   contactApi: contactsApi = contactApi,
@@ -237,6 +241,7 @@ export function WorkspaceSelectionPage({
   const conflictPrimaryButtonRef = useRef<HTMLButtonElement>(null);
   const conflictTriggerRef = useRef<HTMLElement | null>(null);
   const lastReadUpdateRef = useRef<string | null>(null);
+  const lastUnreadPublishKeyRef = useRef<string | null>(null);
   const terminalOutputBufferRef = useRef(new Map<string, TerminalOutputEventPayload[]>());
   const terminalOutputFlushTimerRef = useRef<number | null>(null);
   const membersRef = useRef<MemberProfile[]>([]);
@@ -294,6 +299,23 @@ export function WorkspaceSelectionPage({
 
       return left.terminalSessionId.localeCompare(right.terminalSessionId);
     });
+  const unreadConversations = useMemo(
+    () =>
+      conversations
+        .filter((conversation) => conversation.unreadCount > 0)
+        .map((conversation) => ({
+          conversationId: conversation.conversationId,
+          title: conversation.title,
+          unreadCount: conversation.unreadCount,
+          lastMessagePreview: conversation.lastMessagePreview,
+          updatedAtMs: conversation.updatedAtMs,
+        })),
+    [conversations],
+  );
+  const workspaceUnreadCount = unreadConversations.reduce(
+    (total, conversation) => total + conversation.unreadCount,
+    0,
+  );
   const messageQueryKey = [
     "chat-messages",
     activeWorkspaceId,
@@ -389,6 +411,38 @@ export function WorkspaceSelectionPage({
   useEffect(() => {
     membersRef.current = members;
   }, [members]);
+
+  useEffect(() => {
+    const request = {
+      workspaceId: activeWorkspaceId,
+      workspaceName: activeWorkspace?.metadata.name ?? null,
+      conversations: activeWorkspaceId ? unreadConversations : [],
+      sourceWindowLabel: windowContext?.currentWindow.label ?? "main",
+    };
+    const publishKey = JSON.stringify(request);
+
+    if (lastUnreadPublishKeyRef.current === publishKey) {
+      return;
+    }
+    lastUnreadPublishKeyRef.current = publishKey;
+
+    notificationsApi.updateUnreadSummary(request).catch((error) => {
+      const appError = normalizeAppError(error);
+      showToast({
+        tone: appError.severity,
+        title: "无法同步未读状态",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    });
+  }, [
+    activeWorkspace?.metadata.name,
+    activeWorkspaceId,
+    notificationsApi,
+    showToast,
+    unreadConversations,
+    windowContext?.currentWindow.label,
+  ]);
 
   useEffect(() => {
     terminalOutputBufferRef.current.clear();
@@ -1778,6 +1832,18 @@ export function WorkspaceSelectionPage({
             <span className="text-xs font-medium text-[#637064]">
               {isLoading ? "检查入口状态中" : modeLabel}
             </span>
+            {activeWorkspace ? (
+              <span
+                aria-label="工作区未读总数"
+                className={
+                  workspaceUnreadCount > 0
+                    ? "rounded-full border border-[#b9d0b2] bg-[#eef6ea] px-2 py-0.5 text-xs font-semibold text-[#2f5038]"
+                    : "rounded-full border border-[#d8e2d4] bg-white px-2 py-0.5 text-xs font-medium text-[#6a786c]"
+                }
+              >
+                未读 {unreadBadgeLabel(workspaceUnreadCount)}
+              </span>
+            ) : null}
           </div>
           <div className="flex items-center gap-2">
             <IconButton
@@ -3307,6 +3373,10 @@ function terminalCapableMembersByIds(memberIds: string[], members: MemberProfile
 
 function shortId(value: string) {
   return value.slice(-6);
+}
+
+function unreadBadgeLabel(count: number) {
+  return count > 99 ? "99+" : String(count);
 }
 
 function mergeMessagePages(

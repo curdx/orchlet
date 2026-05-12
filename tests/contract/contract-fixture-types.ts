@@ -68,6 +68,13 @@ import type {
   UpdateMemberStatusResult,
 } from "../../src/contracts/generated/member";
 import type {
+  NotificationUnreadSummary,
+  NotificationUnreadSummaryRequest,
+  NotificationUnreadSummaryResult,
+  NotificationUnreadUpdateRequest,
+  NotificationUnreadUpdateResult,
+} from "../../src/contracts/generated/notification";
+import type {
   DispatchChatMessageRequest,
   DispatchChatMessageResult,
   DispatchQueueResumeRequest,
@@ -183,6 +190,13 @@ import dispatchChatMessageResult from "../../fixtures/contracts/orchestration/di
 import dispatchQueueResumeError from "../../fixtures/contracts/orchestration/dispatch-queue-resume.error.json";
 import dispatchQueueResumeRequest from "../../fixtures/contracts/orchestration/dispatch-queue-resume.request.json";
 import dispatchQueueResumeResult from "../../fixtures/contracts/orchestration/dispatch-queue-resume.result.json";
+import notificationUnreadGetError from "../../fixtures/contracts/notification/notification-unread-summary-get.error.json";
+import notificationUnreadGetRequest from "../../fixtures/contracts/notification/notification-unread-summary-get.request.json";
+import notificationUnreadGetResult from "../../fixtures/contracts/notification/notification-unread-summary-get.result.json";
+import notificationUnreadUpdateError from "../../fixtures/contracts/notification/notification-unread-summary-update.error.json";
+import notificationUnreadUpdateRequest from "../../fixtures/contracts/notification/notification-unread-summary-update.request.json";
+import notificationUnreadUpdateResult from "../../fixtures/contracts/notification/notification-unread-summary-update.result.json";
+import notificationUnreadEvent from "../../fixtures/contracts/notification/notification-unread.event.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -395,6 +409,23 @@ export const dispatchQueueResumeResultFixture: DispatchQueueResumeResult = {
 };
 export const dispatchQueueResumeErrorFixture: AppError = appError(dispatchQueueResumeError);
 
+export const notificationUnreadGetRequestFixture: NotificationUnreadSummaryRequest =
+  notificationUnreadGetRequest;
+export const notificationUnreadGetResultFixture: NotificationUnreadSummaryResult = {
+  summary: notificationUnreadSummary(notificationUnreadGetResult.summary),
+};
+export const notificationUnreadGetErrorFixture: AppError = appError(notificationUnreadGetError);
+export const notificationUnreadUpdateRequestFixture: NotificationUnreadUpdateRequest =
+  notificationUnreadUpdateRequest;
+export const notificationUnreadUpdateResultFixture: NotificationUnreadUpdateResult = {
+  summary: notificationUnreadSummary(notificationUnreadUpdateResult.summary),
+};
+export const notificationUnreadUpdateErrorFixture: AppError = appError(
+  notificationUnreadUpdateError,
+);
+export const notificationUnreadEventFixture: NotificationUnreadSummary =
+  notificationUnreadSummary(notificationUnreadEvent);
+
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
   contacts: listContactsResult.contacts.map(contactProfile),
@@ -542,6 +573,8 @@ type ErrorJson =
   | typeof terminalTabUpdateError
   | typeof dispatchChatMessageError
   | typeof dispatchQueueResumeError
+  | typeof notificationUnreadGetError
+  | typeof notificationUnreadUpdateError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -556,6 +589,19 @@ type ErrorJson =
   | typeof updateReadPositionError
   | typeof updateGroupConversationMembersError
   | typeof privateConversationError;
+
+function notificationUnreadSummary(
+  summary:
+    | typeof notificationUnreadGetResult.summary
+    | typeof notificationUnreadUpdateResult.summary
+    | typeof notificationUnreadEvent,
+): NotificationUnreadSummary {
+  return {
+    ...summary,
+    conversations: summary.conversations.map((conversation) => ({ ...conversation })),
+    tray: { ...summary.tray },
+  };
+}
 
 function appError(error: ErrorJson): AppError {
   return {

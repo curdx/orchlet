@@ -2,6 +2,7 @@ pub mod chat;
 pub mod contacts;
 pub mod data_integrity;
 pub mod members;
+pub mod notification;
 pub mod orchestration;
 pub mod terminal;
 pub mod window_context;

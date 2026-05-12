@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import App from "./App";
+import App, { NotificationPreviewPage } from "./App";
 import { WorkspaceSelectionPage } from "./pages/workspace-selection";
 import { useToastStore } from "./shared/ui";
 import type {
@@ -37,6 +37,9 @@ import type {
   ListMembersRequest,
   ListMembersResult,
   MemberProfile,
+  NotificationUnreadSummary,
+  NotificationUnreadUpdateRequest,
+  NotificationUnreadUpdateResult,
   OpenWorkspaceResult,
   RecentWorkspaceEntry,
   RemoveMemberRequest,
@@ -110,6 +113,11 @@ function renderWorkspaceSelection(api: {
       request: DispatchQueueResumeRequest,
     ) => Promise<DispatchQueueResumeResult>;
   }>;
+  notificationApi?: Partial<{
+    updateUnreadSummary: (
+      request: NotificationUnreadUpdateRequest,
+    ) => Promise<NotificationUnreadUpdateResult>;
+  }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
     createContact: (request: CreateContactRequest) => Promise<CreateContactResult>;
@@ -139,8 +147,15 @@ function renderWorkspaceSelection(api: {
     ) => Promise<StartPrivateConversationResult>;
   }>;
 }) {
-  const { memberApi, terminalApi, terminalDispatchApi, contactApi, chatApi, ...workspaceApi } =
-    api;
+  const {
+    memberApi,
+    notificationApi,
+    terminalApi,
+    terminalDispatchApi,
+    contactApi,
+    chatApi,
+    ...workspaceApi
+  } = api;
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -170,6 +185,11 @@ function renderWorkspaceSelection(api: {
           subscribeOutput: () => Promise.resolve(() => undefined),
           subscribeStatus: () => Promise.resolve(() => undefined),
           ...terminalApi,
+        }}
+        notificationApi={{
+          updateUnreadSummary: (request) =>
+            Promise.resolve({ summary: notificationSummary({ request }) }),
+          ...notificationApi,
         }}
         terminalDispatchApi={{
           dispatchChatMessage: () =>
@@ -332,6 +352,34 @@ function terminalStatusEvent(
     exitReason: null,
     emittedAtMs: 1760000004000,
     ...overrides,
+  };
+}
+
+function notificationSummary({
+  request,
+  overrides = {},
+}: {
+  request?: NotificationUnreadUpdateRequest;
+  overrides?: Partial<NotificationUnreadSummary>;
+} = {}): NotificationUnreadSummary {
+  const conversations = request?.conversations ?? overrides.conversations ?? [];
+  const totalUnreadCount =
+    overrides.totalUnreadCount ??
+    conversations.reduce((total, conversation) => total + conversation.unreadCount, 0);
+
+  return {
+    schemaVersion: 1,
+    workspaceId: request?.workspaceId ?? overrides.workspaceId ?? null,
+    workspaceName: request?.workspaceName ?? overrides.workspaceName ?? null,
+    totalUnreadCount,
+    conversations,
+    tray: overrides.tray ?? {
+      unreadCount: totalUnreadCount,
+      badgeLabel: totalUnreadCount > 0 ? String(totalUnreadCount) : null,
+      hasUnread: totalUnreadCount > 0,
+    },
+    updatedAtMs: overrides.updatedAtMs ?? 1760000005000,
+    sourceWindowLabel: request?.sourceWindowLabel ?? overrides.sourceWindowLabel ?? null,
   };
 }
 
@@ -959,6 +1007,262 @@ describe("App workspace entry", () => {
 
     expect((await within(messageLog).findAllByText("sent")).length).toBeGreaterThan(0);
     expect(within(messageLog).getByText("Ship it")).toBeInTheDocument();
+  });
+
+  it("publishes aggregated workspace unread state and shows the main unread total", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel({
+      unreadCount: 4,
+      lastMessagePreview: "Latest note",
+    });
+    const projectRoom = conversationProfile({
+      conversationId: "01K00000000000000000000080",
+      kind: "group",
+      title: "Project Room",
+      participantKind: null,
+      participantId: null,
+      unreadCount: 2,
+      lastMessagePreview: "Review ready",
+      members: [],
+      updatedAtMs: 1760000003000,
+      lastActivityAtMs: 1760000003000,
+    });
+    const updateUnreadSummary = vi.fn((request: NotificationUnreadUpdateRequest) =>
+      Promise.resolve({ summary: notificationSummary({ request }) }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel, projectRoom] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+      },
+      notificationApi: {
+        updateUnreadSummary,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByLabelText("工作区未读总数")).toHaveTextContent("未读 6");
+    await waitFor(() =>
+      expect(updateUnreadSummary).toHaveBeenLastCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: channel.conversationId,
+            title: channel.title,
+            unreadCount: 4,
+            lastMessagePreview: "Latest note",
+            updatedAtMs: channel.updatedAtMs,
+          },
+          {
+            conversationId: projectRoom.conversationId,
+            title: projectRoom.title,
+            unreadCount: 2,
+            lastMessagePreview: "Review ready",
+            updatedAtMs: projectRoom.updatedAtMs,
+          },
+        ],
+        sourceWindowLabel: "main",
+      }),
+    );
+  });
+
+  it("republishes cleared unread state after a read-position update without refresh", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel({
+      unreadCount: 2,
+      lastMessagePreview: "Needs review",
+    });
+    const latestMessage = chatMessage({
+      body: "Needs review",
+      createdAtMs: 1760000003000,
+      updatedAtMs: 1760000003000,
+    });
+    const updateUnreadSummary = vi.fn((request: NotificationUnreadUpdateRequest) =>
+      Promise.resolve({ summary: notificationSummary({ request }) }),
+    );
+    const updateReadPosition = vi.fn(() =>
+      Promise.resolve({
+        readPosition: readPosition({
+          lastReadMessageId: latestMessage.messageId,
+          lastReadAtMs: latestMessage.createdAtMs,
+        }),
+        conversation: {
+          ...channel,
+          unreadCount: 0,
+          updatedAtMs: 1760000004000,
+        },
+      } satisfies UpdateReadPositionResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [latestMessage],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+        updateReadPosition,
+      },
+      notificationApi: {
+        updateUnreadSummary,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByLabelText("工作区未读总数")).toHaveTextContent("未读 2");
+    await waitFor(() => expect(updateReadPosition).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(updateUnreadSummary).toHaveBeenLastCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [],
+        sourceWindowLabel: "main",
+      }),
+    );
+    expect(screen.getByLabelText("工作区未读总数")).toHaveTextContent("未读 0");
+  });
+
+  it("updates the notification preview from unread summary events", async () => {
+    let unreadHandler: ((summary: NotificationUnreadSummary) => void) | null = null;
+    const initialSummary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: "01K00000000000000000000080",
+            title: "Project Room",
+            unreadCount: 1,
+            lastMessagePreview: "Review ready",
+            updatedAtMs: 1760000003000,
+          },
+        ],
+      },
+    });
+    const nextSummary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: "01K00000000000000000000081",
+            title: "Ops Room",
+            unreadCount: 3,
+            lastMessagePreview: "Deploy done",
+            updatedAtMs: 1760000004000,
+          },
+        ],
+      },
+    });
+
+    render(
+      <NotificationPreviewPage
+        snapshot={windowContextSnapshot({ activeWorkspace: openedWorkspaceResult().workspace })}
+        api={{
+          getUnreadSummary: () => Promise.resolve({ summary: initialSummary }),
+          subscribeUnreadSummary: async (handler: (summary: NotificationUnreadSummary) => void) => {
+            unreadHandler = handler;
+            return () => undefined;
+          },
+        }}
+        onPreferencesChange={() => Promise.resolve()}
+        onOpenWindowMode={() => Promise.resolve()}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "未读状态" })).toBeInTheDocument();
+    expect(screen.getByLabelText("通知未读总数")).toHaveTextContent("1");
+    expect(screen.getByText("Project Room")).toBeInTheDocument();
+    expect(screen.getByText("托盘 1")).toBeInTheDocument();
+
+    act(() => {
+      unreadHandler?.(nextSummary);
+    });
+
+    expect(await screen.findByText("Ops Room")).toBeInTheDocument();
+    expect(screen.getByLabelText("通知未读总数")).toHaveTextContent("3");
+    expect(screen.getByText("托盘 3")).toBeInTheDocument();
+  });
+
+  it("keeps terminal output observable while unread aggregation updates", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel({
+      unreadCount: 1,
+      lastMessagePreview: "Ping",
+    });
+    let outputHandler: ((event: TerminalOutputEventPayload) => void) | null = null;
+    const subscribeOutput = vi.fn(async (handler: (event: TerminalOutputEventPayload) => void) => {
+      outputHandler = handler;
+      return vi.fn();
+    });
+    const updateUnreadSummary = vi.fn((request: NotificationUnreadUpdateRequest) =>
+      Promise.resolve({ summary: notificationSummary({ request }) }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+      },
+      terminalApi: {
+        subscribeOutput,
+      },
+      notificationApi: {
+        updateUnreadSummary,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(updateUnreadSummary).toHaveBeenCalled());
+    await waitFor(() => expect(subscribeOutput).toHaveBeenCalled());
+
+    act(() => {
+      outputHandler?.(
+        terminalOutputEvent({
+          terminalSessionId: "01KTERMINAL00000000000023",
+          seq: 1,
+          chunk: "still streaming\n",
+          emittedAtMs: 1760000008000,
+        }),
+      );
+    });
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    await waitFor(() =>
+      expect(within(messageLog).getByLabelText("终端输出流")).toHaveTextContent(
+        "still streaming",
+      ),
+    );
+    expect(screen.getByLabelText("工作区未读总数")).toHaveTextContent("未读 1");
   });
 
   it("renders terminal output streams in sequence order", async () => {

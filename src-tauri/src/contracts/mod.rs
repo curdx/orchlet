@@ -3,6 +3,7 @@ pub mod common;
 pub mod contact;
 pub mod data_integrity;
 pub mod member;
+pub mod notification;
 pub mod orchestration;
 pub mod terminal;
 pub mod workspace;
@@ -34,6 +35,11 @@ pub use member::{
     ListMembersResult, MemberIsolation, MemberPermissions, MemberProfile, MemberRole,
     MemberRuntimeKind, MemberRuntimeProfile, MemberStatus, RemoveMemberRequest, RemoveMemberResult,
     UpdateMemberStatusRequest, UpdateMemberStatusResult,
+};
+pub use notification::{
+    NotificationTrayState, NotificationUnreadConversation, NotificationUnreadSummary,
+    NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
+    NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult,
 };
 pub use orchestration::{
     DispatchChatMessageRequest, DispatchChatMessageResult, DispatchFailureProfile,

@@ -79,8 +79,8 @@ development_status:
   4-5-terminal-output-chat-stream-status-sync: done
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-1-aggregate-window-workspace-unread-status: backlog
+  epic-5: in-progress
+  5-1-aggregate-window-workspace-unread-status: done
   5-2-notification-preview-navigation: backlog
   5-3-ignore-all-unread-notifications: backlog
   epic-5-retrospective: optional

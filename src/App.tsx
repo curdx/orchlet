@@ -3,10 +3,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { TerminalPage } from "./pages/terminal";
 import { WorkspaceSelectionPage } from "./pages/workspace-selection";
-import { terminalApi, windowContextApi } from "./shared/api";
+import { notificationApi, terminalApi, windowContextApi } from "./shared/api";
+import type { NotificationApi } from "./shared/api/notification-api";
 import type {
   AppLanguage,
   AppTheme,
+  NotificationUnreadSummary,
   WindowContextSnapshot,
   WindowMode,
 } from "./contracts/generated";
@@ -91,9 +93,8 @@ function App() {
           onOpenWindowMode={handleOpenWindowMode}
         />
       ) : mode === "notificationPreview" ? (
-        <ModePlaceholder
+        <NotificationPreviewPage
           snapshot={windowContext}
-          mode={mode}
           onPreferencesChange={handlePreferencesChange}
           onOpenWindowMode={handleOpenWindowMode}
         />
@@ -108,21 +109,64 @@ function App() {
   );
 }
 
-function ModePlaceholder({
+export function NotificationPreviewPage({
   snapshot,
-  mode,
+  api = notificationApi,
   onPreferencesChange,
   onOpenWindowMode,
 }: {
   snapshot: WindowContextSnapshot | null;
-  mode: WindowMode;
+  api?: Pick<NotificationApi, "getUnreadSummary" | "subscribeUnreadSummary">;
   onPreferencesChange: (update: {
     theme?: AppTheme | null;
     language?: AppLanguage | null;
   }) => Promise<void>;
   onOpenWindowMode: (mode: WindowMode) => Promise<void>;
 }) {
+  const [summary, setSummary] = useState<NotificationUnreadSummary | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const workspace = snapshot?.activeWorkspace;
+  const workspaceLabel =
+    summary?.workspaceName ?? workspace?.metadata.name ?? "未选择工作区";
+  const conversations = summary?.conversations ?? [];
+  const totalUnreadCount = summary?.totalUnreadCount ?? 0;
+
+  useEffect(() => {
+    let disposed = false;
+    let unsubscribe: (() => void) | null = null;
+
+    async function loadUnreadSummary() {
+      try {
+        const result = await api.getUnreadSummary();
+        if (!disposed) {
+          setSummary(result.summary);
+          setErrorMessage(null);
+        }
+
+        unsubscribe = await api.subscribeUnreadSummary((nextSummary) => {
+          if (!disposed) {
+            setSummary(nextSummary);
+            setErrorMessage(null);
+          }
+        });
+
+        if (disposed) {
+          unsubscribe();
+        }
+      } catch (error) {
+        if (!disposed) {
+          setErrorMessage(error instanceof Error ? error.message : "无法加载未读状态。");
+        }
+      }
+    }
+
+    void loadUnreadSummary();
+
+    return () => {
+      disposed = true;
+      unsubscribe?.();
+    };
+  }, [api]);
 
   return (
     <main className="min-h-screen bg-[#f4f7f2] text-[#17211b]">
@@ -131,7 +175,7 @@ function ModePlaceholder({
           <div className="flex items-baseline gap-3">
             <h1 className="text-lg font-semibold tracking-normal">orchlet</h1>
             <span className="text-xs font-medium text-[#637064]">
-              {modeLabel(mode)}
+              通知预览
             </span>
           </div>
           <button
@@ -144,14 +188,37 @@ function ModePlaceholder({
         </header>
 
         <section className="grid flex-1 place-items-center py-10">
-          <div className="w-full rounded-lg border border-[#dbe4d7] bg-[#fbfcfa] p-6">
-            <p className="text-sm font-semibold text-[#263229]">{modeLabel(mode)}</p>
-            <p className="mt-3 text-sm text-[#61705f]">
-              {workspace
-                ? `${workspace.metadata.name} · ${workspace.rootPath}`
-                : "未选择工作区"}
-            </p>
+          <section
+            aria-labelledby="notification-preview-title"
+            className="w-full rounded-lg border border-[#dbe4d7] bg-[#fbfcfa] p-6"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium text-[#6a786c]">通知</p>
+                <h2 id="notification-preview-title" className="mt-1 text-sm font-semibold text-[#263229]">
+                  未读状态
+                </h2>
+                <p className="mt-2 text-sm text-[#61705f]">
+                  {workspace ? `${workspaceLabel} · ${workspace.rootPath}` : workspaceLabel}
+                </p>
+              </div>
+              <div className="grid min-w-28 gap-1 rounded-md border border-[#cfe0c9] bg-white px-3 py-2 text-right">
+                <span className="text-xs font-medium text-[#6a786c]">总未读</span>
+                <span aria-label="通知未读总数" className="text-2xl font-semibold text-[#2f5038]">
+                  {unreadBadgeLabel(totalUnreadCount)}
+                </span>
+              </div>
+            </div>
+
             <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs font-medium text-[#6a786c]">托盘状态</dt>
+                <dd className="mt-1 text-[#253129]">
+                  {summary?.tray.hasUnread
+                    ? `托盘 ${summary.tray.badgeLabel ?? summary.tray.unreadCount}`
+                    : "无未读"}
+                </dd>
+              </div>
               <div>
                 <dt className="text-xs font-medium text-[#6a786c]">Theme</dt>
                 <dd className="mt-1 text-[#253129]">
@@ -165,6 +232,41 @@ function ModePlaceholder({
                 </dd>
               </div>
             </dl>
+
+            <div className="mt-5 grid gap-2">
+              <p className="text-xs font-semibold text-[#263229]">未读会话</p>
+              {errorMessage ? (
+                <p className="rounded-md border border-[#e2b8a7] bg-[#fff7f3] p-3 text-sm text-[#8b3e25]">
+                  {errorMessage}
+                </p>
+              ) : conversations.length > 0 ? (
+                <ul className="grid gap-2" aria-label="未读会话列表">
+                  {conversations.map((conversation) => (
+                    <li
+                      key={conversation.conversationId}
+                      className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-md border border-[#e3eadf] bg-white p-3"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-[#263229]">
+                          {conversation.title}
+                        </span>
+                        <span className="mt-1 block truncate text-xs text-[#6a786c]">
+                          {conversation.lastMessagePreview ?? "暂无预览"}
+                        </span>
+                      </span>
+                      <span className="inline-flex h-6 min-w-7 items-center justify-center rounded-full bg-[#2f6f55] px-2 text-xs font-semibold text-white">
+                        {unreadBadgeLabel(conversation.unreadCount)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+                  暂无未读会话
+                </p>
+              )}
+            </div>
+
             <div className="mt-5 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -195,25 +297,15 @@ function ModePlaceholder({
                 中文
               </button>
             </div>
-          </div>
+          </section>
         </section>
       </div>
     </main>
   );
 }
 
-function modeLabel(mode: WindowMode) {
-  switch (mode) {
-    case "terminal":
-      return "终端窗口";
-    case "notificationPreview":
-      return "通知预览";
-    case "main":
-      return "主窗口";
-    case "workspaceSelection":
-    default:
-      return "工作区窗口";
-  }
+function unreadBadgeLabel(count: number) {
+  return count > 99 ? "99+" : String(count);
 }
 
 export default App;

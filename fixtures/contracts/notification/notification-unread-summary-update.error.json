@@ -1,0 +1,9 @@
+{
+  "code": "notification.unread.emitFailed",
+  "message": "无法同步未读状态。",
+  "userAction": "当前窗口已更新；请重新打开通知预览或重试。",
+  "details": "event channel closed",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "warning"
+}

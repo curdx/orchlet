@@ -16,6 +16,7 @@ pub fn run() {
         .manage(app::workspace::WorkspaceRuntimeState::default())
         .manage(app::window_context::WindowContextRuntimeState::default())
         .manage(app::terminal::TerminalRuntimeState::default())
+        .manage(app::notification::NotificationRuntimeState::default())
         .invoke_handler(tauri::generate_handler![
             gateway::workspace_commands::workspace_selection_status,
             gateway::workspace_commands::workspace_recent_list,
@@ -32,6 +33,8 @@ pub fn run() {
             gateway::member_commands::member_status_update,
             gateway::orchestration_commands::orchestration_dispatch_chat_message,
             gateway::orchestration_commands::orchestration_resume_member_dispatch_queue,
+            gateway::notification_commands::notification_unread_summary_get,
+            gateway::notification_commands::notification_unread_summary_update,
             gateway::terminal_commands::terminal_open,
             gateway::terminal_commands::terminal_attach,
             gateway::terminal_commands::terminal_input,
