@@ -41,6 +41,7 @@ import {
   memberApi,
   notificationApi,
   normalizeAppError,
+  roadmapApi,
   skillsApi,
   terminalDispatchApi,
   terminalApi,
@@ -52,6 +53,7 @@ import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
 import type { MemberApi } from "../../../shared/api/member-api";
 import type { NotificationApi } from "../../../shared/api/notification-api";
+import type { RoadmapApi, UpdateRoadmapTaskInput } from "../../../shared/api/roadmap-api";
 import type { SkillsApi } from "../../../shared/api/skills-api";
 import type { TerminalDispatchApi } from "../../../shared/api/terminal-dispatch-api";
 import type { TerminalApi } from "../../../shared/api/terminal-api";
@@ -89,6 +91,10 @@ import type {
   SkillLibraryEntry,
   WorkspaceSkillLinkEntry,
 } from "../../../contracts/generated/skill";
+import type {
+  RoadmapTaskEntry,
+  RoadmapTaskStatus,
+} from "../../../contracts/generated/roadmap";
 import { IconButton, Toast, useToastStore } from "../../../shared/ui";
 import type { WorkspaceApi } from "../../../shared/api/workspace-api";
 
@@ -123,6 +129,7 @@ type WorkspaceSelectionPageProps = {
     | "linkWorkspaceSkill"
     | "unlinkWorkspaceSkill"
   >;
+  roadmapApi?: Pick<RoadmapApi, "listTasks" | "createTask" | "updateTask" | "deleteTask">;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
@@ -148,7 +155,9 @@ type PendingConflict = {
   conflict: WorkspaceRegistryConflict;
 };
 
-type AttachmentEntry = "image" | "roadmap";
+type AttachmentEntry =
+  | { kind: "image" }
+  | { kind: "roadmap"; taskId: string; title: string };
 type ConversationFilter = "all" | "unread";
 type DispatchTargetCandidate = {
   memberId: string;
@@ -202,6 +211,7 @@ export function WorkspaceSelectionPage({
   memberApi: membersApi = memberApi,
   notificationApi: notificationsApi = notificationApi,
   skillsApi: localSkillsApi = skillsApi,
+  roadmapApi: localRoadmapApi = roadmapApi,
   terminalApi: terminalsApi = terminalApi,
   terminalDispatchApi: dispatchApi = terminalDispatchApi,
   contactApi: contactsApi = contactApi,
@@ -217,6 +227,12 @@ export function WorkspaceSelectionPage({
   const [pendingSkillDeleteId, setPendingSkillDeleteId] = useState<string | null>(null);
   const [pendingSkillLinkId, setPendingSkillLinkId] = useState<string | null>(null);
   const [pendingSkillUnlinkId, setPendingSkillUnlinkId] = useState<string | null>(null);
+  const [isRoadmapOpen, setIsRoadmapOpen] = useState(false);
+  const [focusedRoadmapTaskId, setFocusedRoadmapTaskId] = useState<string | null>(null);
+  const [isRoadmapAttachmentPickerOpen, setIsRoadmapAttachmentPickerOpen] = useState(false);
+  const [isCreatingRoadmapTask, setIsCreatingRoadmapTask] = useState(false);
+  const [pendingRoadmapUpdateId, setPendingRoadmapUpdateId] = useState<string | null>(null);
+  const [pendingRoadmapDeleteId, setPendingRoadmapDeleteId] = useState<string | null>(null);
   const [isInvitingMember, setIsInvitingMember] = useState(false);
   const [openedWorkspace, setOpenedWorkspace] = useState<OpenedWorkspace | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
@@ -295,6 +311,7 @@ export function WorkspaceSelectionPage({
   const activeWorkspaceRoot = activeWorkspace?.rootPath ?? null;
   const conversationQueryKey = ["chat-conversations", activeWorkspaceId] as const;
   const workspaceSkillLinksQueryKey = ["workspace-skill-links", activeWorkspaceRoot] as const;
+  const roadmapTasksQueryKey = ["roadmap-tasks", activeWorkspaceRoot] as const;
   const memberQuery = useQuery({
     queryKey: ["members", activeWorkspaceId],
     queryFn: () =>
@@ -340,6 +357,13 @@ export function WorkspaceSelectionPage({
     () => new Set(linkedSkills.map((skill) => skill.skillId)),
     [linkedSkills],
   );
+  const roadmapTasksQuery = useQuery({
+    queryKey: roadmapTasksQueryKey,
+    queryFn: () => localRoadmapApi.listTasks(activeWorkspaceRoot ?? ""),
+    enabled: Boolean(activeWorkspaceRoot),
+    retry: false,
+  });
+  const roadmapTasks = roadmapTasksQuery.data?.tasks ?? [];
   const selectedConversation =
     conversations.find((conversation) => conversation.conversationId === selectedConversationId) ??
     conversations[0] ??
@@ -499,6 +523,21 @@ export function WorkspaceSelectionPage({
       action: appError.userAction ?? undefined,
     });
   }, [workspaceSkillLinksQuery.error, showToast]);
+
+  useEffect(() => {
+    if (!roadmapTasksQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(roadmapTasksQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载路线图",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [roadmapTasksQuery.error, showToast]);
 
   useEffect(() => {
     membersRef.current = members;
@@ -1293,12 +1332,45 @@ export function WorkspaceSelectionPage({
     setMentionedMemberIds((current) => current.filter((id) => id !== memberId));
   }
 
-  function addAttachmentEntry(entry: AttachmentEntry) {
-    setAttachmentEntries((current) => (current.includes(entry) ? current : [...current, entry]));
+  function addImageAttachmentEntry() {
+    setAttachmentEntries((current) =>
+      current.some((entry) => entry.kind === "image") ? current : [...current, { kind: "image" }],
+    );
+  }
+
+  function openRoadmapAttachmentPicker() {
+    if (roadmapTasks.length === 0) {
+      setFocusedRoadmapTaskId(null);
+      setIsRoadmapOpen(true);
+      showToast({
+        tone: "warning",
+        title: "暂无可引用路线图任务",
+        message: "先创建一个路线图任务，再从聊天里引用它。",
+      });
+      return;
+    }
+
+    setIsRoadmapAttachmentPickerOpen((current) => !current);
+  }
+
+  function addRoadmapAttachmentEntry(task: RoadmapTaskEntry) {
+    setAttachmentEntries((current) =>
+      current.some((entry) => entry.kind === "roadmap" && entry.taskId === task.taskId)
+        ? current
+        : [...current, { kind: "roadmap", taskId: task.taskId, title: task.title }],
+    );
+    setIsRoadmapAttachmentPickerOpen(false);
+  }
+
+  function openRoadmapReference(taskId: string) {
+    setFocusedRoadmapTaskId(taskId);
+    setIsRoadmapOpen(true);
   }
 
   function removeAttachmentEntry(entry: AttachmentEntry) {
-    setAttachmentEntries((current) => current.filter((item) => item !== entry));
+    setAttachmentEntries((current) =>
+      current.filter((item) => attachmentEntryKey(item) !== attachmentEntryKey(entry)),
+    );
   }
 
   function handleToggleCreateGroupMember(memberId: string) {
@@ -2178,6 +2250,121 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  async function handleCreateRoadmapTask() {
+    if (!activeWorkspaceRoot) {
+      return;
+    }
+
+    setIsCreatingRoadmapTask(true);
+
+    try {
+      const result = await localRoadmapApi.createTask(activeWorkspaceRoot, {
+        title: "新任务",
+        detail: null,
+        status: "pending",
+      });
+
+      queryClient.setQueryData(roadmapTasksQueryKey, { tasks: result.tasks });
+      setFocusedRoadmapTaskId(result.task.taskId);
+      setIsRoadmapOpen(true);
+      showToast({
+        tone: "info",
+        title: "路线图任务已创建",
+        message: result.task.title,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "创建路线图任务失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsCreatingRoadmapTask(false);
+    }
+  }
+
+  async function handleUpdateRoadmapTask(taskId: string, input: UpdateRoadmapTaskInput) {
+    if (!activeWorkspaceRoot) {
+      return;
+    }
+
+    setPendingRoadmapUpdateId(taskId);
+
+    try {
+      const result = await localRoadmapApi.updateTask(activeWorkspaceRoot, taskId, input);
+
+      queryClient.setQueryData(roadmapTasksQueryKey, { tasks: result.tasks });
+      setAttachmentEntries((current) =>
+        current.map((entry) =>
+          entry.kind === "roadmap" && entry.taskId === result.task.taskId
+            ? { ...entry, title: result.task.title }
+            : entry,
+        ),
+      );
+      showToast({
+        tone: "info",
+        title: "路线图任务已保存",
+        message: result.task.title,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "保存路线图任务失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingRoadmapUpdateId(null);
+    }
+  }
+
+  async function handleDeleteRoadmapTask(taskId: string) {
+    if (!activeWorkspaceRoot) {
+      return;
+    }
+
+    const confirmed = window.confirm("删除这个路线图任务？");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingRoadmapDeleteId(taskId);
+
+    try {
+      const result = await localRoadmapApi.deleteTask(activeWorkspaceRoot, taskId);
+
+      queryClient.setQueryData(roadmapTasksQueryKey, { tasks: result.tasks });
+      setAttachmentEntries((current) =>
+        current.filter((entry) => entry.kind !== "roadmap" || entry.taskId !== taskId),
+      );
+      if (focusedRoadmapTaskId === taskId) {
+        setFocusedRoadmapTaskId(null);
+      }
+      showToast({
+        tone: "info",
+        title: "路线图任务已删除",
+        message: "聊天里的对应引用也已移除。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "删除路线图任务失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingRoadmapDeleteId(null);
+    }
+  }
+
   function showDeferredToast(title: string, message: string) {
     showToast({
       tone: "info",
@@ -2300,6 +2487,17 @@ export function WorkspaceSelectionPage({
                     </span>
                     <button
                       type="button"
+                      onClick={() => {
+                        setFocusedRoadmapTaskId(null);
+                        setIsRoadmapOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+                    >
+                      <ListTodo aria-hidden="true" size={14} strokeWidth={2} />
+                      Roadmap
+                    </button>
+                    <button
+                      type="button"
                       disabled={isSyncActionPending}
                       onClick={() => void handleOpenWorkspaceTerminal()}
                       className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
@@ -2383,6 +2581,8 @@ export function WorkspaceSelectionPage({
                 messageDraft={messageDraft}
                 mentionedMemberIds={mentionedMemberIds}
                 attachmentEntries={attachmentEntries}
+                roadmapTasks={roadmapTasks}
+                isRoadmapAttachmentPickerOpen={isRoadmapAttachmentPickerOpen}
                 groupTitle={groupTitle}
                 groupMemberIds={groupMemberIds}
                 selectedGroupMemberIds={selectedGroupMemberIds}
@@ -2401,7 +2601,10 @@ export function WorkspaceSelectionPage({
                 onMessageDraftChange={handleMessageDraftChange}
                 onAddMention={addMentionMember}
                 onRemoveMention={removeMentionMember}
-                onAddAttachmentEntry={addAttachmentEntry}
+                onAddImageAttachment={addImageAttachmentEntry}
+                onOpenRoadmapAttachmentPicker={openRoadmapAttachmentPicker}
+                onSelectRoadmapAttachment={addRoadmapAttachmentEntry}
+                onOpenRoadmapReference={openRoadmapReference}
                 onRemoveAttachmentEntry={removeAttachmentEntry}
                 onSendMessage={() => void handleSendMessage()}
                 onDispatchMessage={(message, memberId) => void handleDispatchMessage(message, memberId)}
@@ -2503,6 +2706,21 @@ export function WorkspaceSelectionPage({
                 onDelete={(skillId) => void handleDeleteSkill(skillId)}
                 onLink={(skillId) => void handleLinkWorkspaceSkill(skillId)}
                 onUnlink={(skillId) => void handleUnlinkWorkspaceSkill(skillId)}
+              />
+            ) : null}
+
+            {activeWorkspace && isRoadmapOpen ? (
+              <RoadmapModal
+                tasks={roadmapTasks}
+                focusedTaskId={focusedRoadmapTaskId}
+                isLoading={roadmapTasksQuery.isLoading}
+                isCreating={isCreatingRoadmapTask}
+                pendingUpdateId={pendingRoadmapUpdateId}
+                pendingDeleteId={pendingRoadmapDeleteId}
+                onClose={() => setIsRoadmapOpen(false)}
+                onCreate={() => void handleCreateRoadmapTask()}
+                onUpdate={(taskId, input) => void handleUpdateRoadmapTask(taskId, input)}
+                onDelete={(taskId) => void handleDeleteRoadmapTask(taskId)}
               />
             ) : null}
 
@@ -2824,6 +3042,212 @@ function SkillLibraryPanel({
   );
 }
 
+function RoadmapModal({
+  tasks,
+  focusedTaskId,
+  isLoading,
+  isCreating,
+  pendingUpdateId,
+  pendingDeleteId,
+  onClose,
+  onCreate,
+  onUpdate,
+  onDelete,
+}: {
+  tasks: RoadmapTaskEntry[];
+  focusedTaskId: string | null;
+  isLoading: boolean;
+  isCreating: boolean;
+  pendingUpdateId: string | null;
+  pendingDeleteId: string | null;
+  onClose: () => void;
+  onCreate: () => void;
+  onUpdate: (taskId: string, input: UpdateRoadmapTaskInput) => void;
+  onDelete: (taskId: string) => void;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, { title: string; detail: string }>>({});
+
+  useEffect(() => {
+    setDrafts((current) => {
+      const next: Record<string, { title: string; detail: string }> = {};
+
+      for (const task of tasks) {
+        next[task.taskId] = current[task.taskId] ?? {
+          title: task.title,
+          detail: task.detail ?? "",
+        };
+      }
+
+      return next;
+    });
+  }, [tasks]);
+
+  function setDraft(taskId: string, field: "title" | "detail", value: string) {
+    setDrafts((current) => ({
+      ...current,
+      [taskId]: {
+        title: current[taskId]?.title ?? "",
+        detail: current[taskId]?.detail ?? "",
+        [field]: value,
+      },
+    }));
+  }
+
+  function saveTitle(task: RoadmapTaskEntry) {
+    const title = drafts[task.taskId]?.title ?? task.title;
+
+    if (title.trim() !== task.title) {
+      onUpdate(task.taskId, { title });
+    }
+  }
+
+  function saveDetail(task: RoadmapTaskEntry) {
+    const detail = drafts[task.taskId]?.detail ?? "";
+    const current = task.detail ?? "";
+
+    if (detail.trim() !== current) {
+      onUpdate(task.taskId, { detail });
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-[#17211b]/35 px-4 py-8">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="roadmap-modal-title"
+        className="w-full max-w-3xl rounded-lg border border-[#cfd9cc] bg-[#fbfcfa] p-5 shadow-xl"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-[#6a786c]">Roadmap</p>
+            <h2 id="roadmap-modal-title" className="mt-1 text-base font-semibold text-[#263229]">
+              路线图
+            </h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-md border border-[#d8e4d3] bg-white px-2.5 py-1 text-xs font-medium text-[#526054]">
+              {tasks.length} 个任务
+            </span>
+            <button
+              type="button"
+              disabled={isCreating}
+              onClick={onCreate}
+              className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+            >
+              <Plus aria-hidden="true" size={14} strokeWidth={2} />
+              {isCreating ? "添加中" : "添加任务"}
+            </button>
+            <button
+              type="button"
+              aria-label="关闭路线图"
+              onClick={onClose}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#cfd9cc] bg-white text-[#526054] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+            >
+              <X aria-hidden="true" size={16} strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3">
+          {isLoading ? (
+            <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-4 text-sm text-[#6a786c]">
+              正在加载路线图
+            </p>
+          ) : tasks.length > 0 ? (
+            tasks.map((task) => {
+              const draft = drafts[task.taskId] ?? {
+                title: task.title,
+                detail: task.detail ?? "",
+              };
+              const isFocused = focusedTaskId === task.taskId;
+
+              return (
+                <article
+                  key={task.taskId}
+                  aria-label={`路线图任务 ${task.title}`}
+                  className={
+                    isFocused
+                      ? "grid gap-3 rounded-md border border-[#8fad87] bg-[#eef6ea] p-3"
+                      : "grid gap-3 rounded-md border border-[#e3eadf] bg-white p-3"
+                  }
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 rounded-md border border-[#d8e4d3] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#526054]">
+                      <ListTodo aria-hidden="true" size={12} strokeWidth={2} />
+                      {isFocused ? "已聚焦" : `顺序 ${task.sortOrder + 1}`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={pendingDeleteId === task.taskId}
+                      onClick={() => onDelete(task.taskId)}
+                      className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#d7c8c5] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#6d3d38] transition hover:border-[#b9857f] hover:bg-[#fff5f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9d5e58] disabled:cursor-wait disabled:opacity-70"
+                    >
+                      <Trash2 aria-hidden="true" size={13} strokeWidth={2} />
+                      {pendingDeleteId === task.taskId ? "删除中" : "删除"}
+                    </button>
+                  </div>
+
+                  <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                    任务标题
+                    <input
+                      value={draft.title}
+                      disabled={pendingUpdateId === task.taskId}
+                      onChange={(event) => setDraft(task.taskId, "title", event.target.value)}
+                      onBlur={() => saveTitle(task)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          saveTitle(task);
+                        }
+                      }}
+                      className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
+                    />
+                  </label>
+
+                  <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                    任务详情
+                    <textarea
+                      value={draft.detail}
+                      disabled={pendingUpdateId === task.taskId}
+                      onChange={(event) => setDraft(task.taskId, "detail", event.target.value)}
+                      onBlur={() => saveDetail(task)}
+                      rows={3}
+                      className="resize-y rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
+                    />
+                  </label>
+
+                  <label className="grid max-w-xs gap-1.5 text-xs font-medium text-[#526054]">
+                    任务状态
+                    <select
+                      value={task.status}
+                      disabled={pendingUpdateId === task.taskId}
+                      onChange={(event) =>
+                        onUpdate(task.taskId, {
+                          status: event.target.value as RoadmapTaskStatus,
+                        })
+                      }
+                      className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
+                    >
+                      <option value="pending">待处理</option>
+                      <option value="inProgress">进行中</option>
+                      <option value="done">已完成</option>
+                    </select>
+                  </label>
+                </article>
+              );
+            })
+          ) : (
+            <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-4 text-sm text-[#6a786c]">
+              暂无路线图任务
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function CapabilityClassItem({
   title,
   badge,
@@ -2869,6 +3293,8 @@ function ConversationPanel({
   messageDraft,
   mentionedMemberIds,
   attachmentEntries,
+  roadmapTasks,
+  isRoadmapAttachmentPickerOpen,
   groupTitle,
   groupMemberIds,
   selectedGroupMemberIds,
@@ -2883,7 +3309,10 @@ function ConversationPanel({
   onMessageDraftChange,
   onAddMention,
   onRemoveMention,
-  onAddAttachmentEntry,
+  onAddImageAttachment,
+  onOpenRoadmapAttachmentPicker,
+  onSelectRoadmapAttachment,
+  onOpenRoadmapReference,
   onRemoveAttachmentEntry,
   onSendMessage,
   onDispatchMessage,
@@ -2916,6 +3345,8 @@ function ConversationPanel({
   messageDraft: string;
   mentionedMemberIds: string[];
   attachmentEntries: AttachmentEntry[];
+  roadmapTasks: RoadmapTaskEntry[];
+  isRoadmapAttachmentPickerOpen: boolean;
   groupTitle: string;
   groupMemberIds: string[];
   selectedGroupMemberIds: string[];
@@ -2930,7 +3361,10 @@ function ConversationPanel({
   onMessageDraftChange: (value: string) => void;
   onAddMention: (member: MemberProfile) => void;
   onRemoveMention: (memberId: string) => void;
-  onAddAttachmentEntry: (entry: AttachmentEntry) => void;
+  onAddImageAttachment: () => void;
+  onOpenRoadmapAttachmentPicker: () => void;
+  onSelectRoadmapAttachment: (task: RoadmapTaskEntry) => void;
+  onOpenRoadmapReference: (taskId: string) => void;
   onRemoveAttachmentEntry: (entry: AttachmentEntry) => void;
   onSendMessage: () => void;
   onDispatchMessage: (message: ChatMessageProfile, memberId?: string) => void;
@@ -3329,7 +3763,7 @@ function ConversationPanel({
                 <button
                   type="button"
                   disabled={!selectedConversation}
-                  onClick={() => onAddAttachmentEntry("image")}
+                  onClick={onAddImageAttachment}
                   className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <ImageIcon aria-hidden="true" size={13} strokeWidth={2} />
@@ -3338,13 +3772,43 @@ function ConversationPanel({
                 <button
                   type="button"
                   disabled={!selectedConversation}
-                  onClick={() => onAddAttachmentEntry("roadmap")}
+                  onClick={onOpenRoadmapAttachmentPicker}
                   className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <ListTodo aria-hidden="true" size={13} strokeWidth={2} />
                   路线图引用
                 </button>
               </div>
+
+              {isRoadmapAttachmentPickerOpen ? (
+                <div
+                  role="dialog"
+                  aria-label="选择路线图任务"
+                  className="grid gap-2 rounded-md border border-[#dbe4d7] bg-[#fbfcfa] p-3"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-[#263229]">选择路线图任务</p>
+                    <span className="text-[11px] text-[#6a786c]">{roadmapTasks.length} 个任务</span>
+                  </div>
+                  <div className="grid max-h-36 gap-1.5 overflow-y-auto">
+                    {roadmapTasks.map((task) => (
+                      <button
+                        key={task.taskId}
+                        type="button"
+                        onClick={() => onSelectRoadmapAttachment(task)}
+                        className="grid gap-1 rounded-md border border-[#dfe8db] bg-white px-3 py-2 text-left transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+                      >
+                        <span className="truncate text-xs font-semibold text-[#263229]">
+                          {task.title}
+                        </span>
+                        <span className="text-[11px] text-[#6a786c]">
+                          {roadmapTaskStatusLabel(task.status)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {isEmojiPanelOpen ? (
                 <div
@@ -3427,22 +3891,42 @@ function ConversationPanel({
                       <X aria-hidden="true" size={12} strokeWidth={2} />
                     </button>
                   ))}
-                  {attachmentEntries.map((entry) => (
-                    <button
-                      key={entry}
-                      type="button"
-                      onClick={() => onRemoveAttachmentEntry(entry)}
-                      className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[#d7c8a5] bg-[#fff9ed] px-2 text-xs font-semibold text-[#604a1f]"
-                    >
-                      {entry === "image" ? (
+                  {attachmentEntries.map((entry) =>
+                    entry.kind === "roadmap" ? (
+                      <span
+                        key={attachmentEntryKey(entry)}
+                        className="inline-flex min-h-7 items-center overflow-hidden rounded-md border border-[#d7c8a5] bg-[#fff9ed] text-xs font-semibold text-[#604a1f]"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onOpenRoadmapReference(entry.taskId)}
+                          className="inline-flex min-h-7 min-w-0 items-center gap-1 px-2 transition hover:bg-[#fff3d9] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8b6d4b]"
+                        >
+                          <ListTodo aria-hidden="true" size={12} strokeWidth={2} />
+                          <span className="truncate">{attachmentEntryLabel(entry)}</span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`移除路线图引用 ${entry.title}`}
+                          onClick={() => onRemoveAttachmentEntry(entry)}
+                          className="inline-flex min-h-7 w-7 items-center justify-center border-l border-[#e6d7b5] transition hover:bg-[#fff3d9] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8b6d4b]"
+                        >
+                          <X aria-hidden="true" size={12} strokeWidth={2} />
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        key={attachmentEntryKey(entry)}
+                        type="button"
+                        onClick={() => onRemoveAttachmentEntry(entry)}
+                        className="inline-flex min-h-7 items-center gap-1 rounded-md border border-[#d7c8a5] bg-[#fff9ed] px-2 text-xs font-semibold text-[#604a1f]"
+                      >
                         <ImageIcon aria-hidden="true" size={12} strokeWidth={2} />
-                      ) : (
-                        <ListTodo aria-hidden="true" size={12} strokeWidth={2} />
-                      )}
-                      {attachmentEntryLabel(entry)}
-                      <X aria-hidden="true" size={12} strokeWidth={2} />
-                    </button>
-                  ))}
+                        {attachmentEntryLabel(entry)}
+                        <X aria-hidden="true" size={12} strokeWidth={2} />
+                      </button>
+                    ),
+                  )}
                 </div>
               ) : null}
 
@@ -3698,7 +4182,22 @@ function hasAllMentionToken(body: string) {
 }
 
 function attachmentEntryLabel(entry: AttachmentEntry) {
-  return entry === "image" ? "图片待附加" : "路线图待引用";
+  return entry.kind === "image" ? "图片待附加" : `路线图：${entry.title}`;
+}
+
+function attachmentEntryKey(entry: AttachmentEntry) {
+  return entry.kind === "image" ? "image" : `roadmap-${entry.taskId}`;
+}
+
+function roadmapTaskStatusLabel(status: RoadmapTaskStatus) {
+  switch (status) {
+    case "pending":
+      return "待处理";
+    case "inProgress":
+      return "进行中";
+    case "done":
+      return "已完成";
+  }
 }
 
 function loadRecentEmojis() {

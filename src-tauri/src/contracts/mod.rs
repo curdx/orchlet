@@ -5,6 +5,7 @@ pub mod data_integrity;
 pub mod member;
 pub mod notification;
 pub mod orchestration;
+pub mod roadmap;
 pub mod skill;
 pub mod terminal;
 pub mod workspace;
@@ -49,6 +50,11 @@ pub use orchestration::{
     DispatchChatMessageRequest, DispatchChatMessageResult, DispatchFailureProfile,
     DispatchQueueResumeRequest, DispatchQueueResumeResult, DispatchRequestProfile,
     DispatchRequestStatus, DispatchTargetResolutionProfile, DispatchTargetResolutionSource,
+};
+pub use roadmap::{
+    CreateRoadmapTaskRequest, CreateRoadmapTaskResult, DeleteRoadmapTaskRequest,
+    DeleteRoadmapTaskResult, ListRoadmapTasksRequest, ListRoadmapTasksResult, RoadmapTaskEntry,
+    RoadmapTaskStatus, UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult,
 };
 pub use skill::{
     DeleteSkillRequest, DeleteSkillResult, ImportLocalSkillFolderRequest,

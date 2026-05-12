@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=13"
+      "details": "entries=14"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -143,12 +143,22 @@
       "affectedPaths": [],
       "userAction": null,
       "details": null
+    },
+    {
+      "checkId": "roadmap.tasks.load_validate",
+      "category": "roadmapTasks",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace root is available for roadmap task validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
     }
   ],
-  "totalChecks": 14,
+  "totalChecks": 15,
   "passedChecks": 4,
   "failedChecks": 1,
-  "skippedChecks": 9,
+  "skippedChecks": 10,
   "hasFailures": true,
   "batched": true
 }

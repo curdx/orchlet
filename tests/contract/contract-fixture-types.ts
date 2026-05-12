@@ -92,6 +92,18 @@ import type {
   DispatchTargetResolutionSource,
 } from "../../src/contracts/generated/orchestration";
 import type {
+  CreateRoadmapTaskRequest,
+  CreateRoadmapTaskResult,
+  DeleteRoadmapTaskRequest,
+  DeleteRoadmapTaskResult,
+  ListRoadmapTasksRequest,
+  ListRoadmapTasksResult,
+  RoadmapTaskEntry,
+  RoadmapTaskStatus,
+  UpdateRoadmapTaskRequest,
+  UpdateRoadmapTaskResult,
+} from "../../src/contracts/generated/roadmap";
+import type {
   DeleteSkillRequest,
   DeleteSkillResult,
   ImportLocalSkillFolderRequest,
@@ -259,6 +271,18 @@ import workspaceSkillLinksListResult from "../../fixtures/contracts/skill/worksp
 import workspaceSkillUnlinkError from "../../fixtures/contracts/skill/workspace-skill-unlink.error.json";
 import workspaceSkillUnlinkRequest from "../../fixtures/contracts/skill/workspace-skill-unlink.request.json";
 import workspaceSkillUnlinkResult from "../../fixtures/contracts/skill/workspace-skill-unlink.result.json";
+import roadmapTasksListError from "../../fixtures/contracts/roadmap/roadmap-tasks-list.error.json";
+import roadmapTasksListRequest from "../../fixtures/contracts/roadmap/roadmap-tasks-list.request.json";
+import roadmapTasksListResult from "../../fixtures/contracts/roadmap/roadmap-tasks-list.result.json";
+import roadmapTaskCreateError from "../../fixtures/contracts/roadmap/roadmap-task-create.error.json";
+import roadmapTaskCreateRequest from "../../fixtures/contracts/roadmap/roadmap-task-create.request.json";
+import roadmapTaskCreateResult from "../../fixtures/contracts/roadmap/roadmap-task-create.result.json";
+import roadmapTaskUpdateError from "../../fixtures/contracts/roadmap/roadmap-task-update.error.json";
+import roadmapTaskUpdateRequest from "../../fixtures/contracts/roadmap/roadmap-task-update.request.json";
+import roadmapTaskUpdateResult from "../../fixtures/contracts/roadmap/roadmap-task-update.result.json";
+import roadmapTaskDeleteError from "../../fixtures/contracts/roadmap/roadmap-task-delete.error.json";
+import roadmapTaskDeleteRequest from "../../fixtures/contracts/roadmap/roadmap-task-delete.request.json";
+import roadmapTaskDeleteResult from "../../fixtures/contracts/roadmap/roadmap-task-delete.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -562,6 +586,38 @@ export const workspaceSkillUnlinkResultFixture: UnlinkWorkspaceSkillResult = {
   skills: workspaceSkillUnlinkResult.skills.map(workspaceSkillLinkEntry),
 };
 export const workspaceSkillUnlinkErrorFixture: AppError = appError(workspaceSkillUnlinkError);
+export const roadmapTasksListRequestFixture: ListRoadmapTasksRequest = roadmapTasksListRequest;
+export const roadmapTasksListResultFixture: ListRoadmapTasksResult = {
+  tasks: roadmapTasksListResult.tasks.map(roadmapTaskEntry),
+};
+export const roadmapTasksListErrorFixture: AppError = appError(roadmapTasksListError);
+export const roadmapTaskCreateRequestFixture: CreateRoadmapTaskRequest = {
+  ...roadmapTaskCreateRequest,
+  status: roadmapTaskStatus(roadmapTaskCreateRequest.status),
+};
+export const roadmapTaskCreateResultFixture: CreateRoadmapTaskResult = {
+  task: roadmapTaskEntry(roadmapTaskCreateResult.task),
+  tasks: roadmapTaskCreateResult.tasks.map(roadmapTaskEntry),
+};
+export const roadmapTaskCreateErrorFixture: AppError = appError(roadmapTaskCreateError);
+export const roadmapTaskUpdateRequestFixture: UpdateRoadmapTaskRequest = {
+  ...roadmapTaskUpdateRequest,
+  status:
+    roadmapTaskUpdateRequest.status === null
+      ? null
+      : roadmapTaskStatus(roadmapTaskUpdateRequest.status),
+};
+export const roadmapTaskUpdateResultFixture: UpdateRoadmapTaskResult = {
+  task: roadmapTaskEntry(roadmapTaskUpdateResult.task),
+  tasks: roadmapTaskUpdateResult.tasks.map(roadmapTaskEntry),
+};
+export const roadmapTaskUpdateErrorFixture: AppError = appError(roadmapTaskUpdateError);
+export const roadmapTaskDeleteRequestFixture: DeleteRoadmapTaskRequest = roadmapTaskDeleteRequest;
+export const roadmapTaskDeleteResultFixture: DeleteRoadmapTaskResult = {
+  removedTaskId: roadmapTaskDeleteResult.removedTaskId,
+  tasks: roadmapTaskDeleteResult.tasks.map(roadmapTaskEntry),
+};
+export const roadmapTaskDeleteErrorFixture: AppError = appError(roadmapTaskDeleteError);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -722,6 +778,10 @@ type ErrorJson =
   | typeof workspaceSkillLinksListError
   | typeof workspaceSkillLinkError
   | typeof workspaceSkillUnlinkError
+  | typeof roadmapTasksListError
+  | typeof roadmapTaskCreateError
+  | typeof roadmapTaskUpdateError
+  | typeof roadmapTaskDeleteError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -792,6 +852,14 @@ type WorkspaceSkillLinkEntryJson =
   | (typeof skillDeleteResult.workspaceSkills)[number]
   | (typeof workspaceSkillUnlinkResult.skills)[number];
 
+type RoadmapTaskEntryJson =
+  | (typeof roadmapTasksListResult.tasks)[number]
+  | typeof roadmapTaskCreateResult.task
+  | (typeof roadmapTaskCreateResult.tasks)[number]
+  | typeof roadmapTaskUpdateResult.task
+  | (typeof roadmapTaskUpdateResult.tasks)[number]
+  | (typeof roadmapTaskDeleteResult.tasks)[number];
+
 function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {
   return {
     ...skill,
@@ -842,6 +910,24 @@ function workspaceSkillLinkStatus(value: string): WorkspaceSkillLinkStatus {
       return value;
     default:
       throw new Error(`Unknown workspace skill link status: ${value}`);
+  }
+}
+
+function roadmapTaskEntry(task: RoadmapTaskEntryJson): RoadmapTaskEntry {
+  return {
+    ...task,
+    status: roadmapTaskStatus(task.status),
+  };
+}
+
+function roadmapTaskStatus(value: string): RoadmapTaskStatus {
+  switch (value) {
+    case "pending":
+    case "inProgress":
+    case "done":
+      return value;
+    default:
+      throw new Error(`Unknown roadmap task status: ${value}`);
   }
 }
 
@@ -939,6 +1025,7 @@ function storageOwner(value: string): StorageOwner {
     case "chat":
     case "terminal":
     case "skill":
+    case "roadmap":
       return value;
     default:
       throw new Error(`Unknown storage owner: ${value}`);
@@ -962,6 +1049,7 @@ function storageCategory(value: string): StorageCategory {
     case "terminalTabs":
     case "skillLibrary":
     case "workspaceSkillLinks":
+    case "roadmapTasks":
       return value;
     default:
       throw new Error(`Unknown storage category: ${value}`);

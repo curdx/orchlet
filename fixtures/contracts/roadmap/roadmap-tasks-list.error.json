@@ -1,0 +1,9 @@
+{
+  "code": "roadmap.tasks.invalidJson",
+  "message": "工作区路线图任务不是有效 JSON。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请先备份或修复 .orchlet/roadmap/tasks.json 后重试。",
+  "details": "/fixtures/workspaces/alpha/.orchlet/roadmap/tasks.json: expected value at line 1 column 1",
+  "correlationId": null
+}

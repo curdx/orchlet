@@ -1,0 +1,8 @@
+{
+  "workspaceRoot": "/fixtures/workspaces/alpha",
+  "taskId": "01K00000000000000000000200",
+  "title": "Ship beta",
+  "detail": "Update the release track",
+  "status": "inProgress",
+  "sortOrder": null
+}

@@ -17,6 +17,8 @@ validateSkillLibrary("fixtures/schema/skills-v1/skill-library.json");
 validateSkillLibrary("fixtures/data-integrity/valid-json-stores/app-data/skills/skill-library.json");
 validateWorkspaceSkillLinks("fixtures/schema/skills-v1/workspace-skill-links.json");
 validateWorkspaceSkillLinks("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/skills/skill-links.json");
+validateRoadmapTasks("fixtures/schema/roadmap-v1/roadmap-tasks.json");
+validateRoadmapTasks("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/roadmap/tasks.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/passed-report.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/failed-registry-report.json");
 validateTerminalStreams("fixtures/terminal-streams");
@@ -231,6 +233,43 @@ function validateWorkspaceSkillLinks(path) {
       `${path}.excludedPayloads must document skill content exclusion`,
     );
   }
+}
+
+function validateRoadmapTasks(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(Array.isArray(fixture.tasks), `${path}.tasks must be an array`);
+
+  const taskIds = new Set();
+  const sortOrders = new Set();
+  let previousSortOrder = -1;
+
+  for (const task of fixture.tasks) {
+    assert(task.schemaVersion === 1, `${path}.tasks[].schemaVersion must be 1`);
+    assertValidUlid(task.taskId, `${path}.tasks[].taskId`);
+    assert(!taskIds.has(task.taskId), `${path}.tasks[].taskId must be unique`);
+    taskIds.add(task.taskId);
+    assertNonEmptyString(task.title, `${path}.tasks[].title`);
+    if (task.detail !== null) assertNonEmptyString(task.detail, `${path}.tasks[].detail`);
+    assert(["pending", "inProgress", "done"].includes(task.status), `${path}.tasks[].status invalid`);
+    assert(
+      Number.isInteger(task.sortOrder) && task.sortOrder >= 0,
+      `${path}.tasks[].sortOrder must be non-negative`,
+    );
+    assert(!sortOrders.has(task.sortOrder), `${path}.tasks[].sortOrder must be unique`);
+    assert(task.sortOrder > previousSortOrder, `${path}.tasks must be sorted by sortOrder`);
+    sortOrders.add(task.sortOrder);
+    previousSortOrder = task.sortOrder;
+    assertPositiveTimestamp(task.createdAtMs, `${path}.tasks[].createdAtMs`);
+    assert(task.updatedAtMs >= task.createdAtMs, `${path}.tasks[].updatedAtMs must be >= createdAtMs`);
+  }
+
+  assertNonEmptyString(fixture.orderingRule, `${path}.orderingRule`);
+  assert(
+    Array.isArray(fixture.excludedFutureFields) &&
+      fixture.excludedFutureFields.some((item) => item.includes("goals") || item.includes("progress")),
+    `${path}.excludedFutureFields must document goal/progress exclusion`,
+  );
 }
 
 function validateMemberProfiles(path) {

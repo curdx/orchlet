@@ -3,25 +3,27 @@ use std::{fs, path::Path};
 use orchlet_lib::contracts::{
     AppError, ChatMessageStatus, ClearConversationRequest, ClearConversationResult, ContactKind,
     ConversationKind, ConversationParticipantKind, CreateContactRequest, CreateContactResult,
-    CreateGroupConversationRequest, CreateGroupConversationResult, DataIntegrityValidateRequest,
-    DataIntegrityValidateResult, DeleteContactRequest, DeleteContactResult,
-    DeleteConversationRequest, DeleteConversationResult, DeleteSkillRequest, DeleteSkillResult,
+    CreateGroupConversationRequest, CreateGroupConversationResult, CreateRoadmapTaskRequest,
+    CreateRoadmapTaskResult, DataIntegrityValidateRequest, DataIntegrityValidateResult,
+    DeleteContactRequest, DeleteContactResult, DeleteConversationRequest, DeleteConversationResult,
+    DeleteRoadmapTaskRequest, DeleteRoadmapTaskResult, DeleteSkillRequest, DeleteSkillResult,
     DispatchChatMessageRequest, DispatchChatMessageResult, DispatchQueueResumeRequest,
     DispatchQueueResumeResult, DispatchRequestStatus, DispatchTargetResolutionSource,
     ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult, InviteMemberRequest,
     InviteMemberResult, InvitedMemberType, LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult,
     ListContactsRequest, ListContactsResult, ListConversationsRequest, ListConversationsResult,
     ListMembersRequest, ListMembersResult, ListMessagesRequest, ListMessagesResult,
-    ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind,
-    MemberStatus, NotificationIgnoreAllRequest, NotificationIgnoreAllResult,
-    NotificationNavigationAction, NotificationNavigationKind, NotificationNavigationPendingRequest,
+    ListRoadmapTasksRequest, ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest,
+    ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind, MemberStatus,
+    NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
+    NotificationNavigationKind, NotificationNavigationPendingRequest,
     NotificationNavigationPendingResult, NotificationNavigationRequest,
     NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
     NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
     NotificationUnreadUpdateResult, OpenSkillFolderRequest, OpenSkillFolderResult,
     OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult,
-    SendMessageRequest, SendMessageResult, SkillImportStatus, SkillLibraryListRequest,
-    SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
+    RoadmapTaskStatus, SendMessageRequest, SendMessageResult, SkillImportStatus,
+    SkillLibraryListRequest, SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
     StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
     TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
     TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
@@ -34,8 +36,9 @@ use orchlet_lib::contracts::{
     UpdateContactRequest, UpdateContactResult, UpdateConversationSettingsRequest,
     UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
     UpdateGroupConversationMembersResult, UpdateMemberStatusRequest, UpdateMemberStatusResult,
-    UpdateReadPositionRequest, UpdateReadPositionResult, WindowMode, WorkspaceOpenStatus,
-    WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
+    UpdateReadPositionRequest, UpdateReadPositionResult, UpdateRoadmapTaskRequest,
+    UpdateRoadmapTaskResult, WindowMode, WorkspaceOpenStatus, WorkspaceSkillLinkMode,
+    WorkspaceSkillLinkStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -602,6 +605,53 @@ fn skill_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(unlink_result.removed_skill_id, unlink_request.skill_id);
     assert!(unlink_result.skills.is_empty());
     assert_eq!(unlink_error.code, "skill.workspaceLink.notFound");
+}
+
+#[test]
+fn roadmap_contract_fixtures_deserialize_into_rust_dtos() {
+    let list_request: ListRoadmapTasksRequest =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-tasks-list.request.json");
+    let list_result: ListRoadmapTasksResult =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-tasks-list.result.json");
+    let list_error: AppError =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-tasks-list.error.json");
+    let create_request: CreateRoadmapTaskRequest =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-create.request.json");
+    let create_result: CreateRoadmapTaskResult =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-create.result.json");
+    let create_error: AppError =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-create.error.json");
+    let update_request: UpdateRoadmapTaskRequest =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-update.request.json");
+    let update_result: UpdateRoadmapTaskResult =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-update.result.json");
+    let update_error: AppError =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-update.error.json");
+    let delete_request: DeleteRoadmapTaskRequest =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-delete.request.json");
+    let delete_result: DeleteRoadmapTaskResult =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-delete.result.json");
+    let delete_error: AppError =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-task-delete.error.json");
+
+    assert_eq!(list_request.workspace_root, "/fixtures/workspaces/alpha");
+    assert_eq!(list_result.tasks.len(), 1);
+    assert_eq!(list_result.tasks[0].title, "Ship MVP");
+    assert_eq!(list_result.tasks[0].status, RoadmapTaskStatus::Pending);
+    assert_eq!(list_result.tasks[0].sort_order, 0);
+    assert_eq!(list_error.code, "roadmap.tasks.invalidJson");
+    assert_eq!(create_request.status, RoadmapTaskStatus::Pending);
+    assert_eq!(create_result.task.task_id, "01K00000000000000000000200");
+    assert_eq!(create_result.tasks.len(), 1);
+    assert_eq!(create_error.code, "workspace.path.notFound");
+    assert_eq!(update_request.task_id, "01K00000000000000000000200");
+    assert_eq!(update_request.status, Some(RoadmapTaskStatus::InProgress));
+    assert_eq!(update_result.task.status, RoadmapTaskStatus::InProgress);
+    assert_eq!(update_error.code, "roadmap.task.notFound");
+    assert_eq!(delete_request.task_id, update_request.task_id);
+    assert_eq!(delete_result.removed_task_id, delete_request.task_id);
+    assert!(delete_result.tasks.is_empty());
+    assert_eq!(delete_error.code, "roadmap.task.notFound");
 }
 
 #[test]

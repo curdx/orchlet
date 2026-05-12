@@ -53,11 +53,15 @@ import type {
   RemoveMemberResult,
   SendMessageRequest,
   SendMessageResult,
+  CreateRoadmapTaskResult,
+  DeleteRoadmapTaskResult,
   ImportLocalSkillFolderResult,
   DeleteSkillResult,
   LinkWorkspaceSkillResult,
+  ListRoadmapTasksResult,
   ListWorkspaceSkillLinksResult,
   OpenSkillFolderResult,
+  RoadmapTaskEntry,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
   SkillLibraryEntry,
@@ -70,6 +74,7 @@ import type {
   UpdateConversationSettingsRequest,
   UpdateConversationSettingsResult,
   UpdateGroupConversationMembersRequest,
+  UpdateRoadmapTaskResult,
   UpdateMemberStatusRequest,
   UpdateMemberStatusResult,
   UpdateGroupConversationMembersResult,
@@ -157,6 +162,24 @@ function renderWorkspaceSelection(api: {
       skillId: string,
     ) => Promise<UnlinkWorkspaceSkillResult>;
   }>;
+  roadmapApi?: Partial<{
+    listTasks: (workspaceRoot: string) => Promise<ListRoadmapTasksResult>;
+    createTask: (
+      workspaceRoot: string,
+      input: { title: string; detail: string | null; status: "pending" | "inProgress" | "done" },
+    ) => Promise<CreateRoadmapTaskResult>;
+    updateTask: (
+      workspaceRoot: string,
+      taskId: string,
+      input: {
+        title?: string | null;
+        detail?: string | null;
+        status?: "pending" | "inProgress" | "done" | null;
+        sortOrder?: number | null;
+      },
+    ) => Promise<UpdateRoadmapTaskResult>;
+    deleteTask: (workspaceRoot: string, taskId: string) => Promise<DeleteRoadmapTaskResult>;
+  }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
     createContact: (request: CreateContactRequest) => Promise<CreateContactResult>;
@@ -190,6 +213,7 @@ function renderWorkspaceSelection(api: {
     memberApi,
     notificationApi,
     skillsApi,
+    roadmapApi,
     terminalApi,
     terminalDispatchApi,
     contactApi,
@@ -250,6 +274,13 @@ function renderWorkspaceSelection(api: {
           unlinkWorkspaceSkill: () =>
             Promise.reject(new Error("unlinkWorkspaceSkill mock missing")),
           ...skillsApi,
+        }}
+        roadmapApi={{
+          listTasks: () => Promise.resolve({ tasks: [] }),
+          createTask: () => Promise.reject(new Error("createTask mock missing")),
+          updateTask: () => Promise.reject(new Error("updateTask mock missing")),
+          deleteTask: () => Promise.reject(new Error("deleteTask mock missing")),
+          ...roadmapApi,
         }}
         terminalDispatchApi={{
           dispatchChatMessage: () =>
@@ -514,6 +545,20 @@ function workspaceSkillLinkEntry(
     unavailableReason: null,
     linkedAtMs: 1760000020000,
     updatedAtMs: 1760000020000,
+    ...overrides,
+  };
+}
+
+function roadmapTaskEntry(overrides: Partial<RoadmapTaskEntry> = {}): RoadmapTaskEntry {
+  return {
+    schemaVersion: 1,
+    taskId: "01K00000000000000000000200",
+    title: "Ship MVP",
+    detail: "Complete the first release track",
+    status: "pending",
+    sortOrder: 0,
+    createdAtMs: 1760000030000,
+    updatedAtMs: 1760000030000,
     ...overrides,
   };
 }
@@ -981,6 +1026,98 @@ describe("App workspace entry", () => {
     expect(within(classification).getByText("可用")).toBeInTheDocument();
     expect(within(classification).getByText("占位")).toBeInTheDocument();
     expect(within(classification).getByText("未来")).toBeInTheDocument();
+  });
+
+  it("creates, edits and deletes roadmap tasks from the Roadmap modal", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const createdTask = roadmapTaskEntry({ title: "新任务", detail: null, status: "pending" });
+    const renamedTask = roadmapTaskEntry({
+      title: "Ship beta",
+      detail: null,
+      status: "pending",
+      updatedAtMs: 1760000031000,
+    });
+    const inProgressTask = roadmapTaskEntry({
+      title: "Ship beta",
+      detail: null,
+      status: "inProgress",
+      updatedAtMs: 1760000032000,
+    });
+    const createTask = vi.fn(() =>
+      Promise.resolve({
+        task: createdTask,
+        tasks: [createdTask],
+      } satisfies CreateRoadmapTaskResult),
+    );
+    const updateTask = vi
+      .fn()
+      .mockResolvedValueOnce({
+        task: renamedTask,
+        tasks: [renamedTask],
+      } satisfies UpdateRoadmapTaskResult)
+      .mockResolvedValueOnce({
+        task: inProgressTask,
+        tasks: [inProgressTask],
+      } satisfies UpdateRoadmapTaskResult);
+    const deleteTask = vi.fn(() =>
+      Promise.resolve({
+        removedTaskId: inProgressTask.taskId,
+        tasks: [],
+      } satisfies DeleteRoadmapTaskResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      roadmapApi: {
+        listTasks: () => Promise.resolve({ tasks: [] }),
+        createTask,
+        updateTask,
+        deleteTask,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "Roadmap" }));
+
+    const modal = await screen.findByRole("dialog", { name: "路线图" });
+    expect(within(modal).getByText("暂无路线图任务")).toBeInTheDocument();
+
+    await user.click(within(modal).getByRole("button", { name: "添加任务" }));
+
+    expect(createTask).toHaveBeenCalledWith("/tmp/orchlet-demo", {
+      title: "新任务",
+      detail: null,
+      status: "pending",
+    });
+    expect(await within(modal).findByDisplayValue("新任务")).toBeInTheDocument();
+
+    const titleInput = within(modal).getByLabelText("任务标题");
+    await user.clear(titleInput);
+    await user.type(titleInput, "Ship beta");
+    fireEvent.blur(titleInput);
+
+    await waitFor(() =>
+      expect(updateTask).toHaveBeenCalledWith("/tmp/orchlet-demo", createdTask.taskId, {
+        title: "Ship beta",
+      }),
+    );
+
+    await user.selectOptions(within(modal).getByLabelText("任务状态"), "inProgress");
+    await waitFor(() =>
+      expect(updateTask).toHaveBeenLastCalledWith("/tmp/orchlet-demo", createdTask.taskId, {
+        status: "inProgress",
+      }),
+    );
+
+    await user.click(within(modal).getByRole("button", { name: "删除" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith("删除这个路线图任务？");
+    expect(deleteTask).toHaveBeenCalledWith("/tmp/orchlet-demo", createdTask.taskId);
+    expect(await within(modal).findByText("暂无路线图任务")).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
   });
 
   it("loads conversations and creates then updates group membership", async () => {
@@ -3165,10 +3302,14 @@ describe("App workspace entry", () => {
 
   it("appends quick prompts and exposes removable attachment composition state", async () => {
     const user = userEvent.setup();
+    const referencedTask = roadmapTaskEntry();
 
     renderWorkspaceSelection({
       getWorkspaceSelectionStatus: () => Promise.resolve(status),
       pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      roadmapApi: {
+        listTasks: () => Promise.resolve({ tasks: [referencedTask] }),
+      },
     });
 
     await user.click(screen.getByRole("button", { name: "打开文件夹" }));
@@ -3182,16 +3323,24 @@ describe("App workspace entry", () => {
 
     await user.click(within(conversationPanel).getByRole("button", { name: "图片入口" }));
     await user.click(within(conversationPanel).getByRole("button", { name: "路线图引用" }));
+    const roadmapPicker = await within(conversationPanel).findByRole("dialog", {
+      name: "选择路线图任务",
+    });
+    await user.click(within(roadmapPicker).getByRole("button", { name: /Ship MVP/ }));
 
     expect(within(conversationPanel).getByRole("button", { name: /图片待附加/ }))
       .toBeInTheDocument();
     const roadmapChip = within(conversationPanel).getByRole("button", {
-      name: /路线图待引用/,
+      name: /路线图：Ship MVP/,
     });
     expect(roadmapChip).toBeInTheDocument();
 
     await user.click(roadmapChip);
-    expect(within(conversationPanel).queryByRole("button", { name: /路线图待引用/ }))
+    const roadmapModal = await screen.findByRole("dialog", { name: "路线图" });
+    expect(within(roadmapModal).getByText("已聚焦")).toBeInTheDocument();
+
+    await user.click(within(conversationPanel).getByRole("button", { name: /图片待附加/ }));
+    expect(within(conversationPanel).queryByRole("button", { name: /图片待附加/ }))
       .not.toBeInTheDocument();
   });
 

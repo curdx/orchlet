@@ -1,0 +1,9 @@
+{
+  "code": "workspace.path.notFound",
+  "message": "选择的工作区路径不存在。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请选择一个存在的本地目录后重试。",
+  "details": "/fixtures/workspaces/missing",
+  "correlationId": null
+}

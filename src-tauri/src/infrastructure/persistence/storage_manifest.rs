@@ -14,6 +14,7 @@ use crate::{
         workspace_registry_store::{
             WORKSPACE_REGISTRY_FILE_NAME, WORKSPACE_REGISTRY_SCHEMA_VERSION,
         },
+        workspace_roadmap_store::WORKSPACE_ROADMAP_TASKS_SCHEMA_VERSION,
         workspace_skill_link_store::WORKSPACE_SKILL_LINKS_SCHEMA_VERSION,
     },
     infrastructure::persistence::sqlite::global_database::{
@@ -344,6 +345,31 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "skill.workspace_links.load_validate".to_owned(),
             notes: "Contains workspace link metadata and symlink fallback status only; unlink removes workspace association without deleting app library records or user source folders."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "roadmap.tasks".to_owned(),
+            owner: StorageOwner::Roadmap,
+            category: StorageCategory::RoadmapTasks,
+            description: "Workspace-local roadmap task records, status and ordering metadata."
+                .to_owned(),
+            path_policy: StoragePathPolicy::WorkspaceLocalRelative,
+            relative_path: Some(format!("{}/roadmap/tasks.json", WORKSPACE_DIR_NAME)),
+            file_name: Some("tasks.json".to_owned()),
+            format: StorageFormat::Json,
+            schema_version: WORKSPACE_ROADMAP_TASKS_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/workspace_roadmap_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/workspace_roadmap_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "roadmap.tasks.load_validate".to_owned(),
+            notes: "Contains task title, detail, status and ordering metadata only; goals and progress rollups are owned by Story 6.5."
                 .to_owned(),
         },
     ]

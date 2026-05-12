@@ -89,7 +89,7 @@ development_status:
   6-1-import-local-skill-folder: done
   6-2-manage-skill-library-workspace-links: done
   6-3-delete-open-capability-classification: done
-  6-4-roadmap-task-crud: backlog
+  6-4-roadmap-task-crud: done
   6-5-roadmap-goals-status-progress: backlog
   epic-6-retrospective: optional
 

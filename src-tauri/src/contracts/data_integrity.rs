@@ -11,6 +11,7 @@ pub enum StorageOwner {
     Chat,
     Terminal,
     Skill,
+    Roadmap,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
@@ -32,6 +33,7 @@ pub enum StorageCategory {
     TerminalTabs,
     SkillLibrary,
     WorkspaceSkillLinks,
+    RoadmapTasks,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]

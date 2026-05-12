@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "tasks": [
+    {
+      "schemaVersion": 1,
+      "taskId": "01K00000000000000000000200",
+      "title": "Ship MVP",
+      "detail": "Complete the first release track",
+      "status": "pending",
+      "sortOrder": 0,
+      "createdAtMs": 1760000030000,
+      "updatedAtMs": 1760000030000
+    }
+  ],
+  "orderingRule": "sortOrder is unique and compacted after deletion",
+  "excludedFutureFields": ["goals and completion progress are owned by Story 6.5"]
+}

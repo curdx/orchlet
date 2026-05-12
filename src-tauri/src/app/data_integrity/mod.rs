@@ -6,7 +6,10 @@ use std::{
 use ulid::Ulid;
 
 use crate::{
-    app::skills::{validate_skill_library_store, validate_workspace_skill_link_store},
+    app::{
+        roadmap::validate_workspace_roadmap_task_store,
+        skills::{validate_skill_library_store, validate_workspace_skill_link_store},
+    },
     contracts::{
         AppError, AppErrorSeverity, DataIntegrityCheckResult, DataIntegrityReport,
         DataIntegritySeverity, DataIntegrityStatus, OpenedWorkspace, StorageCategory,
@@ -19,6 +22,7 @@ use crate::{
             workspace_fallback_store::{load_workspace_fallbacks, workspace_fallback_path},
             workspace_metadata_store::read_workspace_metadata,
             workspace_registry_store::{load_workspace_registry, now_ms, workspace_registry_path},
+            workspace_roadmap_store::workspace_roadmap_tasks_path,
             workspace_skill_link_store::workspace_skill_links_path,
         },
         sqlite::{
@@ -132,6 +136,7 @@ pub fn validate_data_integrity(
     ));
     checks.push(validate_skill_library(app_data_dir));
     checks.push(validate_workspace_skill_links(workspace_root.as_deref()));
+    checks.push(validate_roadmap_tasks(workspace_root.as_deref()));
 
     report_from_checks(manifest, checks)
 }
@@ -166,6 +171,7 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::TerminalTabs,
         StorageCategory::SkillLibrary,
         StorageCategory::WorkspaceSkillLinks,
+        StorageCategory::RoadmapTasks,
     ];
     let missing_categories = expected_categories
         .iter()
@@ -202,6 +208,30 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
             duplicate_ids, duplicate_categories, missing_categories
         )),
     }
+}
+
+fn validate_roadmap_tasks(workspace_root: Option<&Path>) -> DataIntegrityCheckResult {
+    let Some(workspace_root) = workspace_root else {
+        return DataIntegrityCheckResult {
+            check_id: "roadmap.tasks.load_validate".to_owned(),
+            category: StorageCategory::RoadmapTasks,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace root is available for roadmap task validation."
+                .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    check_result(
+        "roadmap.tasks.load_validate",
+        StorageCategory::RoadmapTasks,
+        vec![workspace_roadmap_tasks_path(workspace_root)],
+        validate_workspace_roadmap_task_store(workspace_root)
+            .map(|_| "Roadmap tasks are readable when initialized.".to_owned()),
+    )
 }
 
 fn validate_skill_library(app_data_dir: &Path) -> DataIntegrityCheckResult {
@@ -639,7 +669,7 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 13);
+        assert_eq!(manifest.len(), 14);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
@@ -653,6 +683,7 @@ mod tests {
         assert!(categories.contains(&StorageCategory::TerminalTabs));
         assert!(categories.contains(&StorageCategory::SkillLibrary));
         assert!(categories.contains(&StorageCategory::WorkspaceSkillLinks));
+        assert!(categories.contains(&StorageCategory::RoadmapTasks));
         assert!(manifest
             .iter()
             .all(|entry| entry.schema_version == 1 && entry.fixture_required));
@@ -663,9 +694,9 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 14);
+        assert_eq!(report.total_checks, 15);
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 9);
+        assert_eq!(report.skipped_checks, 10);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Skipped
@@ -810,7 +841,7 @@ mod tests {
         let report = validate_data_integrity(app_data.path(), None, None);
 
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 9);
+        assert_eq!(report.skipped_checks, 10);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceRegistry
                 && check.status == DataIntegrityStatus::Passed

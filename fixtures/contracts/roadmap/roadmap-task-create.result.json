@@ -1,0 +1,24 @@
+{
+  "task": {
+    "schemaVersion": 1,
+    "taskId": "01K00000000000000000000200",
+    "title": "Ship MVP",
+    "detail": "Complete the first release track",
+    "status": "pending",
+    "sortOrder": 0,
+    "createdAtMs": 1760000030000,
+    "updatedAtMs": 1760000030000
+  },
+  "tasks": [
+    {
+      "schemaVersion": 1,
+      "taskId": "01K00000000000000000000200",
+      "title": "Ship MVP",
+      "detail": "Complete the first release track",
+      "status": "pending",
+      "sortOrder": 0,
+      "createdAtMs": 1760000030000,
+      "updatedAtMs": 1760000030000
+    }
+  ]
+}
