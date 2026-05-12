@@ -39,6 +39,7 @@ import {
   memberApi,
   notificationApi,
   normalizeAppError,
+  skillsApi,
   terminalDispatchApi,
   terminalApi,
   workspaceApi,
@@ -49,6 +50,7 @@ import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
 import type { MemberApi } from "../../../shared/api/member-api";
 import type { NotificationApi } from "../../../shared/api/notification-api";
+import type { SkillsApi } from "../../../shared/api/skills-api";
 import type { TerminalDispatchApi } from "../../../shared/api/terminal-dispatch-api";
 import type { TerminalApi } from "../../../shared/api/terminal-api";
 import type {
@@ -80,6 +82,10 @@ import type {
   WorkspaceConflictResolution,
   WorkspaceRegistryConflict,
 } from "../../../contracts/generated";
+import type {
+  SkillImportStatus,
+  SkillLibraryEntry,
+} from "../../../contracts/generated/skill";
 import { IconButton, Toast, useToastStore } from "../../../shared/ui";
 import type { WorkspaceApi } from "../../../shared/api/workspace-api";
 
@@ -104,6 +110,7 @@ type WorkspaceSelectionPageProps = {
     NotificationApi,
     "updateUnreadSummary" | "getPendingNavigation" | "subscribeNavigation"
   >;
+  skillsApi?: Pick<SkillsApi, "listSkills" | "importLocalFolder">;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
@@ -182,6 +189,7 @@ export function WorkspaceSelectionPage({
   integrityApi = dataIntegrityApi,
   memberApi: membersApi = memberApi,
   notificationApi: notificationsApi = notificationApi,
+  skillsApi: localSkillsApi = skillsApi,
   terminalApi: terminalsApi = terminalApi,
   terminalDispatchApi: dispatchApi = terminalDispatchApi,
   contactApi: contactsApi = contactApi,
@@ -192,6 +200,7 @@ export function WorkspaceSelectionPage({
   const [isOpeningFileManager, setIsOpeningFileManager] = useState(false);
   const [isSyncActionPending, setIsSyncActionPending] = useState(false);
   const [isValidatingIntegrity, setIsValidatingIntegrity] = useState(false);
+  const [isImportingSkill, setIsImportingSkill] = useState(false);
   const [isInvitingMember, setIsInvitingMember] = useState(false);
   const [openedWorkspace, setOpenedWorkspace] = useState<OpenedWorkspace | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
@@ -295,6 +304,13 @@ export function WorkspaceSelectionPage({
     retry: false,
   });
   const conversations = conversationQuery.data?.conversations ?? [];
+  const skillQuery = useQuery({
+    queryKey: ["skills-library"],
+    queryFn: localSkillsApi.listSkills,
+    enabled: Boolean(activeWorkspaceId),
+    retry: false,
+  });
+  const skills = skillQuery.data?.skills ?? [];
   const selectedConversation =
     conversations.find((conversation) => conversation.conversationId === selectedConversationId) ??
     conversations[0] ??
@@ -424,6 +440,21 @@ export function WorkspaceSelectionPage({
       action: appError.userAction ?? undefined,
     });
   }, [messageQuery.error, showToast]);
+
+  useEffect(() => {
+    if (!skillQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(skillQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载技能库",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [skillQuery.error, showToast]);
 
   useEffect(() => {
     membersRef.current = members;
@@ -1953,6 +1984,37 @@ export function WorkspaceSelectionPage({
     clearToast();
   }
 
+  async function handleImportSkill() {
+    setIsImportingSkill(true);
+
+    try {
+      const result = await localSkillsApi.importLocalFolder();
+
+      if (!result) {
+        return;
+      }
+
+      queryClient.setQueryData(["skills-library"], { skills: result.skills });
+      showToast({
+        tone: "info",
+        title: result.status === "updatedExisting" ? "技能已更新" : "技能已导入",
+        message: result.skill.name,
+        action: skillImportStatusAction(result.status),
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "导入技能失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsImportingSkill(false);
+    }
+  }
+
   function showDeferredToast(title: string, message: string) {
     showToast({
       tone: "info",
@@ -2261,6 +2323,15 @@ export function WorkspaceSelectionPage({
               />
             ) : null}
 
+            {activeWorkspace ? (
+              <SkillLibraryPanel
+                skills={skills}
+                isLoading={skillQuery.isLoading}
+                isImporting={isImportingSkill}
+                onImport={() => void handleImportSkill()}
+              />
+            ) : null}
+
             <section
               aria-labelledby="recent-workspaces-title"
               className="mt-6 rounded-lg border border-[#dbe4d7] bg-[#fbfcfa] p-5"
@@ -2364,6 +2435,84 @@ const builtInRuntimeOptions = [
   { id: "opencode", label: "OpenCode", command: "opencode" },
   { id: "qwen-code", label: "Qwen Code", command: "qwen" },
 ];
+
+function SkillLibraryPanel({
+  skills,
+  isLoading,
+  isImporting,
+  onImport,
+}: {
+  skills: SkillLibraryEntry[];
+  isLoading: boolean;
+  isImporting: boolean;
+  onImport: () => void;
+}) {
+  return (
+    <section
+      aria-labelledby="skill-library-title"
+      className="mt-6 rounded-lg border border-[#dbe4d7] bg-[#fbfcfa] p-5"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-[#6a786c]">技能</p>
+          <h2 id="skill-library-title" className="mt-1 text-sm font-semibold text-[#263229]">
+            我的技能库
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={onImport}
+          disabled={isImporting || isLoading}
+          className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+        >
+          <Plus aria-hidden="true" size={14} strokeWidth={2} />
+          {isImporting ? "导入中" : "导入技能"}
+        </button>
+      </div>
+
+      <div className="mt-4">
+        {isLoading ? (
+          <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+            正在加载技能库
+          </p>
+        ) : skills.length > 0 ? (
+          <ul className="grid gap-2" aria-label="本地技能列表">
+            {skills.map((skill) => (
+              <li
+                key={skill.skillId}
+                className="grid gap-2 rounded-md border border-[#e3eadf] bg-white p-3"
+              >
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#eef3eb] text-[#3f6849]">
+                    <FolderOpen aria-hidden="true" size={16} strokeWidth={2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-[#263229]">
+                      {skill.name}
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-[#6a786c]">
+                      {skill.description ?? "本地技能文件夹"}
+                    </span>
+                    <span className="mt-1 block truncate font-mono text-[11px] text-[#879182]" title={skill.sourcePath}>
+                      {skill.sourcePath}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-md border border-[#cfe0c9] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#37533e]">
+                    本地
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
+            我的技能库里暂无可用技能
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
 
 function ConversationPanel({
   conversations,
@@ -4691,6 +4840,10 @@ function segmentedButtonClass(active: boolean) {
   return active
     ? "rounded-md border border-[#a7c79e] bg-[#e8f4e3] px-3 py-1.5 text-xs font-semibold text-[#26442f] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
     : "rounded-md border border-[#cfd9cc] bg-white px-3 py-1.5 text-xs font-medium text-[#526054] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70";
+}
+
+function skillImportStatusAction(status: SkillImportStatus) {
+  return status === "updatedExisting" ? "已更新已有技能记录。" : "已保存到本地技能库。";
 }
 
 function reportStatusLabel(report: DataIntegrityReport) {

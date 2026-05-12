@@ -53,8 +53,11 @@ import type {
   RemoveMemberResult,
   SendMessageRequest,
   SendMessageResult,
+  ImportLocalSkillFolderResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
+  SkillLibraryEntry,
+  SkillLibraryListResult,
   TerminalOutputEventPayload,
   TerminalOpenResult,
   TerminalStatusEventPayload,
@@ -133,6 +136,10 @@ function renderWorkspaceSelection(api: {
       handler: (action: NotificationNavigationAction) => void,
     ) => Promise<() => void>;
   }>;
+  skillsApi?: Partial<{
+    listSkills: () => Promise<SkillLibraryListResult>;
+    importLocalFolder: () => Promise<ImportLocalSkillFolderResult | null>;
+  }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
     createContact: (request: CreateContactRequest) => Promise<CreateContactResult>;
@@ -165,6 +172,7 @@ function renderWorkspaceSelection(api: {
   const {
     memberApi,
     notificationApi,
+    skillsApi,
     terminalApi,
     terminalDispatchApi,
     contactApi,
@@ -214,6 +222,11 @@ function renderWorkspaceSelection(api: {
             Promise.resolve({ action: notificationNavigationAction(request) }),
           subscribeNavigation: () => Promise.resolve(() => undefined),
           ...notificationApi,
+        }}
+        skillsApi={{
+          listSkills: () => Promise.resolve({ skills: [] }),
+          importLocalFolder: () => Promise.reject(new Error("importLocalFolder mock missing")),
+          ...skillsApi,
         }}
         terminalDispatchApi={{
           dispatchChatMessage: () =>
@@ -446,6 +459,22 @@ function notificationNavigationAction(
   };
 }
 
+function skillLibraryEntry(overrides: Partial<SkillLibraryEntry> = {}): SkillLibraryEntry {
+  return {
+    schemaVersion: 1,
+    skillId: "01K00000000000000000000100",
+    name: "Local Review",
+    description: "Review helper",
+    source: "localFolder",
+    sourcePath: "/fixtures/skills/local-review",
+    manifestPath: "/fixtures/skills/local-review/SKILL.md",
+    importedAtMs: 1760000010000,
+    updatedAtMs: 1760000010000,
+    lastValidatedAtMs: 1760000010000,
+    ...overrides,
+  };
+}
+
 function dataIntegrityReport(
   overrides: Partial<DataIntegrityReport> = {},
 ): DataIntegrityReport {
@@ -632,6 +661,103 @@ describe("App workspace entry", () => {
     expect(screen.getByText("Schema v1")).toBeInTheDocument();
     expect(screen.getByText("可写模式")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "打开文件管理器" })).toBeInTheDocument();
+  });
+
+  it("imports a local skill folder and shows it in the skill library", async () => {
+    const user = userEvent.setup();
+    const importedSkill = skillLibraryEntry();
+    const listSkills = vi.fn(() => Promise.resolve({ skills: [] }));
+    const importLocalFolder = vi.fn(() =>
+      Promise.resolve({
+        skill: importedSkill,
+        skills: [importedSkill],
+        status: "imported",
+      } satisfies ImportLocalSkillFolderResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: { listSkills, importLocalFolder },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
+    expect(within(skillsPanel).getByText("我的技能库里暂无可用技能")).toBeInTheDocument();
+
+    await user.click(within(skillsPanel).getByRole("button", { name: "导入技能" }));
+
+    expect(importLocalFolder).toHaveBeenCalled();
+    expect(await within(skillsPanel).findByText("Local Review")).toBeInTheDocument();
+    expect(within(skillsPanel).getByText("Review helper")).toBeInTheDocument();
+    expect(within(skillsPanel).getByText("/fixtures/skills/local-review")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("技能已导入");
+  });
+
+  it("keeps the skill library empty when import validation fails", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [] }),
+        importLocalFolder: () =>
+          Promise.reject({
+            code: "skill.manifest.missing",
+            message: "技能文件夹缺少 SKILL.md。",
+            severity: "error",
+            recoverable: true,
+            userAction: "请选择包含 SKILL.md 的技能文件夹后重试。",
+            details: "/fixtures/skills/invalid/SKILL.md",
+            correlationId: null,
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
+    await user.click(within(skillsPanel).getByRole("button", { name: "导入技能" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("技能文件夹缺少 SKILL.md。");
+    expect(screen.getByRole("status")).toHaveTextContent("请选择包含 SKILL.md");
+    expect(within(skillsPanel).getByText("我的技能库里暂无可用技能")).toBeInTheDocument();
+  });
+
+  it("updates the existing skill row when duplicate import returns updatedExisting", async () => {
+    const user = userEvent.setup();
+    const existingSkill = skillLibraryEntry({ name: "Old Review", updatedAtMs: 1760000010000 });
+    const updatedSkill = skillLibraryEntry({ name: "Updated Review", updatedAtMs: 1760000011000 });
+    const importLocalFolder = vi.fn(() =>
+      Promise.resolve({
+        skill: updatedSkill,
+        skills: [updatedSkill],
+        status: "updatedExisting",
+      } satisfies ImportLocalSkillFolderResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [existingSkill] }),
+        importLocalFolder,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const skillsPanel = await screen.findByRole("region", { name: "我的技能库" });
+    expect(await within(skillsPanel).findByText("Old Review")).toBeInTheDocument();
+
+    await user.click(within(skillsPanel).getByRole("button", { name: "导入技能" }));
+
+    expect(await within(skillsPanel).findByText("Updated Review")).toBeInTheDocument();
+    expect(within(skillsPanel).queryByText("Old Review")).not.toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("技能已更新");
+    expect(screen.getByRole("status")).toHaveTextContent("已更新已有技能记录");
   });
 
   it("loads conversations and creates then updates group membership", async () => {

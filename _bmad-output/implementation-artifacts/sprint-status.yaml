@@ -1,5 +1,5 @@
 # generated: 2026-05-11
-# last_updated: 2026-05-12
+# last_updated: 2026-05-13
 # project: orchlet
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-11
-last_updated: 2026-05-12
+last_updated: 2026-05-13
 project: orchlet
 project_key: NOKEY
 tracking_system: file-system
@@ -85,8 +85,8 @@ development_status:
   5-3-ignore-all-unread-notifications: done
   epic-5-retrospective: optional
 
-  epic-6: backlog
-  6-1-import-local-skill-folder: backlog
+  epic-6: in-progress
+  6-1-import-local-skill-folder: done
   6-2-manage-skill-library-workspace-links: backlog
   6-3-delete-open-capability-classification: backlog
   6-4-roadmap-task-crud: backlog

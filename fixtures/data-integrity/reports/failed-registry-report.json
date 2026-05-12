@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=11"
+      "details": "entries=12"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -123,10 +123,20 @@
       "affectedPaths": [],
       "userAction": null,
       "details": null
+    },
+    {
+      "checkId": "skill.library.load_validate",
+      "category": "skillLibrary",
+      "status": "passed",
+      "severity": "info",
+      "message": "Skill library is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/skills/skill-library.json"],
+      "userAction": null,
+      "details": null
     }
   ],
-  "totalChecks": 12,
-  "passedChecks": 3,
+  "totalChecks": 13,
+  "passedChecks": 4,
   "failedChecks": 1,
   "skippedChecks": 8,
   "hasFailures": true,

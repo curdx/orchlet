@@ -92,6 +92,15 @@ import type {
   DispatchTargetResolutionSource,
 } from "../../src/contracts/generated/orchestration";
 import type {
+  ImportLocalSkillFolderRequest,
+  ImportLocalSkillFolderResult,
+  SkillImportStatus,
+  SkillLibraryEntry,
+  SkillLibraryListRequest,
+  SkillLibraryListResult,
+  SkillSource,
+} from "../../src/contracts/generated/skill";
+import type {
   TerminalAttachRequest,
   TerminalAttachResult,
   TerminalCloseRequest,
@@ -216,6 +225,12 @@ import notificationUnreadUpdateError from "../../fixtures/contracts/notification
 import notificationUnreadUpdateRequest from "../../fixtures/contracts/notification/notification-unread-summary-update.request.json";
 import notificationUnreadUpdateResult from "../../fixtures/contracts/notification/notification-unread-summary-update.result.json";
 import notificationUnreadEvent from "../../fixtures/contracts/notification/notification-unread.event.json";
+import skillImportFolderError from "../../fixtures/contracts/skill/skill-import-folder.error.json";
+import skillImportFolderRequest from "../../fixtures/contracts/skill/skill-import-folder.request.json";
+import skillImportFolderResult from "../../fixtures/contracts/skill/skill-import-folder.result.json";
+import skillLibraryListError from "../../fixtures/contracts/skill/skill-library-list.error.json";
+import skillLibraryListRequest from "../../fixtures/contracts/skill/skill-library-list.request.json";
+import skillLibraryListResult from "../../fixtures/contracts/skill/skill-library-list.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -476,6 +491,20 @@ export const notificationIgnoreAllErrorFixture: AppError = appError(notification
 export const notificationIgnoreAllEventFixture: NotificationUnreadSummary =
   notificationUnreadSummary(notificationIgnoreAllEvent);
 
+export const skillLibraryListRequestFixture: SkillLibraryListRequest = skillLibraryListRequest;
+export const skillLibraryListResultFixture: SkillLibraryListResult = {
+  skills: skillLibraryListResult.skills.map(skillLibraryEntry),
+};
+export const skillLibraryListErrorFixture: AppError = appError(skillLibraryListError);
+export const skillImportFolderRequestFixture: ImportLocalSkillFolderRequest =
+  skillImportFolderRequest;
+export const skillImportFolderResultFixture: ImportLocalSkillFolderResult = {
+  skill: skillLibraryEntry(skillImportFolderResult.skill),
+  skills: skillImportFolderResult.skills.map(skillLibraryEntry),
+  status: skillImportStatus(skillImportFolderResult.status),
+};
+export const skillImportFolderErrorFixture: AppError = appError(skillImportFolderError);
+
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
   contacts: listContactsResult.contacts.map(contactProfile),
@@ -628,6 +657,8 @@ type ErrorJson =
   | typeof notificationNavigationPendingError
   | typeof notificationNavigationDispatchError
   | typeof notificationIgnoreAllError
+  | typeof skillLibraryListError
+  | typeof skillImportFolderError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -682,6 +713,37 @@ function notificationNavigationKind(value: string): NotificationNavigationKind {
       return value;
     default:
       throw new Error(`Unknown notification navigation kind: ${value}`);
+  }
+}
+
+type SkillLibraryEntryJson =
+  | (typeof skillLibraryListResult.skills)[number]
+  | typeof skillImportFolderResult.skill
+  | (typeof skillImportFolderResult.skills)[number];
+
+function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {
+  return {
+    ...skill,
+    source: skillSource(skill.source),
+  };
+}
+
+function skillSource(value: string): SkillSource {
+  switch (value) {
+    case "localFolder":
+      return value;
+    default:
+      throw new Error(`Unknown skill source: ${value}`);
+  }
+}
+
+function skillImportStatus(value: string): SkillImportStatus {
+  switch (value) {
+    case "imported":
+    case "updatedExisting":
+      return value;
+    default:
+      throw new Error(`Unknown skill import status: ${value}`);
   }
 }
 
@@ -778,6 +840,7 @@ function storageOwner(value: string): StorageOwner {
     case "contact":
     case "chat":
     case "terminal":
+    case "skill":
       return value;
     default:
       throw new Error(`Unknown storage owner: ${value}`);
@@ -799,6 +862,7 @@ function storageCategory(value: string): StorageCategory {
     case "conversationReadPositions":
     case "privateConversations":
     case "terminalTabs":
+    case "skillLibrary":
       return value;
     default:
       throw new Error(`Unknown storage category: ${value}`);

@@ -1,0 +1,9 @@
+{
+  "code": "skill.manifest.missing",
+  "message": "技能文件夹缺少 SKILL.md。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请选择包含 SKILL.md 的技能文件夹后重试。",
+  "details": "/fixtures/skills/invalid/SKILL.md",
+  "correlationId": null
+}

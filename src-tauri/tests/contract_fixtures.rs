@@ -7,25 +7,26 @@ use orchlet_lib::contracts::{
     DataIntegrityValidateResult, DeleteContactRequest, DeleteContactResult,
     DeleteConversationRequest, DeleteConversationResult, DispatchChatMessageRequest,
     DispatchChatMessageResult, DispatchQueueResumeRequest, DispatchQueueResumeResult,
-    DispatchRequestStatus, DispatchTargetResolutionSource, InviteMemberRequest, InviteMemberResult,
-    InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
-    ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
-    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, NotificationIgnoreAllRequest,
-    NotificationIgnoreAllResult, NotificationNavigationAction, NotificationNavigationKind,
-    NotificationNavigationPendingRequest, NotificationNavigationPendingResult,
-    NotificationNavigationRequest, NotificationNavigationResult, NotificationUnreadSummary,
-    NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
-    NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenWorkspaceRequest,
-    OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
-    SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
-    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
-    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
-    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
-    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
-    TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
-    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
-    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
-    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    DispatchRequestStatus, DispatchTargetResolutionSource, ImportLocalSkillFolderRequest,
+    ImportLocalSkillFolderResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
+    ListContactsRequest, ListContactsResult, ListConversationsRequest, ListConversationsResult,
+    ListMembersRequest, ListMembersResult, ListMessagesRequest, ListMessagesResult, MemberRole,
+    MemberRuntimeKind, MemberStatus, NotificationIgnoreAllRequest, NotificationIgnoreAllResult,
+    NotificationNavigationAction, NotificationNavigationKind, NotificationNavigationPendingRequest,
+    NotificationNavigationPendingResult, NotificationNavigationRequest,
+    NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
+    NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
+    NotificationUnreadUpdateResult, OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest,
+    RemoveMemberResult, SendMessageRequest, SendMessageResult, SkillImportStatus,
+    SkillLibraryListRequest, SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
+    StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
+    TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
+    TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
+    TerminalInputResult, TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload,
+    TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus, TerminalStatusEventPayload,
+    TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
+    TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
+    TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
     TerminalTabsListResult, UpdateContactRequest, UpdateContactResult,
     UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
@@ -507,6 +508,35 @@ fn notification_contract_fixtures_deserialize_into_rust_dtos() {
     assert!(!ignore_result.summary.tray.has_unread);
     assert_eq!(ignore_error.code, "notification.ignoreAll.emitFailed");
     assert_eq!(ignore_event.total_unread_count, 0);
+}
+
+#[test]
+fn skill_contract_fixtures_deserialize_into_rust_dtos() {
+    let _list_request: SkillLibraryListRequest =
+        read_fixture("../fixtures/contracts/skill/skill-library-list.request.json");
+    let list_result: SkillLibraryListResult =
+        read_fixture("../fixtures/contracts/skill/skill-library-list.result.json");
+    let list_error: AppError =
+        read_fixture("../fixtures/contracts/skill/skill-library-list.error.json");
+    let import_request: ImportLocalSkillFolderRequest =
+        read_fixture("../fixtures/contracts/skill/skill-import-folder.request.json");
+    let import_result: ImportLocalSkillFolderResult =
+        read_fixture("../fixtures/contracts/skill/skill-import-folder.result.json");
+    let import_error: AppError =
+        read_fixture("../fixtures/contracts/skill/skill-import-folder.error.json");
+
+    assert_eq!(list_result.skills.len(), 1);
+    assert_eq!(list_result.skills[0].name, "Local Review");
+    assert_eq!(list_result.skills[0].source, SkillSource::LocalFolder);
+    assert_eq!(list_error.code, "skill.library.invalidJson");
+    assert_eq!(import_request.path, "/fixtures/skills/local-review");
+    assert_eq!(import_result.status, SkillImportStatus::Imported);
+    assert_eq!(
+        import_result.skill.manifest_path,
+        "/fixtures/skills/local-review/SKILL.md"
+    );
+    assert_eq!(import_result.skills.len(), 1);
+    assert_eq!(import_error.code, "skill.manifest.missing");
 }
 
 #[test]

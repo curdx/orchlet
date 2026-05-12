@@ -13,6 +13,8 @@ validateContactProfiles("fixtures/schema/contacts-v1/contact-profiles.json");
 validateConversationList("fixtures/schema/conversations-v1/conversation-list.json");
 validateMessageHistory("fixtures/schema/messages-v1/message-history.json");
 validateTerminalTabs("fixtures/schema/terminal-tabs-v1/terminal-tabs.json");
+validateSkillLibrary("fixtures/schema/skills-v1/skill-library.json");
+validateSkillLibrary("fixtures/data-integrity/valid-json-stores/app-data/skills/skill-library.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/passed-report.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/failed-registry-report.json");
 validateTerminalStreams("fixtures/terminal-streams");
@@ -157,6 +159,41 @@ function validateTerminalTabs(path) {
     fixture.excludedPayloads.some((item) => item.includes("output")),
     `${path} must document excluded terminal output`,
   );
+}
+
+function validateSkillLibrary(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(Array.isArray(fixture.skills), `${path}.skills must be an array`);
+
+  const skillIds = new Set();
+  const sourcePaths = new Set();
+  for (const skill of fixture.skills) {
+    assert(skill.schemaVersion === 1, `${path}.skills[].schemaVersion must be 1`);
+    assertValidUlid(skill.skillId, `${path}.skills[].skillId`);
+    assert(!skillIds.has(skill.skillId), `${path}.skills[].skillId must be unique`);
+    skillIds.add(skill.skillId);
+    assertNonEmptyString(skill.name, `${path}.skills[].name`);
+    if (skill.description !== null) assertNonEmptyString(skill.description, `${path}.skills[].description`);
+    assert(skill.source === "localFolder", `${path}.skills[].source must be localFolder`);
+    assertNonEmptyString(skill.sourcePath, `${path}.skills[].sourcePath`);
+    assert(!sourcePaths.has(skill.sourcePath), `${path}.skills[].sourcePath must be unique`);
+    sourcePaths.add(skill.sourcePath);
+    assert(skill.manifestPath.endsWith("/SKILL.md"), `${path}.skills[].manifestPath must end with SKILL.md`);
+    assertPositiveTimestamp(skill.importedAtMs, `${path}.skills[].importedAtMs`);
+    assert(skill.updatedAtMs >= skill.importedAtMs, `${path}.skills[].updatedAtMs must be >= importedAtMs`);
+    assert(
+      skill.lastValidatedAtMs >= skill.importedAtMs,
+      `${path}.skills[].lastValidatedAtMs must be >= importedAtMs`,
+    );
+  }
+
+  if (fixture.excludedPayloads) {
+    assert(
+      fixture.excludedPayloads.some((item) => item.includes("contents")),
+      `${path}.excludedPayloads must document skill content exclusion`,
+    );
+  }
 }
 
 function validateMemberProfiles(path) {

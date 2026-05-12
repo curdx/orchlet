@@ -37,6 +37,10 @@ function invokeBrowserFallback<T>(
     return Promise.resolve({ contacts: [] } as T);
   }
 
+  if (command === "skills_library_list") {
+    return Promise.resolve({ skills: [] } as T);
+  }
+
   return Promise.reject({
     code: "ipc.command.unavailable",
     message: `命令 ${command} 在当前运行环境不可用。`,

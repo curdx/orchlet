@@ -5,6 +5,7 @@ pub mod data_integrity;
 pub mod member;
 pub mod notification;
 pub mod orchestration;
+pub mod skill;
 pub mod terminal;
 pub mod workspace;
 
@@ -48,6 +49,10 @@ pub use orchestration::{
     DispatchChatMessageRequest, DispatchChatMessageResult, DispatchFailureProfile,
     DispatchQueueResumeRequest, DispatchQueueResumeResult, DispatchRequestProfile,
     DispatchRequestStatus, DispatchTargetResolutionProfile, DispatchTargetResolutionSource,
+};
+pub use skill::{
+    ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult, SkillImportStatus,
+    SkillLibraryEntry, SkillLibraryListRequest, SkillLibraryListResult, SkillSource,
 };
 pub use terminal::{
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,

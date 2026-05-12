@@ -28,6 +28,8 @@ const requiredCommands = new Set([
   "notification_navigation_pending_get",
   "notification_navigation_dispatch",
   "notification_ignore_all_unread",
+  "skills_library_list",
+  "skills_import_folder",
   "contacts_list",
   "contact_create",
   "contact_update",

@@ -102,6 +102,15 @@ export type {
   DispatchTargetResolutionSource,
 } from "./orchestration";
 export type {
+  ImportLocalSkillFolderRequest,
+  ImportLocalSkillFolderResult,
+  SkillImportStatus,
+  SkillLibraryEntry,
+  SkillLibraryListRequest,
+  SkillLibraryListResult,
+  SkillSource,
+} from "./skill";
+export type {
   TerminalAttachRequest,
   TerminalAttachResult,
   TerminalCloseRequest,

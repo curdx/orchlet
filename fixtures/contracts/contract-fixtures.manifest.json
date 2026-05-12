@@ -276,6 +276,28 @@
       "requirements": ["FR54", "NFR6", "NFR35", "NFR36"]
     },
     {
+      "domain": "skill",
+      "command": "skills_library_list",
+      "requestFixture": "fixtures/contracts/skill/skill-library-list.request.json",
+      "successResultFixture": "fixtures/contracts/skill/skill-library-list.result.json",
+      "errorFixture": "fixtures/contracts/skill/skill-library-list.error.json",
+      "rustRequestDto": "SkillLibraryListRequest",
+      "rustSuccessDto": "SkillLibraryListResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR55", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "skill",
+      "command": "skills_import_folder",
+      "requestFixture": "fixtures/contracts/skill/skill-import-folder.request.json",
+      "successResultFixture": "fixtures/contracts/skill/skill-import-folder.result.json",
+      "errorFixture": "fixtures/contracts/skill/skill-import-folder.error.json",
+      "rustRequestDto": "ImportLocalSkillFolderRequest",
+      "rustSuccessDto": "ImportLocalSkillFolderResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR55", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

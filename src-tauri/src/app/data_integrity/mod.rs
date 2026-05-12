@@ -6,6 +6,7 @@ use std::{
 use ulid::Ulid;
 
 use crate::{
+    app::skills::validate_skill_library_store,
     contracts::{
         AppError, AppErrorSeverity, DataIntegrityCheckResult, DataIntegrityReport,
         DataIntegritySeverity, DataIntegrityStatus, OpenedWorkspace, StorageCategory,
@@ -14,6 +15,7 @@ use crate::{
     domain::workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME},
     infrastructure::persistence::{
         json_store::{
+            skill_library_store::skill_library_path,
             workspace_fallback_store::{load_workspace_fallbacks, workspace_fallback_path},
             workspace_metadata_store::read_workspace_metadata,
             workspace_registry_store::{load_workspace_registry, now_ms, workspace_registry_path},
@@ -127,6 +129,7 @@ pub fn validate_data_integrity(
         app_data_dir,
         workspace_id.as_deref(),
     ));
+    checks.push(validate_skill_library(app_data_dir));
 
     report_from_checks(manifest, checks)
 }
@@ -159,6 +162,7 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::MessageMentions,
         StorageCategory::ConversationReadPositions,
         StorageCategory::TerminalTabs,
+        StorageCategory::SkillLibrary,
     ];
     let missing_categories = expected_categories
         .iter()
@@ -195,6 +199,16 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
             duplicate_ids, duplicate_categories, missing_categories
         )),
     }
+}
+
+fn validate_skill_library(app_data_dir: &Path) -> DataIntegrityCheckResult {
+    check_result(
+        "skill.library.load_validate",
+        StorageCategory::SkillLibrary,
+        vec![skill_library_path(app_data_dir)],
+        validate_skill_library_store(app_data_dir)
+            .map(|_| "Skill library is readable when initialized.".to_owned()),
+    )
 }
 
 fn validate_contact_profiles(app_data_dir: &Path) -> DataIntegrityCheckResult {
@@ -598,7 +612,7 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 11);
+        assert_eq!(manifest.len(), 12);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
@@ -610,6 +624,7 @@ mod tests {
         assert!(categories.contains(&StorageCategory::MessageMentions));
         assert!(categories.contains(&StorageCategory::ConversationReadPositions));
         assert!(categories.contains(&StorageCategory::TerminalTabs));
+        assert!(categories.contains(&StorageCategory::SkillLibrary));
         assert!(manifest
             .iter()
             .all(|entry| entry.schema_version == 1 && entry.fixture_required));
@@ -620,7 +635,7 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 12);
+        assert_eq!(report.total_checks, 13);
         assert_eq!(report.failed_checks, 0);
         assert_eq!(report.skipped_checks, 8);
         assert!(report.checks.iter().any(|check| {
@@ -737,6 +752,10 @@ mod tests {
         }));
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceFallbacks
+                && check.status == DataIntegrityStatus::Passed
+        }));
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::SkillLibrary
                 && check.status == DataIntegrityStatus::Passed
         }));
     }

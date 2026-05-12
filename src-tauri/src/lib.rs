@@ -38,6 +38,8 @@ pub fn run() {
             gateway::notification_commands::notification_navigation_pending_get,
             gateway::notification_commands::notification_navigation_dispatch,
             gateway::notification_commands::notification_ignore_all_unread,
+            gateway::skills_commands::skills_library_list,
+            gateway::skills_commands::skills_import_folder,
             gateway::terminal_commands::terminal_open,
             gateway::terminal_commands::terminal_attach,
             gateway::terminal_commands::terminal_input,

@@ -1,0 +1,9 @@
+{
+  "code": "skill.library.invalidJson",
+  "message": "技能库数据不是有效 JSON。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请先备份或修复应用数据中的 skills/skill-library.json 后重试。",
+  "details": "/fixtures/app-data/skills/skill-library.json: expected value",
+  "correlationId": null
+}

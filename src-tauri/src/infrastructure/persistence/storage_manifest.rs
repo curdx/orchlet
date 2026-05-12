@@ -7,6 +7,7 @@ use crate::{
         WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME, WORKSPACE_SCHEMA_VERSION,
     },
     infrastructure::persistence::json_store::{
+        skill_library_store::{SKILL_LIBRARY_FILE_NAME, SKILL_LIBRARY_SCHEMA_VERSION},
         workspace_fallback_store::{
             WORKSPACE_FALLBACK_FILE_NAME, WORKSPACE_FALLBACK_SCHEMA_VERSION,
         },
@@ -292,6 +293,31 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "conversation.read_positions.schema_validate".to_owned(),
             notes: "Contains local read cursor per conversation only; multi-member read receipts and notifications are future domains."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "skill.library".to_owned(),
+            owner: StorageOwner::Skill,
+            category: StorageCategory::SkillLibrary,
+            description: "App-data local skill library records imported from user-selected folders."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataFile,
+            relative_path: Some(format!("skills/{}", SKILL_LIBRARY_FILE_NAME)),
+            file_name: Some(SKILL_LIBRARY_FILE_NAME.to_owned()),
+            format: StorageFormat::Json,
+            schema_version: SKILL_LIBRARY_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/skill_library_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/skill_library_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::LocalPath,
+            fixture_required: true,
+            validation_check_id: "skill.library.load_validate".to_owned(),
+            notes: "Contains local skill folder paths and metadata only; skill contents are not copied, uploaded or executed by Story 6.1."
                 .to_owned(),
         },
     ]

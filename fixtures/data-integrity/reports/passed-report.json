@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=11"
+      "details": "entries=12"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -123,10 +123,20 @@
       "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
       "userAction": null,
       "details": null
+    },
+    {
+      "checkId": "skill.library.load_validate",
+      "category": "skillLibrary",
+      "status": "passed",
+      "severity": "info",
+      "message": "Skill library is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/skills/skill-library.json"],
+      "userAction": null,
+      "details": null
     }
   ],
-  "totalChecks": 12,
-  "passedChecks": 12,
+  "totalChecks": 13,
+  "passedChecks": 13,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,
