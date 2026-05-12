@@ -53,6 +53,8 @@ pub struct DispatchRequestProfile {
     pub workspace_id: String,
     pub conversation_id: String,
     pub message_id: String,
+    #[serde(default)]
+    pub source_message_ids: Vec<String>,
     pub member_id: String,
     pub target_resolution: DispatchTargetResolutionProfile,
     pub status: DispatchRequestStatus,

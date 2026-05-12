@@ -208,6 +208,61 @@ pub fn message_by_id(
     Ok(message)
 }
 
+pub fn recent_messages_through_message(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    limit: u32,
+) -> Result<Vec<ChatMessageProfile>, AppError> {
+    validate_workspace_id(workspace_id)?;
+    validate_conversation_id(conversation_id)?;
+    validate_message_id(message_id)?;
+
+    let connection = open_conversation_connection(app_data_dir, workspace_id)?;
+    ensure_default_channel(&connection, workspace_id)?;
+    conversation_by_id_from_connection(&connection, workspace_id, conversation_id)?;
+    let current = message_by_id_from_connection(
+        &connection,
+        workspace_id,
+        conversation_id,
+        message_id,
+        "message.dispatch.notFound",
+    )?;
+    let mut statement = connection
+        .prepare(
+            "SELECT id, workspace_id, conversation_id, author_member_id, body,
+                    send_status, created_at_ms, updated_at_ms
+             FROM messages
+             WHERE workspace_id = ?1
+               AND conversation_id = ?2
+               AND (
+                 created_at_ms < ?3
+                 OR (created_at_ms = ?3 AND id <= ?4)
+               )
+             ORDER BY created_at_ms DESC, id DESC
+             LIMIT ?5",
+        )
+        .map_err(sqlite_error("message.dispatchWindow.prepareFailed"))?;
+    let mut messages = statement
+        .query_map(
+            params![
+                workspace_id,
+                conversation_id,
+                current.created_at_ms as i64,
+                current.message_id,
+                limit.max(1) as i64,
+            ],
+            message_from_row,
+        )
+        .map_err(sqlite_error("message.dispatchWindow.queryFailed"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlite_error("message.dispatchWindow.decodeFailed"))?;
+    hydrate_message_mentions(&connection, &mut messages)?;
+
+    Ok(messages)
+}
+
 pub fn conversation_by_id(
     app_data_dir: &Path,
     workspace_id: &str,

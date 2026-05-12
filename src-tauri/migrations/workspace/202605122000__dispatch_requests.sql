@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS dispatch_requests (
     workspace_id TEXT NOT NULL,
     conversation_id TEXT NOT NULL,
     message_id TEXT NOT NULL,
+    source_message_ids_json TEXT NOT NULL DEFAULT '[]',
     member_id TEXT NOT NULL,
     target_source TEXT NOT NULL DEFAULT 'user_selected',
     target_reason TEXT NOT NULL DEFAULT 'Existing dispatch target.',

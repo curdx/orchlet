@@ -3,23 +3,30 @@ use std::path::PathBuf;
 use crate::{
     app::terminal::{TerminalEventSink, TerminalRuntimeState, TerminalStatusSink},
     contracts::{
-        AppError, DispatchChatMessageRequest, DispatchChatMessageResult,
-        DispatchQueueResumeRequest, DispatchQueueResumeResult, DispatchRequestProfile,
-        MemberStatus, OpenedWorkspace, TerminalInputRequest, TerminalOpenRequest,
+        AppError, ChatMessageProfile, ChatMessageStatus, ConversationProfile,
+        DispatchChatMessageRequest, DispatchChatMessageResult, DispatchQueueResumeRequest,
+        DispatchQueueResumeResult, DispatchRequestProfile, DispatchTargetResolutionProfile,
+        MemberProfile, MemberStatus, OpenedWorkspace, TerminalInputRequest, TerminalOpenRequest,
     },
     domain::orchestration::{
         normalize_dispatch_payload, resolve_dispatch_target, validate_dispatch_scope,
     },
     infrastructure::persistence::sqlite::{
-        conversation_repository::{conversation_by_id, message_by_id},
+        conversation_repository::{
+            conversation_by_id, message_by_id, recent_messages_through_message,
+        },
         dispatch_repository::{
-            create_pending_dispatch, create_queued_dispatch, create_skipped_dispatch,
+            active_dispatch_for_source_message, create_pending_dispatch_with_sources,
+            create_queued_dispatch_with_sources, create_skipped_dispatch_with_sources,
             mark_dispatch_dispatched, mark_dispatch_failed, oldest_queued_dispatch_for_member,
             queued_dispatch_count_for_member,
         },
         member_repository::initialize_member_store,
     },
 };
+
+const DISPATCH_MERGE_LOOKBACK_LIMIT: u32 = 8;
+const DISPATCH_MERGE_WINDOW_MS: u64 = 5 * 60 * 1000;
 
 pub fn dispatch_chat_message(
     app_data_dir: PathBuf,
@@ -58,12 +65,36 @@ pub fn dispatch_chat_message(
         .find(|member| member.member_id == target_resolution.member_id)
         .expect("target resolution returns a member from members");
 
+    if let Some(existing_dispatch) = active_dispatch_for_source_message(
+        &app_data_dir,
+        &request.workspace_id,
+        &request.conversation_id,
+        &request.message_id,
+        &target_resolution.member_id,
+    )? {
+        return Ok(DispatchChatMessageResult {
+            dispatch: existing_dispatch,
+            terminal_session: None,
+            session_created: false,
+        });
+    }
+
+    let dispatch_plan = build_dispatch_plan(
+        &app_data_dir,
+        &request,
+        &message,
+        &conversation,
+        &members,
+        &target_resolution,
+    )?;
+
     if target_member.status == MemberStatus::DoNotDisturb {
-        let dispatch = create_skipped_dispatch(
+        let dispatch = create_skipped_dispatch_with_sources(
             &app_data_dir,
             &request.workspace_id,
             &request.conversation_id,
             &request.message_id,
+            &dispatch_plan.source_message_ids,
             &target_resolution,
         )?;
         return Ok(DispatchChatMessageResult {
@@ -74,11 +105,12 @@ pub fn dispatch_chat_message(
     }
 
     if target_member.status == MemberStatus::Working {
-        let dispatch = create_queued_dispatch(
+        let dispatch = create_queued_dispatch_with_sources(
             &app_data_dir,
             &request.workspace_id,
             &request.conversation_id,
             &request.message_id,
+            &dispatch_plan.source_message_ids,
             &target_resolution,
         )?;
         return Ok(DispatchChatMessageResult {
@@ -88,18 +120,19 @@ pub fn dispatch_chat_message(
         });
     }
 
-    let dispatch = create_pending_dispatch(
+    let dispatch = create_pending_dispatch_with_sources(
         &app_data_dir,
         &request.workspace_id,
         &request.conversation_id,
         &request.message_id,
+        &dispatch_plan.source_message_ids,
         &target_resolution,
     )?;
     run_dispatch_payload(
         app_data_dir,
         workspace,
         dispatch,
-        &message.body,
+        &dispatch_plan.payload,
         terminal_state,
         event_sink,
         status_sink,
@@ -166,17 +199,12 @@ pub fn resume_member_dispatch_queue(
             queue_remaining: 0,
         });
     };
-    let message = message_by_id(
-        &app_data_dir,
-        &dispatch.workspace_id,
-        &dispatch.conversation_id,
-        &dispatch.message_id,
-    )?;
+    let payload = dispatch_payload_for_sources(&app_data_dir, &dispatch)?;
     let result = run_dispatch_payload(
         app_data_dir.clone(),
         workspace,
         dispatch,
-        &message.body,
+        &payload,
         terminal_state,
         event_sink,
         status_sink,
@@ -190,6 +218,135 @@ pub fn resume_member_dispatch_queue(
         session_created: result.session_created,
         queue_remaining,
     })
+}
+
+struct DispatchPlan {
+    source_message_ids: Vec<String>,
+    payload: String,
+}
+
+fn build_dispatch_plan(
+    app_data_dir: &PathBuf,
+    request: &DispatchChatMessageRequest,
+    message: &ChatMessageProfile,
+    conversation: &ConversationProfile,
+    members: &[MemberProfile],
+    target_resolution: &DispatchTargetResolutionProfile,
+) -> Result<DispatchPlan, AppError> {
+    let recent_messages = recent_messages_through_message(
+        app_data_dir,
+        &request.workspace_id,
+        &request.conversation_id,
+        &request.message_id,
+        DISPATCH_MERGE_LOOKBACK_LIMIT,
+    )?;
+    let mut selected_newest_first = Vec::new();
+
+    for candidate in recent_messages {
+        if candidate.status != ChatMessageStatus::Sent {
+            break;
+        }
+
+        if message
+            .created_at_ms
+            .saturating_sub(candidate.created_at_ms)
+            > DISPATCH_MERGE_WINDOW_MS
+        {
+            break;
+        }
+
+        let candidate_resolution = if candidate.message_id == message.message_id {
+            target_resolution.clone()
+        } else {
+            match resolve_dispatch_target(
+                None,
+                &candidate.mentioned_member_ids,
+                conversation,
+                members,
+            ) {
+                Ok(resolution) => resolution,
+                Err(_) => break,
+            }
+        };
+
+        if candidate_resolution.member_id != target_resolution.member_id {
+            break;
+        }
+
+        if candidate.message_id != message.message_id
+            && active_dispatch_for_source_message(
+                app_data_dir,
+                &request.workspace_id,
+                &request.conversation_id,
+                &candidate.message_id,
+                &target_resolution.member_id,
+            )?
+            .is_some()
+        {
+            break;
+        }
+
+        selected_newest_first.push(candidate);
+    }
+
+    selected_newest_first.reverse();
+    if selected_newest_first.is_empty() {
+        selected_newest_first.push(message.clone());
+    }
+    let source_message_ids = selected_newest_first
+        .iter()
+        .map(|source_message| source_message.message_id.clone())
+        .collect::<Vec<_>>();
+    let payload = dispatch_payload_from_messages(&selected_newest_first);
+
+    Ok(DispatchPlan {
+        source_message_ids,
+        payload,
+    })
+}
+
+fn dispatch_payload_for_sources(
+    app_data_dir: &PathBuf,
+    dispatch: &DispatchRequestProfile,
+) -> Result<String, AppError> {
+    let mut messages = Vec::new();
+    for source_message_id in &dispatch.source_message_ids {
+        messages.push(message_by_id(
+            app_data_dir,
+            &dispatch.workspace_id,
+            &dispatch.conversation_id,
+            source_message_id,
+        )?);
+    }
+
+    if messages.is_empty() {
+        messages.push(message_by_id(
+            app_data_dir,
+            &dispatch.workspace_id,
+            &dispatch.conversation_id,
+            &dispatch.message_id,
+        )?);
+    }
+
+    messages.sort_by(|left, right| {
+        left.created_at_ms
+            .cmp(&right.created_at_ms)
+            .then_with(|| left.message_id.cmp(&right.message_id))
+    });
+
+    Ok(dispatch_payload_from_messages(&messages))
+}
+
+fn dispatch_payload_from_messages(messages: &[ChatMessageProfile]) -> String {
+    if let [message] = messages {
+        return message.body.clone();
+    }
+
+    messages
+        .iter()
+        .map(|message| format!("[sourceMessageId:{}]\n{}", message.message_id, message.body))
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 fn run_dispatch_payload(
@@ -461,6 +618,311 @@ mod tests {
         .expect("persisted dispatches");
         assert_eq!(persisted.len(), 1);
         assert_eq!(persisted[0].status, DispatchRequestStatus::Dispatched);
+    }
+
+    #[test]
+    fn dispatch_reuses_existing_active_dispatch_for_same_source_message() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Run once".to_owned(),
+                mentioned_member_ids: vec![member.member_id.clone()],
+            },
+        )
+        .expect("message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+        let sink: TerminalEventSink = Arc::new(|_| {});
+        let status_sink: TerminalStatusSink = Arc::new(|_| {});
+        let request = DispatchChatMessageRequest {
+            workspace_id: workspace.metadata.project_id.clone(),
+            conversation_id: conversation.conversation_id.clone(),
+            message_id: message.message_id.clone(),
+            member_id: None,
+        };
+
+        let first = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            request.clone(),
+            &terminal_state,
+            Arc::clone(&sink),
+            Arc::clone(&status_sink),
+        )
+        .expect("first dispatch");
+        let second = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            request,
+            &terminal_state,
+            sink,
+            status_sink,
+        )
+        .expect("second dispatch");
+
+        assert_eq!(
+            second.dispatch.dispatch_request_id,
+            first.dispatch.dispatch_request_id
+        );
+        assert_eq!(second.dispatch.status, DispatchRequestStatus::Dispatched);
+        assert!(!second.session_created);
+        assert_eq!(
+            second.dispatch.source_message_ids,
+            vec![message.message_id.clone()]
+        );
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            ["input:Run once\n"]
+        );
+        assert_eq!(
+            dispatches_for_message(
+                app_data.path(),
+                &workspace.metadata.project_id,
+                &conversation.conversation_id,
+                &message.message_id,
+            )
+            .expect("persisted dispatches")
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn dispatch_merges_consecutive_messages_for_same_target() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let first_message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "First related instruction".to_owned(),
+                mentioned_member_ids: vec![member.member_id.clone()],
+            },
+        )
+        .expect("first message")
+        .message;
+        let second_message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Second related instruction".to_owned(),
+                mentioned_member_ids: vec![member.member_id.clone()],
+            },
+        )
+        .expect("second message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            DispatchChatMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                message_id: second_message.message_id.clone(),
+                member_id: None,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("dispatch");
+
+        assert_eq!(
+            result.dispatch.source_message_ids,
+            vec![
+                first_message.message_id.clone(),
+                second_message.message_id.clone()
+            ]
+        );
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            [format!(
+                "input:[sourceMessageId:{}]\nFirst related instruction\n\n[sourceMessageId:{}]\nSecond related instruction\n",
+                first_message.message_id, second_message.message_id
+            )]
+        );
+        let persisted_for_first = dispatches_for_message(
+            app_data.path(),
+            &workspace.metadata.project_id,
+            &conversation.conversation_id,
+            &first_message.message_id,
+        )
+        .expect("persisted dispatches for first source");
+        assert_eq!(persisted_for_first.len(), 1);
+        assert_eq!(
+            persisted_for_first[0].dispatch_request_id,
+            result.dispatch.dispatch_request_id
+        );
+    }
+
+    #[test]
+    fn dispatch_does_not_merge_across_target_boundary() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let first_command = available_command(app_data.path(), "codex");
+        let first = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "First Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(first_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("first member")
+        .member;
+        let second_command = available_command(app_data.path(), "gemini");
+        let second = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Second Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("gemini".to_owned()),
+                    label: Some("Gemini CLI".to_owned()),
+                    command: Some(second_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("second member")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let _first_message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "First target instruction".to_owned(),
+                mentioned_member_ids: vec![first.member_id],
+            },
+        )
+        .expect("first message")
+        .message;
+        let second_message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Second target instruction".to_owned(),
+                mentioned_member_ids: vec![second.member_id],
+            },
+        )
+        .expect("second message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            DispatchChatMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id,
+                message_id: second_message.message_id.clone(),
+                member_id: None,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("dispatch");
+
+        assert_eq!(
+            result.dispatch.source_message_ids,
+            vec![second_message.message_id]
+        );
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            ["input:Second target instruction\n"]
+        );
     }
 
     #[test]

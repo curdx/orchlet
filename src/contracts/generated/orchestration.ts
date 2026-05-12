@@ -11,7 +11,7 @@ export type DispatchQueueResumeRequest = { workspaceId: string, memberId: string
 
 export type DispatchQueueResumeResult = { dispatch: DispatchRequestProfile | null, terminalSession: TerminalSessionProfile | null, sessionCreated: boolean, queueRemaining: number, };
 
-export type DispatchRequestProfile = { schemaVersion: number, dispatchRequestId: string, workspaceId: string, conversationId: string, messageId: string, memberId: string, targetResolution: DispatchTargetResolutionProfile, status: DispatchRequestStatus, terminalSessionId: string | null, failure: DispatchFailureProfile | null, createdAtMs: number, updatedAtMs: number, };
+export type DispatchRequestProfile = { schemaVersion: number, dispatchRequestId: string, workspaceId: string, conversationId: string, messageId: string, sourceMessageIds: Array<string>, memberId: string, targetResolution: DispatchTargetResolutionProfile, status: DispatchRequestStatus, terminalSessionId: string | null, failure: DispatchFailureProfile | null, createdAtMs: number, updatedAtMs: number, };
 
 export type DispatchRequestStatus = "pending" | "queued" | "skipped" | "dispatched" | "failed";
 

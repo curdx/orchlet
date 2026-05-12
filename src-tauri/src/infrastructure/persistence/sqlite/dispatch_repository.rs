@@ -28,6 +28,24 @@ pub fn create_pending_dispatch(
     message_id: &str,
     target_resolution: &DispatchTargetResolutionProfile,
 ) -> Result<DispatchRequestProfile, AppError> {
+    create_pending_dispatch_with_sources(
+        app_data_dir,
+        workspace_id,
+        conversation_id,
+        message_id,
+        &[message_id.to_owned()],
+        target_resolution,
+    )
+}
+
+pub fn create_pending_dispatch_with_sources(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    source_message_ids: &[String],
+    target_resolution: &DispatchTargetResolutionProfile,
+) -> Result<DispatchRequestProfile, AppError> {
     validate_workspace_id(workspace_id)?;
     let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
     let timestamp = now_ms();
@@ -37,6 +55,7 @@ pub fn create_pending_dispatch(
         workspace_id: workspace_id.to_owned(),
         conversation_id: conversation_id.to_owned(),
         message_id: message_id.to_owned(),
+        source_message_ids: normalize_source_message_ids(message_id, source_message_ids),
         member_id: target_resolution.member_id.clone(),
         target_resolution: target_resolution.clone(),
         status: DispatchRequestStatus::Pending,
@@ -136,26 +155,82 @@ pub fn dispatches_for_message(
     let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
     let mut statement = connection
         .prepare(
-            "SELECT id, workspace_id, conversation_id, message_id, member_id,
+            "SELECT id, workspace_id, conversation_id, message_id, source_message_ids_json,
+                    member_id,
                     target_source, target_reason, status,
                     terminal_session_id, failure_code, failure_message,
                     failure_user_action, failure_details, created_at_ms, updated_at_ms
              FROM dispatch_requests
-             WHERE workspace_id = ?1 AND conversation_id = ?2 AND message_id = ?3
+             WHERE workspace_id = ?1 AND conversation_id = ?2
              ORDER BY created_at_ms DESC, id DESC",
         )
         .map_err(sqlite_error("dispatch.list.prepareFailed"))?;
 
     let dispatches = statement
-        .query_map(
-            params![workspace_id, conversation_id, message_id],
-            dispatch_from_row,
-        )
+        .query_map(params![workspace_id, conversation_id], dispatch_from_row)
         .map_err(sqlite_error("dispatch.list.queryFailed"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(sqlite_error("dispatch.list.decodeFailed"))?;
 
-    Ok(dispatches)
+    Ok(dispatches
+        .into_iter()
+        .filter(|dispatch| {
+            dispatch.message_id == message_id
+                || dispatch
+                    .source_message_ids
+                    .iter()
+                    .any(|source_message_id| source_message_id == message_id)
+        })
+        .collect())
+}
+
+pub fn active_dispatch_for_source_message(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    member_id: &str,
+) -> Result<Option<DispatchRequestProfile>, AppError> {
+    let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT id, workspace_id, conversation_id, message_id, source_message_ids_json,
+                    member_id,
+                    target_source, target_reason, status,
+                    terminal_session_id, failure_code, failure_message,
+                    failure_user_action, failure_details, created_at_ms, updated_at_ms
+             FROM dispatch_requests
+             WHERE workspace_id = ?1
+               AND conversation_id = ?2
+               AND member_id = ?3
+               AND status IN (?4, ?5, ?6)
+             ORDER BY updated_at_ms DESC, created_at_ms DESC, id DESC",
+        )
+        .map_err(sqlite_error("dispatch.dedupe.prepareFailed"))?;
+
+    let dispatches = statement
+        .query_map(
+            params![
+                workspace_id,
+                conversation_id,
+                member_id,
+                dispatch_status_to_str(&DispatchRequestStatus::Pending),
+                dispatch_status_to_str(&DispatchRequestStatus::Queued),
+                dispatch_status_to_str(&DispatchRequestStatus::Dispatched),
+            ],
+            dispatch_from_row,
+        )
+        .map_err(sqlite_error("dispatch.dedupe.queryFailed"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlite_error("dispatch.dedupe.decodeFailed"))?;
+
+    Ok(dispatches.into_iter().find(|dispatch| {
+        dispatch.message_id == message_id
+            || dispatch
+                .source_message_ids
+                .iter()
+                .any(|source_message_id| source_message_id == message_id)
+    }))
 }
 
 pub fn dispatch_failure_from_error(error: &AppError) -> DispatchFailureProfile {
@@ -187,19 +262,21 @@ fn insert_dispatch(
     connection: &Connection,
     dispatch: &DispatchRequestProfile,
 ) -> Result<(), AppError> {
+    let source_message_ids_json = source_message_ids_json(dispatch)?;
     connection
         .execute(
             "INSERT INTO dispatch_requests (
-                id, workspace_id, conversation_id, message_id, member_id,
+                id, workspace_id, conversation_id, message_id, source_message_ids_json, member_id,
                 target_source, target_reason, status, terminal_session_id,
                 failure_code, failure_message, failure_user_action, failure_details,
                 created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 dispatch.dispatch_request_id,
                 dispatch.workspace_id,
                 dispatch.conversation_id,
                 dispatch.message_id,
+                source_message_ids_json,
                 dispatch.member_id,
                 target_source_to_str(&dispatch.target_resolution.source),
                 dispatch.target_resolution.reason,
@@ -236,11 +313,30 @@ pub fn create_queued_dispatch(
     message_id: &str,
     target_resolution: &DispatchTargetResolutionProfile,
 ) -> Result<DispatchRequestProfile, AppError> {
+    create_queued_dispatch_with_sources(
+        app_data_dir,
+        workspace_id,
+        conversation_id,
+        message_id,
+        &[message_id.to_owned()],
+        target_resolution,
+    )
+}
+
+pub fn create_queued_dispatch_with_sources(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    source_message_ids: &[String],
+    target_resolution: &DispatchTargetResolutionProfile,
+) -> Result<DispatchRequestProfile, AppError> {
     create_dispatch_with_status(
         app_data_dir,
         workspace_id,
         conversation_id,
         message_id,
+        source_message_ids,
         target_resolution,
         DispatchRequestStatus::Queued,
     )
@@ -253,11 +349,30 @@ pub fn create_skipped_dispatch(
     message_id: &str,
     target_resolution: &DispatchTargetResolutionProfile,
 ) -> Result<DispatchRequestProfile, AppError> {
+    create_skipped_dispatch_with_sources(
+        app_data_dir,
+        workspace_id,
+        conversation_id,
+        message_id,
+        &[message_id.to_owned()],
+        target_resolution,
+    )
+}
+
+pub fn create_skipped_dispatch_with_sources(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    source_message_ids: &[String],
+    target_resolution: &DispatchTargetResolutionProfile,
+) -> Result<DispatchRequestProfile, AppError> {
     create_dispatch_with_status(
         app_data_dir,
         workspace_id,
         conversation_id,
         message_id,
+        source_message_ids,
         target_resolution,
         DispatchRequestStatus::Skipped,
     )
@@ -271,7 +386,8 @@ pub fn oldest_queued_dispatch_for_member(
     let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
     let mut statement = connection
         .prepare(
-            "SELECT id, workspace_id, conversation_id, message_id, member_id,
+            "SELECT id, workspace_id, conversation_id, message_id, source_message_ids_json,
+                    member_id,
                     target_source, target_reason, status,
                     terminal_session_id, failure_code, failure_message,
                     failure_user_action, failure_details, created_at_ms, updated_at_ms
@@ -324,6 +440,7 @@ fn create_dispatch_with_status(
     workspace_id: &str,
     conversation_id: &str,
     message_id: &str,
+    source_message_ids: &[String],
     target_resolution: &DispatchTargetResolutionProfile,
     status: DispatchRequestStatus,
 ) -> Result<DispatchRequestProfile, AppError> {
@@ -336,6 +453,7 @@ fn create_dispatch_with_status(
         workspace_id: workspace_id.to_owned(),
         conversation_id: conversation_id.to_owned(),
         message_id: message_id.to_owned(),
+        source_message_ids: normalize_source_message_ids(message_id, source_message_ids),
         member_id: target_resolution.member_id.clone(),
         target_resolution: target_resolution.clone(),
         status,
@@ -357,7 +475,8 @@ fn dispatch_by_id(
 ) -> Result<DispatchRequestProfile, AppError> {
     let mut statement = connection
         .prepare(
-            "SELECT id, workspace_id, conversation_id, message_id, member_id,
+            "SELECT id, workspace_id, conversation_id, message_id, source_message_ids_json,
+                    member_id,
                     target_source, target_reason, status,
                     terminal_session_id, failure_code, failure_message,
                     failure_user_action, failure_details, created_at_ms, updated_at_ms
@@ -383,15 +502,17 @@ fn dispatch_by_id(
 }
 
 fn dispatch_from_row(row: &rusqlite::Row<'_>) -> Result<DispatchRequestProfile, rusqlite::Error> {
+    let message_id: String = row.get(3)?;
+    let source_message_ids_json: String = row.get(4)?;
     let target_resolution = target_resolution_from_parts(
-        row.get(4)?,
-        target_source_from_str(row.get::<_, String>(5)?.as_str()),
-        row.get(6)?,
+        row.get(5)?,
+        target_source_from_str(row.get::<_, String>(6)?.as_str()),
+        row.get(7)?,
     );
-    let failure_code: Option<String> = row.get(9)?;
-    let failure_message: Option<String> = row.get(10)?;
-    let failure_user_action: Option<String> = row.get(11)?;
-    let failure_details: Option<String> = row.get(12)?;
+    let failure_code: Option<String> = row.get(10)?;
+    let failure_message: Option<String> = row.get(11)?;
+    let failure_user_action: Option<String> = row.get(12)?;
+    let failure_details: Option<String> = row.get(13)?;
     let failure = match (failure_code, failure_message, failure_user_action) {
         (Some(code), Some(message), Some(user_action)) => Some(DispatchFailureProfile {
             code,
@@ -407,14 +528,15 @@ fn dispatch_from_row(row: &rusqlite::Row<'_>) -> Result<DispatchRequestProfile, 
         dispatch_request_id: row.get(0)?,
         workspace_id: row.get(1)?,
         conversation_id: row.get(2)?,
-        message_id: row.get(3)?,
+        message_id: message_id.clone(),
+        source_message_ids: source_message_ids_from_json(&message_id, &source_message_ids_json),
         member_id: target_resolution.member_id.clone(),
         target_resolution,
-        status: dispatch_status_from_str(row.get::<_, String>(7)?.as_str()),
-        terminal_session_id: row.get(8)?,
+        status: dispatch_status_from_str(row.get::<_, String>(8)?.as_str()),
+        terminal_session_id: row.get(9)?,
         failure,
-        created_at_ms: row.get::<_, i64>(13)? as u64,
-        updated_at_ms: row.get::<_, i64>(14)? as u64,
+        created_at_ms: row.get::<_, i64>(14)? as u64,
+        updated_at_ms: row.get::<_, i64>(15)? as u64,
     })
 }
 
@@ -438,6 +560,16 @@ fn apply_dispatch_target_resolution_migration(connection: &Connection) -> Result
                 [],
             )
             .map_err(sqlite_error("dispatch.targetMigration.reasonFailed"))?;
+    }
+
+    let has_source_message_ids = dispatch_column_exists(connection, "source_message_ids_json")?;
+    if !has_source_message_ids {
+        connection
+            .execute(
+                "ALTER TABLE dispatch_requests ADD COLUMN source_message_ids_json TEXT NOT NULL DEFAULT '[]'",
+                [],
+            )
+            .map_err(sqlite_error("dispatch.sourceMessagesMigration.failed"))?;
     }
 
     Ok(())
@@ -495,4 +627,42 @@ fn target_source_from_str(value: &str) -> DispatchTargetResolutionSource {
         "workspace_default" => DispatchTargetResolutionSource::WorkspaceDefault,
         _ => DispatchTargetResolutionSource::UserSelected,
     }
+}
+
+fn normalize_source_message_ids(message_id: &str, source_message_ids: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for source_message_id in source_message_ids {
+        if source_message_id.trim().is_empty() {
+            continue;
+        }
+        if !normalized
+            .iter()
+            .any(|existing| existing == source_message_id)
+        {
+            normalized.push(source_message_id.clone());
+        }
+    }
+    if !normalized.iter().any(|existing| existing == message_id) {
+        normalized.push(message_id.to_owned());
+    }
+
+    normalized
+}
+
+fn source_message_ids_json(dispatch: &DispatchRequestProfile) -> Result<String, AppError> {
+    let source_message_ids =
+        normalize_source_message_ids(&dispatch.message_id, &dispatch.source_message_ids);
+    serde_json::to_string(&source_message_ids).map_err(|error| {
+        AppError::recoverable_error(
+            "dispatch.sourceMessages.encodeFailed",
+            "无法保存派发来源消息。",
+            "请重试派发；如果问题持续存在，请运行数据诊断。",
+            Some(error.to_string()),
+        )
+    })
+}
+
+fn source_message_ids_from_json(message_id: &str, raw: &str) -> Vec<String> {
+    let parsed = serde_json::from_str::<Vec<String>>(raw).unwrap_or_default();
+    normalize_source_message_ids(message_id, &parsed)
 }

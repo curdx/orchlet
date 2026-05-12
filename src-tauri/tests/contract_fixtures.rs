@@ -335,6 +335,10 @@ fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
         DispatchTargetResolutionSource::ExplicitMention
     );
     assert_eq!(
+        result.dispatch.source_message_ids,
+        vec!["01K00000000000000000000070".to_owned()]
+    );
+    assert_eq!(
         result.dispatch.target_resolution.member_id,
         "01K00000000000000000000031"
     );
@@ -362,6 +366,17 @@ fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
             .expect("resumed dispatch")
             .status,
         DispatchRequestStatus::Dispatched
+    );
+    assert_eq!(
+        resume_result
+            .dispatch
+            .as_ref()
+            .expect("resumed dispatch")
+            .source_message_ids,
+        vec![
+            "01K00000000000000000000070".to_owned(),
+            "01K00000000000000000000071".to_owned()
+        ]
     );
     assert_eq!(resume_result.queue_remaining, 1);
     assert_eq!(

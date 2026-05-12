@@ -942,6 +942,7 @@ describe("App workspace entry", () => {
           workspaceId: channel.workspaceId,
           conversationId: channel.conversationId,
           messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
           memberId: reviewer.memberId,
           targetResolution: {
             memberId: reviewer.memberId,
@@ -1045,6 +1046,7 @@ describe("App workspace entry", () => {
           workspaceId: channel.workspaceId,
           conversationId: channel.conversationId,
           messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
           memberId: reviewer.memberId,
           targetResolution: {
             memberId: reviewer.memberId,
@@ -1137,6 +1139,7 @@ describe("App workspace entry", () => {
           workspaceId: channel.workspaceId,
           conversationId: channel.conversationId,
           messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
           memberId: reviewer.memberId,
           targetResolution: {
             memberId: reviewer.memberId,
@@ -1237,6 +1240,7 @@ describe("App workspace entry", () => {
           workspaceId: channel.workspaceId,
           conversationId: channel.conversationId,
           messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
           memberId: reviewer.memberId,
           targetResolution: {
             memberId: reviewer.memberId,
@@ -1267,6 +1271,7 @@ describe("App workspace entry", () => {
           workspaceId: channel.workspaceId,
           conversationId: channel.conversationId,
           messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
           memberId: reviewer.memberId,
           targetResolution: {
             memberId: reviewer.memberId,
@@ -1379,6 +1384,7 @@ describe("App workspace entry", () => {
           workspaceId: channel.workspaceId,
           conversationId: channel.conversationId,
           messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
           memberId: reviewer.memberId,
           targetResolution: {
             memberId: reviewer.memberId,
@@ -1485,6 +1491,7 @@ describe("App workspace entry", () => {
           workspaceId: privateConversation.workspaceId,
           conversationId: privateConversation.conversationId,
           messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
           memberId: reviewer.memberId,
           targetResolution: {
             memberId: reviewer.memberId,
@@ -1606,6 +1613,7 @@ describe("App workspace entry", () => {
           workspaceId: channel.workspaceId,
           conversationId: channel.conversationId,
           messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
           memberId: request.memberId ?? builder.memberId,
           targetResolution: {
             memberId: request.memberId ?? builder.memberId,
