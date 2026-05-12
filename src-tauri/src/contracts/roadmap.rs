@@ -26,6 +26,21 @@ pub struct RoadmapTaskEntry {
     pub updated_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct RoadmapGoalEntry {
+    pub schema_version: u32,
+    pub goal_id: String,
+    pub title: String,
+    pub task_ids: Vec<String>,
+    pub sort_order: u32,
+    #[ts(type = "number")]
+    pub created_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "roadmap.ts")]
@@ -92,4 +107,70 @@ pub struct DeleteRoadmapTaskRequest {
 pub struct DeleteRoadmapTaskResult {
     pub removed_task_id: String,
     pub tasks: Vec<RoadmapTaskEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct ListRoadmapGoalsRequest {
+    pub workspace_root: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct ListRoadmapGoalsResult {
+    pub goals: Vec<RoadmapGoalEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct CreateRoadmapGoalRequest {
+    pub workspace_root: String,
+    pub title: String,
+    pub task_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct CreateRoadmapGoalResult {
+    pub goal: RoadmapGoalEntry,
+    pub goals: Vec<RoadmapGoalEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct UpdateRoadmapGoalRequest {
+    pub workspace_root: String,
+    pub goal_id: String,
+    pub title: Option<String>,
+    pub task_ids: Option<Vec<String>>,
+    pub sort_order: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct UpdateRoadmapGoalResult {
+    pub goal: RoadmapGoalEntry,
+    pub goals: Vec<RoadmapGoalEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct DeleteRoadmapGoalRequest {
+    pub workspace_root: String,
+    pub goal_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "roadmap.ts")]
+pub struct DeleteRoadmapGoalResult {
+    pub removed_goal_id: String,
+    pub goals: Vec<RoadmapGoalEntry>,
 }

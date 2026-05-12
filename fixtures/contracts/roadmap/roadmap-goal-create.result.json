@@ -1,0 +1,22 @@
+{
+  "goal": {
+    "schemaVersion": 1,
+    "goalId": "01K00000000000000000000300",
+    "title": "Launch beta",
+    "taskIds": ["01K00000000000000000000200"],
+    "sortOrder": 0,
+    "createdAtMs": 1760000040000,
+    "updatedAtMs": 1760000040000
+  },
+  "goals": [
+    {
+      "schemaVersion": 1,
+      "goalId": "01K00000000000000000000300",
+      "title": "Launch beta",
+      "taskIds": ["01K00000000000000000000200"],
+      "sortOrder": 0,
+      "createdAtMs": 1760000040000,
+      "updatedAtMs": 1760000040000
+    }
+  ]
+}

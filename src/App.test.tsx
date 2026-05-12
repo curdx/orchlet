@@ -53,14 +53,18 @@ import type {
   RemoveMemberResult,
   SendMessageRequest,
   SendMessageResult,
+  CreateRoadmapGoalResult,
   CreateRoadmapTaskResult,
+  DeleteRoadmapGoalResult,
   DeleteRoadmapTaskResult,
   ImportLocalSkillFolderResult,
   DeleteSkillResult,
   LinkWorkspaceSkillResult,
+  ListRoadmapGoalsResult,
   ListRoadmapTasksResult,
   ListWorkspaceSkillLinksResult,
   OpenSkillFolderResult,
+  RoadmapGoalEntry,
   RoadmapTaskEntry,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
@@ -74,6 +78,7 @@ import type {
   UpdateConversationSettingsRequest,
   UpdateConversationSettingsResult,
   UpdateGroupConversationMembersRequest,
+  UpdateRoadmapGoalResult,
   UpdateRoadmapTaskResult,
   UpdateMemberStatusRequest,
   UpdateMemberStatusResult,
@@ -164,6 +169,7 @@ function renderWorkspaceSelection(api: {
   }>;
   roadmapApi?: Partial<{
     listTasks: (workspaceRoot: string) => Promise<ListRoadmapTasksResult>;
+    listGoals: (workspaceRoot: string) => Promise<ListRoadmapGoalsResult>;
     createTask: (
       workspaceRoot: string,
       input: { title: string; detail: string | null; status: "pending" | "inProgress" | "done" },
@@ -179,6 +185,16 @@ function renderWorkspaceSelection(api: {
       },
     ) => Promise<UpdateRoadmapTaskResult>;
     deleteTask: (workspaceRoot: string, taskId: string) => Promise<DeleteRoadmapTaskResult>;
+    createGoal: (
+      workspaceRoot: string,
+      input: { title: string; taskIds: string[] },
+    ) => Promise<CreateRoadmapGoalResult>;
+    updateGoal: (
+      workspaceRoot: string,
+      goalId: string,
+      input: { title?: string | null; taskIds?: string[] | null; sortOrder?: number | null },
+    ) => Promise<UpdateRoadmapGoalResult>;
+    deleteGoal: (workspaceRoot: string, goalId: string) => Promise<DeleteRoadmapGoalResult>;
   }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
@@ -277,9 +293,13 @@ function renderWorkspaceSelection(api: {
         }}
         roadmapApi={{
           listTasks: () => Promise.resolve({ tasks: [] }),
+          listGoals: () => Promise.resolve({ goals: [] }),
           createTask: () => Promise.reject(new Error("createTask mock missing")),
           updateTask: () => Promise.reject(new Error("updateTask mock missing")),
           deleteTask: () => Promise.reject(new Error("deleteTask mock missing")),
+          createGoal: () => Promise.reject(new Error("createGoal mock missing")),
+          updateGoal: () => Promise.reject(new Error("updateGoal mock missing")),
+          deleteGoal: () => Promise.reject(new Error("deleteGoal mock missing")),
           ...roadmapApi,
         }}
         terminalDispatchApi={{
@@ -559,6 +579,19 @@ function roadmapTaskEntry(overrides: Partial<RoadmapTaskEntry> = {}): RoadmapTas
     sortOrder: 0,
     createdAtMs: 1760000030000,
     updatedAtMs: 1760000030000,
+    ...overrides,
+  };
+}
+
+function roadmapGoalEntry(overrides: Partial<RoadmapGoalEntry> = {}): RoadmapGoalEntry {
+  return {
+    schemaVersion: 1,
+    goalId: "01K00000000000000000000300",
+    title: "First release",
+    taskIds: ["01K00000000000000000000200"],
+    sortOrder: 0,
+    createdAtMs: 1760000040000,
+    updatedAtMs: 1760000040000,
     ...overrides,
   };
 }
@@ -1118,6 +1151,132 @@ describe("App workspace entry", () => {
     expect(await within(modal).findByText("暂无路线图任务")).toBeInTheDocument();
 
     confirmSpy.mockRestore();
+  });
+
+  it("shows configured roadmap goals with related tasks and progress", async () => {
+    const user = userEvent.setup();
+    const firstTask = roadmapTaskEntry({
+      taskId: "01K00000000000000000000200",
+      title: "Ship MVP",
+      status: "pending",
+      sortOrder: 0,
+    });
+    const secondTask = roadmapTaskEntry({
+      taskId: "01K00000000000000000000201",
+      title: "Write launch notes",
+      status: "done",
+      sortOrder: 1,
+    });
+    const goal = roadmapGoalEntry({
+      title: "Launch beta",
+      taskIds: [firstTask.taskId, secondTask.taskId],
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      roadmapApi: {
+        listTasks: () => Promise.resolve({ tasks: [firstTask, secondTask] }),
+        listGoals: () => Promise.resolve({ goals: [goal] }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "Roadmap" }));
+
+    const modal = await screen.findByRole("dialog", { name: "路线图" });
+    const goalCard = within(modal).getByRole("group", { name: "路线图目标 Launch beta" });
+
+    expect(within(goalCard).getByDisplayValue("Launch beta")).toBeInTheDocument();
+    expect(within(goalCard).getByText("Ship MVP")).toBeInTheDocument();
+    expect(within(goalCard).getByText("Write launch notes")).toBeInTheDocument();
+    expect(within(goalCard).getByText("1/2 完成（50%）")).toBeInTheDocument();
+    expect(within(modal).getByText("任务完成 1/2（50%）")).toBeInTheDocument();
+  });
+
+  it("recalculates roadmap goal progress when task status changes", async () => {
+    const user = userEvent.setup();
+    const pendingTask = roadmapTaskEntry({ status: "pending" });
+    const doneTask = roadmapTaskEntry({ status: "done", updatedAtMs: 1760000032000 });
+    const goal = roadmapGoalEntry({ taskIds: [pendingTask.taskId] });
+    const updateTask = vi.fn(() =>
+      Promise.resolve({
+        task: doneTask,
+        tasks: [doneTask],
+      } satisfies UpdateRoadmapTaskResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      roadmapApi: {
+        listTasks: () => Promise.resolve({ tasks: [pendingTask] }),
+        listGoals: () => Promise.resolve({ goals: [goal] }),
+        updateTask,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "Roadmap" }));
+
+    const modal = await screen.findByRole("dialog", { name: "路线图" });
+    expect(within(modal).getByText("0/1 完成（0%）")).toBeInTheDocument();
+
+    await user.selectOptions(within(modal).getByLabelText("任务状态"), "done");
+
+    await waitFor(() =>
+      expect(updateTask).toHaveBeenCalledWith("/tmp/orchlet-demo", pendingTask.taskId, {
+        status: "done",
+      }),
+    );
+    expect(await within(modal).findByText("1/1 完成（100%）")).toBeInTheDocument();
+    expect(within(modal).getByText("任务完成 1/1（100%）")).toBeInTheDocument();
+  });
+
+  it("keeps unsaved roadmap goal input visible when saving fails", async () => {
+    const user = userEvent.setup();
+    const goal = roadmapGoalEntry();
+    const updateGoal = vi.fn(() =>
+      Promise.reject({
+        code: "roadmap.goals.writeFailed",
+        message: "无法写入工作区路线图目标。",
+        severity: "error",
+        recoverable: true,
+        userAction: "请检查工作区权限后重试。",
+        details: "/tmp/orchlet-demo/.orchlet/roadmap/goals.json",
+        correlationId: null,
+      }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      roadmapApi: {
+        listTasks: () => Promise.resolve({ tasks: [] }),
+        listGoals: () => Promise.resolve({ goals: [goal] }),
+        updateGoal,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "Roadmap" }));
+
+    const modal = await screen.findByRole("dialog", { name: "路线图" });
+    const titleInput = within(modal).getByLabelText("目标标题");
+
+    await user.clear(titleInput);
+    await user.type(titleInput, "Uncommitted goal");
+    fireEvent.blur(titleInput);
+
+    await waitFor(() =>
+      expect(updateGoal).toHaveBeenCalledWith("/tmp/orchlet-demo", goal.goalId, {
+        title: "Uncommitted goal",
+      }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "无法写入工作区路线图目标。",
+    );
+    expect(titleInput).toHaveValue("Uncommitted goal");
   });
 
   it("loads conversations and creates then updates group membership", async () => {

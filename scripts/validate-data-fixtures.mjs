@@ -19,6 +19,8 @@ validateWorkspaceSkillLinks("fixtures/schema/skills-v1/workspace-skill-links.jso
 validateWorkspaceSkillLinks("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/skills/skill-links.json");
 validateRoadmapTasks("fixtures/schema/roadmap-v1/roadmap-tasks.json");
 validateRoadmapTasks("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/roadmap/tasks.json");
+validateRoadmapGoals("fixtures/schema/roadmap-v1/roadmap-goals.json");
+validateRoadmapGoals("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/roadmap/goals.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/passed-report.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/failed-registry-report.json");
 validateTerminalStreams("fixtures/terminal-streams");
@@ -267,8 +269,51 @@ function validateRoadmapTasks(path) {
   assertNonEmptyString(fixture.orderingRule, `${path}.orderingRule`);
   assert(
     Array.isArray(fixture.excludedFutureFields) &&
-      fixture.excludedFutureFields.some((item) => item.includes("goals") || item.includes("progress")),
-    `${path}.excludedFutureFields must document goal/progress exclusion`,
+      fixture.excludedFutureFields.some((item) => item.includes("dependencies") || item.includes("remote sync")),
+    `${path}.excludedFutureFields must document future roadmap task exclusions`,
+  );
+}
+
+function validateRoadmapGoals(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(Array.isArray(fixture.goals), `${path}.goals must be an array`);
+
+  const goalIds = new Set();
+  const sortOrders = new Set();
+  let previousSortOrder = -1;
+
+  for (const goal of fixture.goals) {
+    assert(goal.schemaVersion === 1, `${path}.goals[].schemaVersion must be 1`);
+    assertValidUlid(goal.goalId, `${path}.goals[].goalId`);
+    assert(!goalIds.has(goal.goalId), `${path}.goals[].goalId must be unique`);
+    goalIds.add(goal.goalId);
+    assertNonEmptyString(goal.title, `${path}.goals[].title`);
+    assert(Array.isArray(goal.taskIds), `${path}.goals[].taskIds must be an array`);
+
+    const taskIds = new Set();
+    for (const taskId of goal.taskIds) {
+      assertValidUlid(taskId, `${path}.goals[].taskIds[]`);
+      assert(!taskIds.has(taskId), `${path}.goals[].taskIds[] must be unique per goal`);
+      taskIds.add(taskId);
+    }
+
+    assert(
+      Number.isInteger(goal.sortOrder) && goal.sortOrder >= 0,
+      `${path}.goals[].sortOrder must be non-negative`,
+    );
+    assert(!sortOrders.has(goal.sortOrder), `${path}.goals[].sortOrder must be unique`);
+    assert(goal.sortOrder > previousSortOrder, `${path}.goals must be sorted by sortOrder`);
+    sortOrders.add(goal.sortOrder);
+    previousSortOrder = goal.sortOrder;
+    assertPositiveTimestamp(goal.createdAtMs, `${path}.goals[].createdAtMs`);
+    assert(goal.updatedAtMs >= goal.createdAtMs, `${path}.goals[].updatedAtMs must be >= createdAtMs`);
+  }
+
+  assertNonEmptyString(fixture.orderingRule, `${path}.orderingRule`);
+  assert(
+    typeof fixture.progressRule === "string" && fixture.progressRule.includes("derived"),
+    `${path}.progressRule must document derived progress`,
   );
 }
 

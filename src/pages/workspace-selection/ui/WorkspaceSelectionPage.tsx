@@ -53,7 +53,11 @@ import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
 import type { MemberApi } from "../../../shared/api/member-api";
 import type { NotificationApi } from "../../../shared/api/notification-api";
-import type { RoadmapApi, UpdateRoadmapTaskInput } from "../../../shared/api/roadmap-api";
+import type {
+  RoadmapApi,
+  UpdateRoadmapGoalInput,
+  UpdateRoadmapTaskInput,
+} from "../../../shared/api/roadmap-api";
 import type { SkillsApi } from "../../../shared/api/skills-api";
 import type { TerminalDispatchApi } from "../../../shared/api/terminal-dispatch-api";
 import type { TerminalApi } from "../../../shared/api/terminal-api";
@@ -92,6 +96,7 @@ import type {
   WorkspaceSkillLinkEntry,
 } from "../../../contracts/generated/skill";
 import type {
+  RoadmapGoalEntry,
   RoadmapTaskEntry,
   RoadmapTaskStatus,
 } from "../../../contracts/generated/roadmap";
@@ -129,7 +134,17 @@ type WorkspaceSelectionPageProps = {
     | "linkWorkspaceSkill"
     | "unlinkWorkspaceSkill"
   >;
-  roadmapApi?: Pick<RoadmapApi, "listTasks" | "createTask" | "updateTask" | "deleteTask">;
+  roadmapApi?: Pick<
+    RoadmapApi,
+    | "listTasks"
+    | "createTask"
+    | "updateTask"
+    | "deleteTask"
+    | "listGoals"
+    | "createGoal"
+    | "updateGoal"
+    | "deleteGoal"
+  >;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
@@ -231,8 +246,15 @@ export function WorkspaceSelectionPage({
   const [focusedRoadmapTaskId, setFocusedRoadmapTaskId] = useState<string | null>(null);
   const [isRoadmapAttachmentPickerOpen, setIsRoadmapAttachmentPickerOpen] = useState(false);
   const [isCreatingRoadmapTask, setIsCreatingRoadmapTask] = useState(false);
+  const [isCreatingRoadmapGoal, setIsCreatingRoadmapGoal] = useState(false);
   const [pendingRoadmapUpdateId, setPendingRoadmapUpdateId] = useState<string | null>(null);
   const [pendingRoadmapDeleteId, setPendingRoadmapDeleteId] = useState<string | null>(null);
+  const [pendingRoadmapGoalUpdateId, setPendingRoadmapGoalUpdateId] = useState<string | null>(
+    null,
+  );
+  const [pendingRoadmapGoalDeleteId, setPendingRoadmapGoalDeleteId] = useState<string | null>(
+    null,
+  );
   const [isInvitingMember, setIsInvitingMember] = useState(false);
   const [openedWorkspace, setOpenedWorkspace] = useState<OpenedWorkspace | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
@@ -312,6 +334,7 @@ export function WorkspaceSelectionPage({
   const conversationQueryKey = ["chat-conversations", activeWorkspaceId] as const;
   const workspaceSkillLinksQueryKey = ["workspace-skill-links", activeWorkspaceRoot] as const;
   const roadmapTasksQueryKey = ["roadmap-tasks", activeWorkspaceRoot] as const;
+  const roadmapGoalsQueryKey = ["roadmap-goals", activeWorkspaceRoot] as const;
   const memberQuery = useQuery({
     queryKey: ["members", activeWorkspaceId],
     queryFn: () =>
@@ -364,6 +387,13 @@ export function WorkspaceSelectionPage({
     retry: false,
   });
   const roadmapTasks = roadmapTasksQuery.data?.tasks ?? [];
+  const roadmapGoalsQuery = useQuery({
+    queryKey: roadmapGoalsQueryKey,
+    queryFn: () => localRoadmapApi.listGoals(activeWorkspaceRoot ?? ""),
+    enabled: Boolean(activeWorkspaceRoot),
+    retry: false,
+  });
+  const roadmapGoals = roadmapGoalsQuery.data?.goals ?? [];
   const selectedConversation =
     conversations.find((conversation) => conversation.conversationId === selectedConversationId) ??
     conversations[0] ??
@@ -538,6 +568,21 @@ export function WorkspaceSelectionPage({
       action: appError.userAction ?? undefined,
     });
   }, [roadmapTasksQuery.error, showToast]);
+
+  useEffect(() => {
+    if (!roadmapGoalsQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(roadmapGoalsQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载路线图目标",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [roadmapGoalsQuery.error, showToast]);
 
   useEffect(() => {
     membersRef.current = members;
@@ -2340,6 +2385,13 @@ export function WorkspaceSelectionPage({
       const result = await localRoadmapApi.deleteTask(activeWorkspaceRoot, taskId);
 
       queryClient.setQueryData(roadmapTasksQueryKey, { tasks: result.tasks });
+      queryClient.setQueryData<{ goals: RoadmapGoalEntry[] }>(roadmapGoalsQueryKey, (current) => ({
+        goals:
+          current?.goals.map((goal) => ({
+            ...goal,
+            taskIds: goal.taskIds.filter((relatedTaskId) => relatedTaskId !== taskId),
+          })) ?? [],
+      }));
       setAttachmentEntries((current) =>
         current.filter((entry) => entry.kind !== "roadmap" || entry.taskId !== taskId),
       );
@@ -2362,6 +2414,112 @@ export function WorkspaceSelectionPage({
       });
     } finally {
       setPendingRoadmapDeleteId(null);
+    }
+  }
+
+  async function handleCreateRoadmapGoal() {
+    if (!activeWorkspaceRoot) {
+      return;
+    }
+
+    setIsCreatingRoadmapGoal(true);
+
+    try {
+      const result = await localRoadmapApi.createGoal(activeWorkspaceRoot, {
+        title: "新目标",
+        taskIds: [],
+      });
+
+      queryClient.setQueryData(roadmapGoalsQueryKey, { goals: result.goals });
+      showToast({
+        tone: "info",
+        title: "路线图目标已创建",
+        message: result.goal.title,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "创建路线图目标失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsCreatingRoadmapGoal(false);
+    }
+  }
+
+  async function handleUpdateRoadmapGoal(
+    goalId: string,
+    input: UpdateRoadmapGoalInput,
+  ): Promise<RoadmapGoalEntry | null> {
+    if (!activeWorkspaceRoot) {
+      return null;
+    }
+
+    setPendingRoadmapGoalUpdateId(goalId);
+
+    try {
+      const result = await localRoadmapApi.updateGoal(activeWorkspaceRoot, goalId, input);
+
+      queryClient.setQueryData(roadmapGoalsQueryKey, { goals: result.goals });
+      showToast({
+        tone: "info",
+        title: "路线图目标已保存",
+        message: result.goal.title,
+      });
+
+      return result.goal;
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "保存路线图目标失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+
+      return null;
+    } finally {
+      setPendingRoadmapGoalUpdateId(null);
+    }
+  }
+
+  async function handleDeleteRoadmapGoal(goalId: string) {
+    if (!activeWorkspaceRoot) {
+      return;
+    }
+
+    const confirmed = window.confirm("删除这个路线图目标？");
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingRoadmapGoalDeleteId(goalId);
+
+    try {
+      const result = await localRoadmapApi.deleteGoal(activeWorkspaceRoot, goalId);
+
+      queryClient.setQueryData(roadmapGoalsQueryKey, { goals: result.goals });
+      showToast({
+        tone: "info",
+        title: "路线图目标已删除",
+        message: "相关任务不会被删除。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "删除路线图目标失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setPendingRoadmapGoalDeleteId(null);
     }
   }
 
@@ -2712,15 +2870,22 @@ export function WorkspaceSelectionPage({
             {activeWorkspace && isRoadmapOpen ? (
               <RoadmapModal
                 tasks={roadmapTasks}
+                goals={roadmapGoals}
                 focusedTaskId={focusedRoadmapTaskId}
-                isLoading={roadmapTasksQuery.isLoading}
+                isLoading={roadmapTasksQuery.isLoading || roadmapGoalsQuery.isLoading}
                 isCreating={isCreatingRoadmapTask}
+                isCreatingGoal={isCreatingRoadmapGoal}
                 pendingUpdateId={pendingRoadmapUpdateId}
                 pendingDeleteId={pendingRoadmapDeleteId}
+                pendingGoalUpdateId={pendingRoadmapGoalUpdateId}
+                pendingGoalDeleteId={pendingRoadmapGoalDeleteId}
                 onClose={() => setIsRoadmapOpen(false)}
                 onCreate={() => void handleCreateRoadmapTask()}
                 onUpdate={(taskId, input) => void handleUpdateRoadmapTask(taskId, input)}
                 onDelete={(taskId) => void handleDeleteRoadmapTask(taskId)}
+                onCreateGoal={() => void handleCreateRoadmapGoal()}
+                onUpdateGoal={handleUpdateRoadmapGoal}
+                onDeleteGoal={(goalId) => void handleDeleteRoadmapGoal(goalId)}
               />
             ) : null}
 
@@ -3044,28 +3209,50 @@ function SkillLibraryPanel({
 
 function RoadmapModal({
   tasks,
+  goals,
   focusedTaskId,
   isLoading,
   isCreating,
+  isCreatingGoal,
   pendingUpdateId,
   pendingDeleteId,
+  pendingGoalUpdateId,
+  pendingGoalDeleteId,
   onClose,
   onCreate,
   onUpdate,
   onDelete,
+  onCreateGoal,
+  onUpdateGoal,
+  onDeleteGoal,
 }: {
   tasks: RoadmapTaskEntry[];
+  goals: RoadmapGoalEntry[];
   focusedTaskId: string | null;
   isLoading: boolean;
   isCreating: boolean;
+  isCreatingGoal: boolean;
   pendingUpdateId: string | null;
   pendingDeleteId: string | null;
+  pendingGoalUpdateId: string | null;
+  pendingGoalDeleteId: string | null;
   onClose: () => void;
   onCreate: () => void;
   onUpdate: (taskId: string, input: UpdateRoadmapTaskInput) => void;
   onDelete: (taskId: string) => void;
+  onCreateGoal: () => void;
+  onUpdateGoal: (
+    goalId: string,
+    input: UpdateRoadmapGoalInput,
+  ) => Promise<RoadmapGoalEntry | null>;
+  onDeleteGoal: (goalId: string) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, { title: string; detail: string }>>({});
+  const [goalDrafts, setGoalDrafts] = useState<
+    Record<string, { title: string; taskIds: string[] }>
+  >({});
+  const taskById = useMemo(() => new Map(tasks.map((task) => [task.taskId, task])), [tasks]);
+  const overallProgress = roadmapProgressForTasks(tasks);
 
   useEffect(() => {
     setDrafts((current) => {
@@ -3081,6 +3268,21 @@ function RoadmapModal({
       return next;
     });
   }, [tasks]);
+
+  useEffect(() => {
+    setGoalDrafts((current) => {
+      const next: Record<string, { title: string; taskIds: string[] }> = {};
+
+      for (const goal of goals) {
+        next[goal.goalId] = current[goal.goalId] ?? {
+          title: goal.title,
+          taskIds: goal.taskIds,
+        };
+      }
+
+      return next;
+    });
+  }, [goals]);
 
   function setDraft(taskId: string, field: "title" | "detail", value: string) {
     setDrafts((current) => ({
@@ -3110,6 +3312,54 @@ function RoadmapModal({
     }
   }
 
+  function setGoalDraft(goalId: string, value: { title?: string; taskIds?: string[] }) {
+    setGoalDrafts((current) => ({
+      ...current,
+      [goalId]: {
+        title: value.title ?? current[goalId]?.title ?? "",
+        taskIds: value.taskIds ?? current[goalId]?.taskIds ?? [],
+      },
+    }));
+  }
+
+  function syncGoalDraft(goal: RoadmapGoalEntry) {
+    setGoalDrafts((current) => ({
+      ...current,
+      [goal.goalId]: {
+        title: goal.title,
+        taskIds: goal.taskIds,
+      },
+    }));
+  }
+
+  async function saveGoalTitle(goal: RoadmapGoalEntry) {
+    const title = goalDrafts[goal.goalId]?.title ?? goal.title;
+
+    if (title.trim() === goal.title) {
+      return;
+    }
+
+    const savedGoal = await onUpdateGoal(goal.goalId, { title });
+
+    if (savedGoal) {
+      syncGoalDraft(savedGoal);
+    }
+  }
+
+  async function toggleGoalTask(goal: RoadmapGoalEntry, taskId: string) {
+    const currentTaskIds = goalDrafts[goal.goalId]?.taskIds ?? goal.taskIds;
+    const taskIds = currentTaskIds.includes(taskId)
+      ? currentTaskIds.filter((currentTaskId) => currentTaskId !== taskId)
+      : [...currentTaskIds, taskId];
+
+    setGoalDraft(goal.goalId, { taskIds });
+    const savedGoal = await onUpdateGoal(goal.goalId, { taskIds });
+
+    if (savedGoal) {
+      syncGoalDraft(savedGoal);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-[#17211b]/35 px-4 py-8">
       <section
@@ -3127,7 +3377,10 @@ function RoadmapModal({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-md border border-[#d8e4d3] bg-white px-2.5 py-1 text-xs font-medium text-[#526054]">
-              {tasks.length} 个任务
+              {goals.length} 个目标
+            </span>
+            <span className="rounded-md border border-[#d8e4d3] bg-white px-2.5 py-1 text-xs font-medium text-[#526054]">
+              任务完成 {overallProgress.done}/{overallProgress.total}（{overallProgress.percent}%）
             </span>
             <button
               type="button"
@@ -3149,98 +3402,229 @@ function RoadmapModal({
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 grid gap-4">
           {isLoading ? (
             <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-4 text-sm text-[#6a786c]">
               正在加载路线图
             </p>
-          ) : tasks.length > 0 ? (
-            tasks.map((task) => {
-              const draft = drafts[task.taskId] ?? {
-                title: task.title,
-                detail: task.detail ?? "",
-              };
-              const isFocused = focusedTaskId === task.taskId;
-
-              return (
-                <article
-                  key={task.taskId}
-                  aria-label={`路线图任务 ${task.title}`}
-                  className={
-                    isFocused
-                      ? "grid gap-3 rounded-md border border-[#8fad87] bg-[#eef6ea] p-3"
-                      : "grid gap-3 rounded-md border border-[#e3eadf] bg-white p-3"
-                  }
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-md border border-[#d8e4d3] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#526054]">
-                      <ListTodo aria-hidden="true" size={12} strokeWidth={2} />
-                      {isFocused ? "已聚焦" : `顺序 ${task.sortOrder + 1}`}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={pendingDeleteId === task.taskId}
-                      onClick={() => onDelete(task.taskId)}
-                      className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#d7c8c5] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#6d3d38] transition hover:border-[#b9857f] hover:bg-[#fff5f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9d5e58] disabled:cursor-wait disabled:opacity-70"
-                    >
-                      <Trash2 aria-hidden="true" size={13} strokeWidth={2} />
-                      {pendingDeleteId === task.taskId ? "删除中" : "删除"}
-                    </button>
-                  </div>
-
-                  <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
-                    任务标题
-                    <input
-                      value={draft.title}
-                      disabled={pendingUpdateId === task.taskId}
-                      onChange={(event) => setDraft(task.taskId, "title", event.target.value)}
-                      onBlur={() => saveTitle(task)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          saveTitle(task);
-                        }
-                      }}
-                      className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
-                    />
-                  </label>
-
-                  <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
-                    任务详情
-                    <textarea
-                      value={draft.detail}
-                      disabled={pendingUpdateId === task.taskId}
-                      onChange={(event) => setDraft(task.taskId, "detail", event.target.value)}
-                      onBlur={() => saveDetail(task)}
-                      rows={3}
-                      className="resize-y rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
-                    />
-                  </label>
-
-                  <label className="grid max-w-xs gap-1.5 text-xs font-medium text-[#526054]">
-                    任务状态
-                    <select
-                      value={task.status}
-                      disabled={pendingUpdateId === task.taskId}
-                      onChange={(event) =>
-                        onUpdate(task.taskId, {
-                          status: event.target.value as RoadmapTaskStatus,
-                        })
-                      }
-                      className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
-                    >
-                      <option value="pending">待处理</option>
-                      <option value="inProgress">进行中</option>
-                      <option value="done">已完成</option>
-                    </select>
-                  </label>
-                </article>
-              );
-            })
           ) : (
-            <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-4 text-sm text-[#6a786c]">
-              暂无路线图任务
-            </p>
+            <>
+              <section aria-label="路线图目标" className="grid gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-[#263229]">目标</h3>
+                    <p className="mt-1 text-xs text-[#6a786c]">
+                      {goals.length} 个目标，关联 {tasks.length} 个任务
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isCreatingGoal}
+                    onClick={onCreateGoal}
+                    className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
+                  >
+                    <Plus aria-hidden="true" size={13} strokeWidth={2} />
+                    {isCreatingGoal ? "添加中" : "添加目标"}
+                  </button>
+                </div>
+
+                {goals.length > 0 ? (
+                  goals.map((goal) => {
+                    const draft = goalDrafts[goal.goalId] ?? {
+                      title: goal.title,
+                      taskIds: goal.taskIds,
+                    };
+                    const relatedTasks = draft.taskIds
+                      .map((taskId) => taskById.get(taskId))
+                      .filter((task): task is RoadmapTaskEntry => Boolean(task));
+                    const progress = roadmapProgressForTasks(relatedTasks);
+                    const isPending = pendingGoalUpdateId === goal.goalId;
+
+                    return (
+                      <article
+                        key={goal.goalId}
+                        role="group"
+                        aria-label={`路线图目标 ${goal.title}`}
+                        className="grid gap-3 rounded-md border border-[#d7e4d1] bg-white p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-md border border-[#d8e4d3] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#526054]">
+                            <CheckCircle2 aria-hidden="true" size={12} strokeWidth={2} />
+                            {progress.done}/{progress.total} 完成（{progress.percent}%）
+                          </span>
+                          <button
+                            type="button"
+                            disabled={pendingGoalDeleteId === goal.goalId}
+                            onClick={() => onDeleteGoal(goal.goalId)}
+                            className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#d7c8c5] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#6d3d38] transition hover:border-[#b9857f] hover:bg-[#fff5f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9d5e58] disabled:cursor-wait disabled:opacity-70"
+                          >
+                            <Trash2 aria-hidden="true" size={13} strokeWidth={2} />
+                            {pendingGoalDeleteId === goal.goalId ? "删除中" : "删除目标"}
+                          </button>
+                        </div>
+
+                        <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                          目标标题
+                          <input
+                            value={draft.title}
+                            disabled={isPending}
+                            onChange={(event) =>
+                              setGoalDraft(goal.goalId, { title: event.target.value })
+                            }
+                            onBlur={() => void saveGoalTitle(goal)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void saveGoalTitle(goal);
+                              }
+                            }}
+                            className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
+                          />
+                        </label>
+
+                        <div className="h-2 overflow-hidden rounded-full bg-[#e8eee4]">
+                          <div
+                            className="h-full bg-[#2f6f55]"
+                            style={{ width: `${progress.percent}%` }}
+                          />
+                        </div>
+
+                        <div className="grid gap-2">
+                          <p className="text-xs font-medium text-[#526054]">关联任务</p>
+                          {tasks.length > 0 ? (
+                            <div className="grid gap-1.5 sm:grid-cols-2">
+                              {tasks.map((task) => (
+                                <label
+                                  key={task.taskId}
+                                  className="flex items-center gap-2 rounded-md border border-[#e3eadf] bg-[#fbfcfa] px-2.5 py-2 text-xs text-[#526054]"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.taskIds.includes(task.taskId)}
+                                    disabled={isPending}
+                                    onChange={() => void toggleGoalTask(goal, task.taskId)}
+                                    className="h-4 w-4 rounded border-[#aebca8] text-[#2f6f55] focus:ring-[#8fad87]"
+                                  />
+                                  <span className="min-w-0 flex-1 truncate">{task.title}</span>
+                                  <span className="shrink-0 text-[11px] text-[#879182]">
+                                    {roadmapTaskStatusLabel(task.status)}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="rounded-md border border-dashed border-[#cfd9cc] bg-[#fbfcfa] p-3 text-xs text-[#6a786c]">
+                              暂无可关联任务
+                            </p>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })
+                ) : (
+                  <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-4 text-sm text-[#6a786c]">
+                    暂无路线图目标
+                  </p>
+                )}
+              </section>
+
+              <section aria-label="路线图任务" className="grid gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#263229]">任务</h3>
+                  <p className="mt-1 text-xs text-[#6a786c]">
+                    {overallProgress.done}/{overallProgress.total} 个任务已完成
+                  </p>
+                </div>
+                {tasks.length > 0 ? (
+                  tasks.map((task) => {
+                    const draft = drafts[task.taskId] ?? {
+                      title: task.title,
+                      detail: task.detail ?? "",
+                    };
+                    const isFocused = focusedTaskId === task.taskId;
+
+                    return (
+                      <article
+                        key={task.taskId}
+                        aria-label={`路线图任务 ${task.title}`}
+                        className={
+                          isFocused
+                            ? "grid gap-3 rounded-md border border-[#8fad87] bg-[#eef6ea] p-3"
+                            : "grid gap-3 rounded-md border border-[#e3eadf] bg-white p-3"
+                        }
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1.5 rounded-md border border-[#d8e4d3] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#526054]">
+                            <ListTodo aria-hidden="true" size={12} strokeWidth={2} />
+                            {isFocused ? "已聚焦" : `顺序 ${task.sortOrder + 1}`}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={pendingDeleteId === task.taskId}
+                            onClick={() => onDelete(task.taskId)}
+                            className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#d7c8c5] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#6d3d38] transition hover:border-[#b9857f] hover:bg-[#fff5f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9d5e58] disabled:cursor-wait disabled:opacity-70"
+                          >
+                            <Trash2 aria-hidden="true" size={13} strokeWidth={2} />
+                            {pendingDeleteId === task.taskId ? "删除中" : "删除"}
+                          </button>
+                        </div>
+
+                        <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                          任务标题
+                          <input
+                            value={draft.title}
+                            disabled={pendingUpdateId === task.taskId}
+                            onChange={(event) => setDraft(task.taskId, "title", event.target.value)}
+                            onBlur={() => saveTitle(task)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                saveTitle(task);
+                              }
+                            }}
+                            className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
+                          />
+                        </label>
+
+                        <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                          任务详情
+                          <textarea
+                            value={draft.detail}
+                            disabled={pendingUpdateId === task.taskId}
+                            onChange={(event) => setDraft(task.taskId, "detail", event.target.value)}
+                            onBlur={() => saveDetail(task)}
+                            rows={3}
+                            className="resize-y rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
+                          />
+                        </label>
+
+                        <label className="grid max-w-xs gap-1.5 text-xs font-medium text-[#526054]">
+                          任务状态
+                          <select
+                            value={task.status}
+                            disabled={pendingUpdateId === task.taskId}
+                            onChange={(event) =>
+                              onUpdate(task.taskId, {
+                                status: event.target.value as RoadmapTaskStatus,
+                              })
+                            }
+                            className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87] disabled:cursor-wait disabled:bg-[#f4f7f2]"
+                          >
+                            <option value="pending">待处理</option>
+                            <option value="inProgress">进行中</option>
+                            <option value="done">已完成</option>
+                          </select>
+                        </label>
+                      </article>
+                    );
+                  })
+                ) : (
+                  <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-4 text-sm text-[#6a786c]">
+                    暂无路线图任务
+                  </p>
+                )}
+              </section>
+            </>
           )}
         </div>
       </section>
@@ -4198,6 +4582,14 @@ function roadmapTaskStatusLabel(status: RoadmapTaskStatus) {
     case "done":
       return "已完成";
   }
+}
+
+function roadmapProgressForTasks(tasks: RoadmapTaskEntry[]) {
+  const total = tasks.length;
+  const done = tasks.filter((task) => task.status === "done").length;
+  const percent = total === 0 ? 0 : Math.round((done / total) * 100);
+
+  return { total, done, percent };
 }
 
 function loadRecentEmojis() {

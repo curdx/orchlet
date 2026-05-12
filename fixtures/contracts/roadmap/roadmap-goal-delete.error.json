@@ -1,0 +1,9 @@
+{
+  "code": "roadmap.goal.notFound",
+  "message": "路线图中找不到该目标。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新路线图后重新选择目标。",
+  "details": "01K00000000000000000000999",
+  "correlationId": null
+}

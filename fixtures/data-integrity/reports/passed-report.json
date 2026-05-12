@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=14"
+      "details": "entries=15"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -153,10 +153,20 @@
       "affectedPaths": ["/fixtures/workspaces/alpha/.orchlet/roadmap/tasks.json"],
       "userAction": null,
       "details": null
+    },
+    {
+      "checkId": "roadmap.goals.load_validate",
+      "category": "roadmapGoals",
+      "status": "passed",
+      "severity": "info",
+      "message": "Roadmap goals are readable when initialized.",
+      "affectedPaths": ["/fixtures/workspaces/alpha/.orchlet/roadmap/goals.json"],
+      "userAction": null,
+      "details": null
     }
   ],
-  "totalChecks": 15,
-  "passedChecks": 15,
+  "totalChecks": 16,
+  "passedChecks": 16,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,

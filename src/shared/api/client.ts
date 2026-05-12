@@ -49,6 +49,10 @@ function invokeBrowserFallback<T>(
     return Promise.resolve({ tasks: [] } as T);
   }
 
+  if (command === "roadmap_goals_list") {
+    return Promise.resolve({ goals: [] } as T);
+  }
+
   return Promise.reject({
     code: "ipc.command.unavailable",
     message: `命令 ${command} 在当前运行环境不可用。`,

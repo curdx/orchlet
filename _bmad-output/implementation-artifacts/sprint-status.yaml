@@ -85,12 +85,12 @@ development_status:
   5-3-ignore-all-unread-notifications: done
   epic-5-retrospective: optional
 
-  epic-6: in-progress
+  epic-6: done
   6-1-import-local-skill-folder: done
   6-2-manage-skill-library-workspace-links: done
   6-3-delete-open-capability-classification: done
   6-4-roadmap-task-crud: done
-  6-5-roadmap-goals-status-progress: backlog
+  6-5-roadmap-goals-status-progress: done
   epic-6-retrospective: optional
 
   epic-7: backlog

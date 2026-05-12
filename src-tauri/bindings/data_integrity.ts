@@ -12,7 +12,7 @@ export type DataIntegrityValidateRequest = { workspaceRoot: string | null, };
 
 export type DataIntegrityValidateResult = { report: DataIntegrityReport, };
 
-export type StorageCategory = "storageManifest" | "workspaceMetadata" | "workspaceRegistry" | "workspaceFallbacks" | "memberProfiles" | "contactProfiles" | "conversationRecords" | "conversationMembers" | "messageRecords" | "messageMentions" | "conversationReadPositions" | "privateConversations" | "terminalTabs" | "skillLibrary" | "workspaceSkillLinks" | "roadmapTasks";
+export type StorageCategory = "storageManifest" | "workspaceMetadata" | "workspaceRegistry" | "workspaceFallbacks" | "memberProfiles" | "contactProfiles" | "conversationRecords" | "conversationMembers" | "messageRecords" | "messageMentions" | "conversationReadPositions" | "privateConversations" | "terminalTabs" | "skillLibrary" | "workspaceSkillLinks" | "roadmapTasks" | "roadmapGoals";
 
 export type StorageFormat = "json" | "sqlite";
 

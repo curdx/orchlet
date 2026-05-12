@@ -13,5 +13,5 @@
     }
   ],
   "orderingRule": "sortOrder is unique and compacted after deletion",
-  "excludedFutureFields": ["goals and completion progress are owned by Story 6.5"]
+  "excludedFutureFields": ["task dependencies and remote sync metadata are future work"]
 }

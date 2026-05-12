@@ -1,0 +1,9 @@
+{
+  "code": "roadmap.goal.invalidRelatedTask",
+  "message": "路线图目标关联了不存在的任务。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请重新选择目标关联任务后重试。",
+  "details": "taskId=01K00000000000000000000999",
+  "correlationId": null
+}

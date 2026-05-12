@@ -4,13 +4,27 @@ export type CreateRoadmapTaskRequest = { workspaceRoot: string, title: string, d
 
 export type CreateRoadmapTaskResult = { task: RoadmapTaskEntry, tasks: Array<RoadmapTaskEntry>, };
 
+export type CreateRoadmapGoalRequest = { workspaceRoot: string, title: string, taskIds: Array<string>, };
+
+export type CreateRoadmapGoalResult = { goal: RoadmapGoalEntry, goals: Array<RoadmapGoalEntry>, };
+
 export type DeleteRoadmapTaskRequest = { workspaceRoot: string, taskId: string, };
 
 export type DeleteRoadmapTaskResult = { removedTaskId: string, tasks: Array<RoadmapTaskEntry>, };
 
+export type DeleteRoadmapGoalRequest = { workspaceRoot: string, goalId: string, };
+
+export type DeleteRoadmapGoalResult = { removedGoalId: string, goals: Array<RoadmapGoalEntry>, };
+
 export type ListRoadmapTasksRequest = { workspaceRoot: string, };
 
 export type ListRoadmapTasksResult = { tasks: Array<RoadmapTaskEntry>, };
+
+export type ListRoadmapGoalsRequest = { workspaceRoot: string, };
+
+export type ListRoadmapGoalsResult = { goals: Array<RoadmapGoalEntry>, };
+
+export type RoadmapGoalEntry = { schemaVersion: number, goalId: string, title: string, taskIds: Array<string>, sortOrder: number, createdAtMs: number, updatedAtMs: number, };
 
 export type RoadmapTaskEntry = { schemaVersion: number, taskId: string, title: string, detail: string | null, status: RoadmapTaskStatus, sortOrder: number, createdAtMs: number, updatedAtMs: number, };
 
@@ -19,3 +33,7 @@ export type RoadmapTaskStatus = "pending" | "inProgress" | "done";
 export type UpdateRoadmapTaskRequest = { workspaceRoot: string, taskId: string, title: string | null, detail: string | null, status: RoadmapTaskStatus | null, sortOrder: number | null, };
 
 export type UpdateRoadmapTaskResult = { task: RoadmapTaskEntry, tasks: Array<RoadmapTaskEntry>, };
+
+export type UpdateRoadmapGoalRequest = { workspaceRoot: string, goalId: string, title: string | null, taskIds: Array<string> | null, sortOrder: number | null, };
+
+export type UpdateRoadmapGoalResult = { goal: RoadmapGoalEntry, goals: Array<RoadmapGoalEntry>, };

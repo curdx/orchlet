@@ -92,14 +92,23 @@ import type {
   DispatchTargetResolutionSource,
 } from "../../src/contracts/generated/orchestration";
 import type {
+  CreateRoadmapGoalRequest,
+  CreateRoadmapGoalResult,
   CreateRoadmapTaskRequest,
   CreateRoadmapTaskResult,
+  DeleteRoadmapGoalRequest,
+  DeleteRoadmapGoalResult,
   DeleteRoadmapTaskRequest,
   DeleteRoadmapTaskResult,
+  ListRoadmapGoalsRequest,
+  ListRoadmapGoalsResult,
   ListRoadmapTasksRequest,
   ListRoadmapTasksResult,
+  RoadmapGoalEntry,
   RoadmapTaskEntry,
   RoadmapTaskStatus,
+  UpdateRoadmapGoalRequest,
+  UpdateRoadmapGoalResult,
   UpdateRoadmapTaskRequest,
   UpdateRoadmapTaskResult,
 } from "../../src/contracts/generated/roadmap";
@@ -283,6 +292,18 @@ import roadmapTaskUpdateResult from "../../fixtures/contracts/roadmap/roadmap-ta
 import roadmapTaskDeleteError from "../../fixtures/contracts/roadmap/roadmap-task-delete.error.json";
 import roadmapTaskDeleteRequest from "../../fixtures/contracts/roadmap/roadmap-task-delete.request.json";
 import roadmapTaskDeleteResult from "../../fixtures/contracts/roadmap/roadmap-task-delete.result.json";
+import roadmapGoalsListError from "../../fixtures/contracts/roadmap/roadmap-goals-list.error.json";
+import roadmapGoalsListRequest from "../../fixtures/contracts/roadmap/roadmap-goals-list.request.json";
+import roadmapGoalsListResult from "../../fixtures/contracts/roadmap/roadmap-goals-list.result.json";
+import roadmapGoalCreateError from "../../fixtures/contracts/roadmap/roadmap-goal-create.error.json";
+import roadmapGoalCreateRequest from "../../fixtures/contracts/roadmap/roadmap-goal-create.request.json";
+import roadmapGoalCreateResult from "../../fixtures/contracts/roadmap/roadmap-goal-create.result.json";
+import roadmapGoalUpdateError from "../../fixtures/contracts/roadmap/roadmap-goal-update.error.json";
+import roadmapGoalUpdateRequest from "../../fixtures/contracts/roadmap/roadmap-goal-update.request.json";
+import roadmapGoalUpdateResult from "../../fixtures/contracts/roadmap/roadmap-goal-update.result.json";
+import roadmapGoalDeleteError from "../../fixtures/contracts/roadmap/roadmap-goal-delete.error.json";
+import roadmapGoalDeleteRequest from "../../fixtures/contracts/roadmap/roadmap-goal-delete.request.json";
+import roadmapGoalDeleteResult from "../../fixtures/contracts/roadmap/roadmap-goal-delete.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -618,6 +639,32 @@ export const roadmapTaskDeleteResultFixture: DeleteRoadmapTaskResult = {
   tasks: roadmapTaskDeleteResult.tasks.map(roadmapTaskEntry),
 };
 export const roadmapTaskDeleteErrorFixture: AppError = appError(roadmapTaskDeleteError);
+export const roadmapGoalsListRequestFixture: ListRoadmapGoalsRequest = roadmapGoalsListRequest;
+export const roadmapGoalsListResultFixture: ListRoadmapGoalsResult = {
+  goals: roadmapGoalsListResult.goals.map(roadmapGoalEntry),
+};
+export const roadmapGoalsListErrorFixture: AppError = appError(roadmapGoalsListError);
+export const roadmapGoalCreateRequestFixture: CreateRoadmapGoalRequest =
+  roadmapGoalCreateRequest;
+export const roadmapGoalCreateResultFixture: CreateRoadmapGoalResult = {
+  goal: roadmapGoalEntry(roadmapGoalCreateResult.goal),
+  goals: roadmapGoalCreateResult.goals.map(roadmapGoalEntry),
+};
+export const roadmapGoalCreateErrorFixture: AppError = appError(roadmapGoalCreateError);
+export const roadmapGoalUpdateRequestFixture: UpdateRoadmapGoalRequest =
+  roadmapGoalUpdateRequest;
+export const roadmapGoalUpdateResultFixture: UpdateRoadmapGoalResult = {
+  goal: roadmapGoalEntry(roadmapGoalUpdateResult.goal),
+  goals: roadmapGoalUpdateResult.goals.map(roadmapGoalEntry),
+};
+export const roadmapGoalUpdateErrorFixture: AppError = appError(roadmapGoalUpdateError);
+export const roadmapGoalDeleteRequestFixture: DeleteRoadmapGoalRequest =
+  roadmapGoalDeleteRequest;
+export const roadmapGoalDeleteResultFixture: DeleteRoadmapGoalResult = {
+  removedGoalId: roadmapGoalDeleteResult.removedGoalId,
+  goals: roadmapGoalDeleteResult.goals.map(roadmapGoalEntry),
+};
+export const roadmapGoalDeleteErrorFixture: AppError = appError(roadmapGoalDeleteError);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -782,6 +829,10 @@ type ErrorJson =
   | typeof roadmapTaskCreateError
   | typeof roadmapTaskUpdateError
   | typeof roadmapTaskDeleteError
+  | typeof roadmapGoalsListError
+  | typeof roadmapGoalCreateError
+  | typeof roadmapGoalUpdateError
+  | typeof roadmapGoalDeleteError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -860,6 +911,14 @@ type RoadmapTaskEntryJson =
   | (typeof roadmapTaskUpdateResult.tasks)[number]
   | (typeof roadmapTaskDeleteResult.tasks)[number];
 
+type RoadmapGoalEntryJson =
+  | (typeof roadmapGoalsListResult.goals)[number]
+  | typeof roadmapGoalCreateResult.goal
+  | (typeof roadmapGoalCreateResult.goals)[number]
+  | typeof roadmapGoalUpdateResult.goal
+  | (typeof roadmapGoalUpdateResult.goals)[number]
+  | (typeof roadmapGoalDeleteResult.goals)[number];
+
 function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {
   return {
     ...skill,
@@ -917,6 +976,12 @@ function roadmapTaskEntry(task: RoadmapTaskEntryJson): RoadmapTaskEntry {
   return {
     ...task,
     status: roadmapTaskStatus(task.status),
+  };
+}
+
+function roadmapGoalEntry(goal: RoadmapGoalEntryJson): RoadmapGoalEntry {
+  return {
+    ...goal,
   };
 }
 
@@ -1050,6 +1115,7 @@ function storageCategory(value: string): StorageCategory {
     case "skillLibrary":
     case "workspaceSkillLinks":
     case "roadmapTasks":
+    case "roadmapGoals":
       return value;
     default:
       throw new Error(`Unknown storage category: ${value}`);

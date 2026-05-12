@@ -14,7 +14,9 @@ use crate::{
         workspace_registry_store::{
             WORKSPACE_REGISTRY_FILE_NAME, WORKSPACE_REGISTRY_SCHEMA_VERSION,
         },
-        workspace_roadmap_store::WORKSPACE_ROADMAP_TASKS_SCHEMA_VERSION,
+        workspace_roadmap_store::{
+            WORKSPACE_ROADMAP_GOALS_SCHEMA_VERSION, WORKSPACE_ROADMAP_TASKS_SCHEMA_VERSION,
+        },
         workspace_skill_link_store::WORKSPACE_SKILL_LINKS_SCHEMA_VERSION,
     },
     infrastructure::persistence::sqlite::global_database::{
@@ -369,7 +371,32 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             privacy_class: StoragePrivacyClass::WorkspaceData,
             fixture_required: true,
             validation_check_id: "roadmap.tasks.load_validate".to_owned(),
-            notes: "Contains task title, detail, status and ordering metadata only; goals and progress rollups are owned by Story 6.5."
+            notes: "Contains task title, detail, status and ordering metadata only; progress is derived at runtime."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "roadmap.goals".to_owned(),
+            owner: StorageOwner::Roadmap,
+            category: StorageCategory::RoadmapGoals,
+            description: "Workspace-local roadmap goals and task relationship metadata."
+                .to_owned(),
+            path_policy: StoragePathPolicy::WorkspaceLocalRelative,
+            relative_path: Some(format!("{}/roadmap/goals.json", WORKSPACE_DIR_NAME)),
+            file_name: Some("goals.json".to_owned()),
+            format: StorageFormat::Json,
+            schema_version: WORKSPACE_ROADMAP_GOALS_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/workspace_roadmap_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/workspace_roadmap_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "roadmap.goals.load_validate".to_owned(),
+            notes: "Contains goal title, related roadmap task IDs and ordering metadata only; progress is derived from task status at runtime."
                 .to_owned(),
         },
     ]

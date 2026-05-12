@@ -397,6 +397,50 @@
       "requirements": ["FR61", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
     },
     {
+      "domain": "roadmap",
+      "command": "roadmap_goals_list",
+      "requestFixture": "fixtures/contracts/roadmap/roadmap-goals-list.request.json",
+      "successResultFixture": "fixtures/contracts/roadmap/roadmap-goals-list.result.json",
+      "errorFixture": "fixtures/contracts/roadmap/roadmap-goals-list.error.json",
+      "rustRequestDto": "ListRoadmapGoalsRequest",
+      "rustSuccessDto": "ListRoadmapGoalsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR62", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "roadmap",
+      "command": "roadmap_goal_create",
+      "requestFixture": "fixtures/contracts/roadmap/roadmap-goal-create.request.json",
+      "successResultFixture": "fixtures/contracts/roadmap/roadmap-goal-create.result.json",
+      "errorFixture": "fixtures/contracts/roadmap/roadmap-goal-create.error.json",
+      "rustRequestDto": "CreateRoadmapGoalRequest",
+      "rustSuccessDto": "CreateRoadmapGoalResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR62", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "roadmap",
+      "command": "roadmap_goal_update",
+      "requestFixture": "fixtures/contracts/roadmap/roadmap-goal-update.request.json",
+      "successResultFixture": "fixtures/contracts/roadmap/roadmap-goal-update.result.json",
+      "errorFixture": "fixtures/contracts/roadmap/roadmap-goal-update.error.json",
+      "rustRequestDto": "UpdateRoadmapGoalRequest",
+      "rustSuccessDto": "UpdateRoadmapGoalResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR62", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "roadmap",
+      "command": "roadmap_goal_delete",
+      "requestFixture": "fixtures/contracts/roadmap/roadmap-goal-delete.request.json",
+      "successResultFixture": "fixtures/contracts/roadmap/roadmap-goal-delete.result.json",
+      "errorFixture": "fixtures/contracts/roadmap/roadmap-goal-delete.error.json",
+      "rustRequestDto": "DeleteRoadmapGoalRequest",
+      "rustSuccessDto": "DeleteRoadmapGoalResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR62", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

@@ -23,5 +23,5 @@
     }
   ],
   "orderingRule": "sortOrder is unique and ascending within a workspace roadmap",
-  "excludedFutureFields": ["goals", "progress rollups", "remote sync metadata"]
+  "excludedFutureFields": ["task dependencies", "remote sync metadata"]
 }

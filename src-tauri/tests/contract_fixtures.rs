@@ -3,16 +3,18 @@ use std::{fs, path::Path};
 use orchlet_lib::contracts::{
     AppError, ChatMessageStatus, ClearConversationRequest, ClearConversationResult, ContactKind,
     ConversationKind, ConversationParticipantKind, CreateContactRequest, CreateContactResult,
-    CreateGroupConversationRequest, CreateGroupConversationResult, CreateRoadmapTaskRequest,
-    CreateRoadmapTaskResult, DataIntegrityValidateRequest, DataIntegrityValidateResult,
-    DeleteContactRequest, DeleteContactResult, DeleteConversationRequest, DeleteConversationResult,
-    DeleteRoadmapTaskRequest, DeleteRoadmapTaskResult, DeleteSkillRequest, DeleteSkillResult,
-    DispatchChatMessageRequest, DispatchChatMessageResult, DispatchQueueResumeRequest,
-    DispatchQueueResumeResult, DispatchRequestStatus, DispatchTargetResolutionSource,
-    ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult, InviteMemberRequest,
-    InviteMemberResult, InvitedMemberType, LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult,
-    ListContactsRequest, ListContactsResult, ListConversationsRequest, ListConversationsResult,
-    ListMembersRequest, ListMembersResult, ListMessagesRequest, ListMessagesResult,
+    CreateGroupConversationRequest, CreateGroupConversationResult, CreateRoadmapGoalRequest,
+    CreateRoadmapGoalResult, CreateRoadmapTaskRequest, CreateRoadmapTaskResult,
+    DataIntegrityValidateRequest, DataIntegrityValidateResult, DeleteContactRequest,
+    DeleteContactResult, DeleteConversationRequest, DeleteConversationResult,
+    DeleteRoadmapGoalRequest, DeleteRoadmapGoalResult, DeleteRoadmapTaskRequest,
+    DeleteRoadmapTaskResult, DeleteSkillRequest, DeleteSkillResult, DispatchChatMessageRequest,
+    DispatchChatMessageResult, DispatchQueueResumeRequest, DispatchQueueResumeResult,
+    DispatchRequestStatus, DispatchTargetResolutionSource, ImportLocalSkillFolderRequest,
+    ImportLocalSkillFolderResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
+    LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult,
+    ListConversationsRequest, ListConversationsResult, ListMembersRequest, ListMembersResult,
+    ListMessagesRequest, ListMessagesResult, ListRoadmapGoalsRequest, ListRoadmapGoalsResult,
     ListRoadmapTasksRequest, ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest,
     ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind, MemberStatus,
     NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
@@ -36,9 +38,9 @@ use orchlet_lib::contracts::{
     UpdateContactRequest, UpdateContactResult, UpdateConversationSettingsRequest,
     UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
     UpdateGroupConversationMembersResult, UpdateMemberStatusRequest, UpdateMemberStatusResult,
-    UpdateReadPositionRequest, UpdateReadPositionResult, UpdateRoadmapTaskRequest,
-    UpdateRoadmapTaskResult, WindowMode, WorkspaceOpenStatus, WorkspaceSkillLinkMode,
-    WorkspaceSkillLinkStatus,
+    UpdateReadPositionRequest, UpdateReadPositionResult, UpdateRoadmapGoalRequest,
+    UpdateRoadmapGoalResult, UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult, WindowMode,
+    WorkspaceOpenStatus, WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -633,6 +635,30 @@ fn roadmap_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/roadmap/roadmap-task-delete.result.json");
     let delete_error: AppError =
         read_fixture("../fixtures/contracts/roadmap/roadmap-task-delete.error.json");
+    let goals_list_request: ListRoadmapGoalsRequest =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goals-list.request.json");
+    let goals_list_result: ListRoadmapGoalsResult =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goals-list.result.json");
+    let goals_list_error: AppError =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goals-list.error.json");
+    let goal_create_request: CreateRoadmapGoalRequest =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-create.request.json");
+    let goal_create_result: CreateRoadmapGoalResult =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-create.result.json");
+    let goal_create_error: AppError =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-create.error.json");
+    let goal_update_request: UpdateRoadmapGoalRequest =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-update.request.json");
+    let goal_update_result: UpdateRoadmapGoalResult =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-update.result.json");
+    let goal_update_error: AppError =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-update.error.json");
+    let goal_delete_request: DeleteRoadmapGoalRequest =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-delete.request.json");
+    let goal_delete_result: DeleteRoadmapGoalResult =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-delete.result.json");
+    let goal_delete_error: AppError =
+        read_fixture("../fixtures/contracts/roadmap/roadmap-goal-delete.error.json");
 
     assert_eq!(list_request.workspace_root, "/fixtures/workspaces/alpha");
     assert_eq!(list_result.tasks.len(), 1);
@@ -652,6 +678,30 @@ fn roadmap_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(delete_result.removed_task_id, delete_request.task_id);
     assert!(delete_result.tasks.is_empty());
     assert_eq!(delete_error.code, "roadmap.task.notFound");
+    assert_eq!(
+        goals_list_request.workspace_root,
+        "/fixtures/workspaces/alpha"
+    );
+    assert_eq!(goals_list_result.goals.len(), 1);
+    assert_eq!(goals_list_result.goals[0].title, "Launch beta");
+    assert_eq!(goals_list_result.goals[0].task_ids.len(), 2);
+    assert_eq!(goals_list_error.code, "roadmap.goals.invalidJson");
+    assert_eq!(goal_create_request.task_ids.len(), 1);
+    assert_eq!(
+        goal_create_result.goal.goal_id,
+        "01K00000000000000000000300"
+    );
+    assert_eq!(goal_create_error.code, "roadmap.goal.invalidRelatedTask");
+    assert_eq!(goal_update_request.goal_id, "01K00000000000000000000300");
+    assert_eq!(goal_update_result.goal.title, "Launch v1");
+    assert_eq!(goal_update_error.code, "roadmap.goal.notFound");
+    assert_eq!(goal_delete_request.goal_id, goal_update_request.goal_id);
+    assert_eq!(
+        goal_delete_result.removed_goal_id,
+        goal_delete_request.goal_id
+    );
+    assert!(goal_delete_result.goals.is_empty());
+    assert_eq!(goal_delete_error.code, "roadmap.goal.notFound");
 }
 
 #[test]

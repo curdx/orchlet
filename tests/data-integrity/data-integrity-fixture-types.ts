@@ -54,6 +54,7 @@ function storageCategory(value: string): StorageCategory {
     case "skillLibrary":
     case "workspaceSkillLinks":
     case "roadmapTasks":
+    case "roadmapGoals":
       return value;
     default:
       throw new Error(`Unknown storage category: ${value}`);

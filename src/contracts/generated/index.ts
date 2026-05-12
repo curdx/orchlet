@@ -102,14 +102,23 @@ export type {
   DispatchTargetResolutionSource,
 } from "./orchestration";
 export type {
+  CreateRoadmapGoalRequest,
+  CreateRoadmapGoalResult,
   CreateRoadmapTaskRequest,
   CreateRoadmapTaskResult,
+  DeleteRoadmapGoalRequest,
+  DeleteRoadmapGoalResult,
   DeleteRoadmapTaskRequest,
   DeleteRoadmapTaskResult,
+  ListRoadmapGoalsRequest,
+  ListRoadmapGoalsResult,
   ListRoadmapTasksRequest,
   ListRoadmapTasksResult,
+  RoadmapGoalEntry,
   RoadmapTaskEntry,
   RoadmapTaskStatus,
+  UpdateRoadmapGoalRequest,
+  UpdateRoadmapGoalResult,
   UpdateRoadmapTaskRequest,
   UpdateRoadmapTaskResult,
 } from "./roadmap";

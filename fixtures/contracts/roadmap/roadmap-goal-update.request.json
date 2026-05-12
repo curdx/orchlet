@@ -1,0 +1,10 @@
+{
+  "workspaceRoot": "/fixtures/workspaces/alpha",
+  "goalId": "01K00000000000000000000300",
+  "title": "Launch v1",
+  "taskIds": [
+    "01K00000000000000000000200",
+    "01K00000000000000000000201"
+  ],
+  "sortOrder": null
+}

@@ -52,9 +52,12 @@ pub use orchestration::{
     DispatchRequestStatus, DispatchTargetResolutionProfile, DispatchTargetResolutionSource,
 };
 pub use roadmap::{
-    CreateRoadmapTaskRequest, CreateRoadmapTaskResult, DeleteRoadmapTaskRequest,
-    DeleteRoadmapTaskResult, ListRoadmapTasksRequest, ListRoadmapTasksResult, RoadmapTaskEntry,
-    RoadmapTaskStatus, UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult,
+    CreateRoadmapGoalRequest, CreateRoadmapGoalResult, CreateRoadmapTaskRequest,
+    CreateRoadmapTaskResult, DeleteRoadmapGoalRequest, DeleteRoadmapGoalResult,
+    DeleteRoadmapTaskRequest, DeleteRoadmapTaskResult, ListRoadmapGoalsRequest,
+    ListRoadmapGoalsResult, ListRoadmapTasksRequest, ListRoadmapTasksResult, RoadmapGoalEntry,
+    RoadmapTaskEntry, RoadmapTaskStatus, UpdateRoadmapGoalRequest, UpdateRoadmapGoalResult,
+    UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult,
 };
 pub use skill::{
     DeleteSkillRequest, DeleteSkillResult, ImportLocalSkillFolderRequest,

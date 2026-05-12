@@ -34,6 +34,7 @@ pub enum StorageCategory {
     SkillLibrary,
     WorkspaceSkillLinks,
     RoadmapTasks,
+    RoadmapGoals,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]

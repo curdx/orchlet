@@ -1,0 +1,9 @@
+{
+  "code": "roadmap.goals.invalidJson",
+  "message": "工作区路线图目标不是有效 JSON。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请先备份或修复 .orchlet/roadmap/goals.json 后重试。",
+  "details": "/fixtures/workspaces/alpha/.orchlet/roadmap/goals.json: expected value at line 1 column 1",
+  "correlationId": null
+}
