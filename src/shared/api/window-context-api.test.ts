@@ -20,7 +20,11 @@ vi.mock("@tauri-apps/api/webviewWindow", () => ({
 }));
 
 import type { WindowContextSnapshot } from "../../contracts/generated/workspace";
-import { WINDOW_CONTEXT_CHANGED_EVENT, windowContextApi } from "./window-context-api";
+import {
+  APP_PREFERENCES_CHANGED_EVENT,
+  WINDOW_CONTEXT_CHANGED_EVENT,
+  windowContextApi,
+} from "./window-context-api";
 
 function snapshot(overrides: Partial<WindowContextSnapshot> = {}): WindowContextSnapshot {
   return {
@@ -63,6 +67,7 @@ function snapshot(overrides: Partial<WindowContextSnapshot> = {}): WindowContext
 describe("windowContextApi", () => {
   beforeEach(() => {
     window.__TAURI_INTERNALS__ = {};
+    window.localStorage.clear();
     tauriMocks.currentLabel = "main";
     tauriMocks.listeners.clear();
     tauriMocks.unlisten.mockClear();
@@ -93,5 +98,48 @@ describe("windowContextApi", () => {
     });
     expect(received[0].sourceWindowLabel).toBe("main");
     expect(received[0].activeWorkspace?.metadata.name).toBe("orchlet-demo");
+  });
+
+  it("applies app preference events through the same local window identity", async () => {
+    tauriMocks.currentLabel = "notification-preview";
+    const received: WindowContextSnapshot[] = [];
+
+    await windowContextApi.subscribe((nextSnapshot) => {
+      received.push(nextSnapshot);
+    });
+
+    tauriMocks.listeners.get(APP_PREFERENCES_CHANGED_EVENT)?.({
+      payload: snapshot({
+        preferences: {
+          theme: "dark",
+          language: "en-US",
+        },
+        sourceWindowLabel: "workspace-selection",
+      }),
+    });
+
+    expect(received).toHaveLength(1);
+    expect(received[0].currentWindow).toEqual({
+      label: "notification-preview",
+      mode: "notificationPreview",
+    });
+    expect(received[0].preferences).toEqual({
+      theme: "dark",
+      language: "en-US",
+    });
+  });
+
+  it("restores browser fallback preferences from localStorage cache", async () => {
+    delete window.__TAURI_INTERNALS__;
+
+    await windowContextApi.registerCurrentWindow();
+    await windowContextApi.updatePreferences({ theme: "light", language: "en-US" });
+
+    const restored = await windowContextApi.registerCurrentWindow();
+
+    expect(restored.preferences).toEqual({
+      theme: "light",
+      language: "en-US",
+    });
   });
 });

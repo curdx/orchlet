@@ -1237,6 +1237,7 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceMetadata":
     case "workspaceRegistry":
     case "workspaceFallbacks":
+    case "appPreferences":
     case "profileSettings":
     case "avatarLibrary":
     case "memberProfiles":

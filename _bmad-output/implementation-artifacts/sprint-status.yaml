@@ -96,7 +96,7 @@ development_status:
   epic-7: in-progress
   7-1-profile-status-settings: done
   7-2-avatar-upload-delete-reset-presets: done
-  7-3-theme-language-switching: backlog
+  7-3-theme-language-switching: done
   7-4-notification-sound-preview-dnd-preferences: backlog
   7-5-shortcut-configuration: backlog
   7-6-cli-custom-member-default-terminal-configuration: backlog

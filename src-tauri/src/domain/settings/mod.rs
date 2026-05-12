@@ -1,9 +1,12 @@
 use std::path::Path;
 
 use crate::contracts::{
-    AppError, ProfileAvatarKind, ProfileAvatarSnapshot, ProfileSettingsSnapshot, ProfileStatus,
+    AppError, AppPreferencesSettingsSnapshot, ProfileAvatarKind, ProfileAvatarSnapshot,
+    ProfileSettingsSnapshot, ProfileStatus,
 };
 
+pub const APP_PREFERENCES_SCHEMA_VERSION: u32 = 1;
+pub const APP_PREFERENCES_FILE_NAME: &str = "preferences.json";
 pub const PROFILE_SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub const PROFILE_SETTINGS_DIR_NAME: &str = "settings";
 pub const PROFILE_SETTINGS_FILE_NAME: &str = "profile.json";
@@ -264,6 +267,36 @@ pub fn validate_profile_settings(profile: &ProfileSettingsSnapshot) -> Result<()
             Some(format!(
                 "createdAtMs={} updatedAtMs={}",
                 profile.created_at_ms, profile.updated_at_ms
+            )),
+        ));
+    }
+
+    Ok(())
+}
+
+pub fn validate_app_preferences(
+    preferences: &AppPreferencesSettingsSnapshot,
+) -> Result<(), AppError> {
+    if preferences.schema_version != APP_PREFERENCES_SCHEMA_VERSION {
+        return Err(AppError::recoverable_error(
+            "settings.preferences.invalidRecordVersion",
+            "应用偏好设置版本暂不支持。",
+            "请使用兼容版本的 orchlet，或先备份 preferences.json。",
+            Some(format!(
+                "schemaVersion={} expected={}",
+                preferences.schema_version, APP_PREFERENCES_SCHEMA_VERSION
+            )),
+        ));
+    }
+
+    if preferences.created_at_ms == 0 || preferences.updated_at_ms < preferences.created_at_ms {
+        return Err(AppError::recoverable_error(
+            "settings.preferences.invalidTimestamp",
+            "应用偏好设置时间戳无效。",
+            "请修复 preferences.json 中的时间戳后重试。",
+            Some(format!(
+                "createdAtMs={} updatedAtMs={}",
+                preferences.created_at_ms, preferences.updated_at_ms
             )),
         ));
     }

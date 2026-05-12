@@ -4,10 +4,13 @@ use crate::{
         StoragePrivacyClass,
     },
     domain::{
-        settings::{AVATAR_LIBRARY_DIR_NAME, PROFILE_SETTINGS_FILE_NAME},
+        settings::{
+            APP_PREFERENCES_FILE_NAME, AVATAR_LIBRARY_DIR_NAME, PROFILE_SETTINGS_FILE_NAME,
+        },
         workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME, WORKSPACE_SCHEMA_VERSION},
     },
     infrastructure::persistence::json_store::{
+        app_preferences_store::APP_PREFERENCES_STORE_SCHEMA_VERSION,
         profile_settings_store::PROFILE_SETTINGS_STORE_SCHEMA_VERSION,
         skill_library_store::{SKILL_LIBRARY_FILE_NAME, SKILL_LIBRARY_SCHEMA_VERSION},
         workspace_fallback_store::{
@@ -105,6 +108,31 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "workspace.fallbacks.load_validate".to_owned(),
             notes: "This store preserves stable project ids when workspace-local metadata cannot be written."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "settings.preferences".to_owned(),
+            owner: StorageOwner::Settings,
+            category: StorageCategory::AppPreferences,
+            description: "App-data theme and language preferences shared across windows."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataFile,
+            relative_path: Some(format!("settings/{}", APP_PREFERENCES_FILE_NAME)),
+            file_name: Some(APP_PREFERENCES_FILE_NAME.to_owned()),
+            format: StorageFormat::Json,
+            schema_version: APP_PREFERENCES_STORE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/app_preferences_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/app_preferences_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::AppState,
+            fixture_required: true,
+            validation_check_id: "settings.preferences.load_validate".to_owned(),
+            notes: "Theme and language are local app preferences; frontend localStorage is only a browser preview cache."
                 .to_owned(),
         },
         StorageManifestEntry {

@@ -23,6 +23,64 @@ const queryClient = new QueryClient({
     },
   },
 });
+const NOTIFICATION_PREVIEW_TEXT = {
+  "zh-CN": {
+    fallbackWorkspace: "未选择工作区",
+    title: "通知预览",
+    openWorkspaceWindow: "打开工作区窗口",
+    sectionEyebrow: "通知",
+    unreadStatus: "未读状态",
+    totalUnread: "总未读",
+    totalUnreadLabel: "通知未读总数",
+    trayStatus: "托盘状态",
+    trayPrefix: "托盘",
+    noUnread: "无未读",
+    theme: "Theme",
+    language: "Language",
+    unreadConversations: "未读会话",
+    unreadConversationList: "未读会话列表",
+    openConversationPrefix: "打开会话",
+    noPreview: "暂无预览",
+    openTerminal: "打开终端",
+    noUnreadConversations: "暂无未读会话",
+    openAllUnread: "查看全部未读",
+    ignoreAll: "忽略全部",
+    dark: "深色",
+    light: "浅色",
+    english: "English",
+    chinese: "中文",
+    loadError: "无法加载未读状态。",
+    actionError: "通知操作失败。",
+  },
+  "en-US": {
+    fallbackWorkspace: "No workspace selected",
+    title: "Notification preview",
+    openWorkspaceWindow: "Open workspace window",
+    sectionEyebrow: "Notifications",
+    unreadStatus: "Unread status",
+    totalUnread: "Total unread",
+    totalUnreadLabel: "Notification unread total",
+    trayStatus: "Tray status",
+    trayPrefix: "Tray",
+    noUnread: "No unread",
+    theme: "Theme",
+    language: "Language",
+    unreadConversations: "Unread conversations",
+    unreadConversationList: "Unread conversation list",
+    openConversationPrefix: "Open conversation",
+    noPreview: "No preview",
+    openTerminal: "Open terminal",
+    noUnreadConversations: "No unread conversations",
+    openAllUnread: "View all unread",
+    ignoreAll: "Ignore all",
+    dark: "Dark",
+    light: "Light",
+    english: "English",
+    chinese: "Chinese",
+    loadError: "Unable to load unread status.",
+    actionError: "Notification action failed.",
+  },
+} as const satisfies Record<AppLanguage, Record<string, string>>;
 
 function App() {
   const [windowContext, setWindowContext] = useState<WindowContextSnapshot | null>(null);
@@ -133,8 +191,10 @@ export function NotificationPreviewPage({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isActionPending, setIsActionPending] = useState(false);
   const workspace = snapshot?.activeWorkspace;
+  const language = snapshot?.preferences.language ?? "zh-CN";
+  const text = NOTIFICATION_PREVIEW_TEXT[language];
   const workspaceLabel =
-    summary?.workspaceName ?? workspace?.metadata.name ?? "未选择工作区";
+    summary?.workspaceName ?? workspace?.metadata.name ?? text.fallbackWorkspace;
   const conversations = summary?.conversations ?? [];
   const totalUnreadCount = summary?.totalUnreadCount ?? 0;
   const navigationWorkspaceId = summary?.workspaceId ?? workspace?.metadata.projectId ?? null;
@@ -164,7 +224,7 @@ export function NotificationPreviewPage({
         }
       } catch (error) {
         if (!disposed) {
-          setErrorMessage(error instanceof Error ? error.message : "无法加载未读状态。");
+          setErrorMessage(error instanceof Error ? error.message : text.loadError);
         }
       }
     }
@@ -175,7 +235,7 @@ export function NotificationPreviewPage({
       disposed = true;
       unsubscribe?.();
     };
-  }, [api]);
+  }, [api, text.loadError]);
 
   async function runPreviewAction(action: () => Promise<void>) {
     setIsActionPending(true);
@@ -184,7 +244,7 @@ export function NotificationPreviewPage({
       await action();
       setErrorMessage(null);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "通知操作失败。");
+      setErrorMessage(error instanceof Error ? error.message : text.actionError);
     } finally {
       setIsActionPending(false);
     }
@@ -239,7 +299,7 @@ export function NotificationPreviewPage({
           <div className="flex items-baseline gap-3">
             <h1 className="text-lg font-semibold tracking-normal">orchlet</h1>
             <span className="text-xs font-medium text-[#637064]">
-              通知预览
+              {text.title}
             </span>
           </div>
           <button
@@ -247,7 +307,7 @@ export function NotificationPreviewPage({
             onClick={() => void onOpenWindowMode("workspaceSelection")}
             className="rounded-md border border-[#cfd9cc] bg-white px-3 py-1.5 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
           >
-            打开工作区窗口
+            {text.openWorkspaceWindow}
           </button>
         </header>
 
@@ -258,17 +318,19 @@ export function NotificationPreviewPage({
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-medium text-[#6a786c]">通知</p>
+                <p className="text-xs font-medium text-[#6a786c]">
+                  {text.sectionEyebrow}
+                </p>
                 <h2 id="notification-preview-title" className="mt-1 text-sm font-semibold text-[#263229]">
-                  未读状态
+                  {text.unreadStatus}
                 </h2>
                 <p className="mt-2 text-sm text-[#61705f]">
                   {workspace ? `${workspaceLabel} · ${workspace.rootPath}` : workspaceLabel}
                 </p>
               </div>
               <div className="grid min-w-28 gap-1 rounded-md border border-[#cfe0c9] bg-white px-3 py-2 text-right">
-                <span className="text-xs font-medium text-[#6a786c]">总未读</span>
-                <span aria-label="通知未读总数" className="text-2xl font-semibold text-[#2f5038]">
+                <span className="text-xs font-medium text-[#6a786c]">{text.totalUnread}</span>
+                <span aria-label={text.totalUnreadLabel} className="text-2xl font-semibold text-[#2f5038]">
                   {unreadBadgeLabel(totalUnreadCount)}
                 </span>
               </div>
@@ -276,21 +338,21 @@ export function NotificationPreviewPage({
 
             <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
               <div>
-                <dt className="text-xs font-medium text-[#6a786c]">托盘状态</dt>
+                <dt className="text-xs font-medium text-[#6a786c]">{text.trayStatus}</dt>
                 <dd className="mt-1 text-[#253129]">
                   {summary?.tray.hasUnread
-                    ? `托盘 ${summary.tray.badgeLabel ?? summary.tray.unreadCount}`
-                    : "无未读"}
+                    ? `${text.trayPrefix} ${summary.tray.badgeLabel ?? summary.tray.unreadCount}`
+                    : text.noUnread}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium text-[#6a786c]">Theme</dt>
+                <dt className="text-xs font-medium text-[#6a786c]">{text.theme}</dt>
                 <dd className="mt-1 text-[#253129]">
                   {snapshot?.preferences.theme ?? "system"}
                 </dd>
               </div>
               <div>
-                <dt className="text-xs font-medium text-[#6a786c]">Language</dt>
+                <dt className="text-xs font-medium text-[#6a786c]">{text.language}</dt>
                 <dd className="mt-1 text-[#253129]">
                   {snapshot?.preferences.language ?? "zh-CN"}
                 </dd>
@@ -298,14 +360,16 @@ export function NotificationPreviewPage({
             </dl>
 
             <div className="mt-5 grid gap-2">
-              <p className="text-xs font-semibold text-[#263229]">未读会话</p>
+              <p className="text-xs font-semibold text-[#263229]">
+                {text.unreadConversations}
+              </p>
               {errorMessage ? (
                 <p className="rounded-md border border-[#e2b8a7] bg-[#fff7f3] p-3 text-sm text-[#8b3e25]">
                   {errorMessage}
                 </p>
               ) : null}
               {conversations.length > 0 ? (
-                <ul className="grid gap-2" aria-label="未读会话列表">
+                <ul className="grid gap-2" aria-label={text.unreadConversationList}>
                   {conversations.map((conversation) => (
                     <li
                       key={conversation.conversationId}
@@ -315,14 +379,14 @@ export function NotificationPreviewPage({
                         type="button"
                         onClick={() => void handleOpenConversation(conversation.conversationId)}
                         disabled={isActionPending}
-                        aria-label={`打开会话 ${conversation.title}`}
+                        aria-label={`${text.openConversationPrefix} ${conversation.title}`}
                         className="min-w-0 rounded-sm p-1 text-left hover:bg-[#f5faf2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:text-[#8c9789]"
                       >
                         <span className="block truncate text-sm font-semibold text-[#263229]">
                           {conversation.title}
                         </span>
                         <span className="mt-1 block truncate text-xs text-[#6a786c]">
-                          {conversation.lastMessagePreview ?? "暂无预览"}
+                          {conversation.lastMessagePreview ?? text.noPreview}
                         </span>
                       </button>
                       <span className="grid justify-items-end gap-1">
@@ -338,7 +402,7 @@ export function NotificationPreviewPage({
                             disabled={isActionPending}
                             className="rounded border border-[#cfe0c9] px-2 py-0.5 text-[11px] font-semibold text-[#37533e] hover:bg-[#eef6ea] disabled:text-[#a4aea1]"
                           >
-                            打开终端
+                            {text.openTerminal}
                           </button>
                         ) : null}
                       </span>
@@ -347,7 +411,7 @@ export function NotificationPreviewPage({
                 </ul>
               ) : (
                 <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
-                  暂无未读会话
+                  {text.noUnreadConversations}
                 </p>
               )}
             </div>
@@ -359,7 +423,7 @@ export function NotificationPreviewPage({
                 disabled={isActionPending || totalUnreadCount === 0}
                 className="rounded-md border border-[#b9d0b2] bg-[#eef6ea] px-3 py-1.5 text-xs font-semibold text-[#2f5038] transition hover:bg-[#e4f0df] disabled:border-[#d8e2d4] disabled:bg-white disabled:text-[#a4aea1]"
               >
-                查看全部未读
+                {text.openAllUnread}
               </button>
               <button
                 type="button"
@@ -367,35 +431,35 @@ export function NotificationPreviewPage({
                 disabled={isActionPending || totalUnreadCount === 0}
                 className="rounded-md border border-[#d8c7b8] bg-white px-3 py-1.5 text-xs font-semibold text-[#7a4f33] transition hover:bg-[#fbf4ee] disabled:border-[#d8e2d4] disabled:text-[#a4aea1]"
               >
-                忽略全部
+                {text.ignoreAll}
               </button>
               <button
                 type="button"
                 onClick={() => void onPreferencesChange({ theme: "dark" })}
                 className="rounded-md border border-[#cfd9cc] bg-white px-3 py-1.5 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
               >
-                深色
+                {text.dark}
               </button>
               <button
                 type="button"
                 onClick={() => void onPreferencesChange({ theme: "light" })}
                 className="rounded-md border border-[#cfd9cc] bg-white px-3 py-1.5 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
               >
-                浅色
+                {text.light}
               </button>
               <button
                 type="button"
                 onClick={() => void onPreferencesChange({ language: "en-US" })}
                 className="rounded-md border border-[#cfd9cc] bg-white px-3 py-1.5 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
               >
-                English
+                {text.english}
               </button>
               <button
                 type="button"
                 onClick={() => void onPreferencesChange({ language: "zh-CN" })}
                 className="rounded-md border border-[#cfd9cc] bg-white px-3 py-1.5 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
               >
-                中文
+                {text.chinese}
               </button>
             </div>
           </section>

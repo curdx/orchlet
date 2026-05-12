@@ -108,6 +108,38 @@ const PANE_LAYOUTS: Array<{
   { id: "splitHorizontal", label: "上下分屏布局", title: "上下分屏", icon: Rows2 },
   { id: "grid2x2", label: "四宫格布局", title: "四宫格", icon: Grid2X2 },
 ];
+const TERMINAL_TEXT = {
+  "zh-CN": {
+    closed: "已关闭",
+    open: "打开",
+    noMatchingTabs: "没有匹配的标签",
+    newTab: "新标签",
+    workspace: "工作区",
+    dark: "深色",
+    noRecentClosedTab: "没有最近关闭的标签",
+    restorePrefix: "恢复",
+    recentClosed: "最近关闭",
+    terminalTabs: "终端标签",
+    noWorkspace: "未选择工作区",
+    searchTabs: "搜索终端标签",
+    searchPlaceholder: "搜索标签、shell、会话",
+  },
+  "en-US": {
+    closed: "Closed",
+    open: "Open",
+    noMatchingTabs: "No matching tabs",
+    newTab: "New tab",
+    workspace: "Workspace",
+    dark: "Dark",
+    noRecentClosedTab: "No recently closed tab",
+    restorePrefix: "Restore",
+    recentClosed: "Recent closed",
+    terminalTabs: "Terminal tabs",
+    noWorkspace: "No workspace selected",
+    searchTabs: "Search terminal tabs",
+    searchPlaceholder: "Search labels, shell, session",
+  },
+} as const satisfies Record<AppLanguage, Record<string, string>>;
 
 function defaultCreateRendererAdapter(options: RendererAdapterOptions) {
   return new XtermRendererAdapter(options);
@@ -165,6 +197,8 @@ export function TerminalPage({
   const [isLoading, setIsLoading] = useState(true);
   const [errorNotice, setErrorNotice] = useState<AppError | null>(null);
   const workspace = snapshot?.activeWorkspace ?? null;
+  const language = snapshot?.preferences.language ?? "zh-CN";
+  const text = TERMINAL_TEXT[language];
 
   const visiblePaneIds = useMemo(
     () => VISIBLE_PANES_BY_LAYOUT[paneLayout],
@@ -992,7 +1026,7 @@ export function TerminalPage({
                   {title}
                 </h1>
                 <p className="mt-1 truncate text-xs text-[#9bad98]" title={workspace?.rootPath}>
-                  {workspace ? `${workspace.metadata.name} · ${workspace.rootPath}` : "未选择工作区"}
+                  {workspace ? `${workspace.metadata.name} · ${workspace.rootPath}` : text.noWorkspace}
                 </p>
               </div>
             </div>
@@ -1007,11 +1041,11 @@ export function TerminalPage({
                   className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#82927f]"
                 />
                 <input
-                  aria-label="搜索终端标签"
+                  aria-label={text.searchTabs}
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                   className="h-8 w-full rounded-md border border-[#3d503f] bg-[#101511] pl-8 pr-2 text-xs text-[#e5eee2] outline-none transition placeholder:text-[#82927f] focus:border-[#7daa75] focus:ring-2 focus:ring-[#7daa75]/25"
-                  placeholder="搜索标签、shell、会话"
+                  placeholder={text.searchPlaceholder}
                 />
                 {searchQuery.trim() ? (
                   <div className="absolute right-0 top-9 z-20 max-h-64 w-[20rem] max-w-[calc(100vw-2rem)] overflow-auto rounded-md border border-[#334436] bg-[#151c17] p-1 shadow-xl">
@@ -1030,12 +1064,14 @@ export function TerminalPage({
                             </span>
                           </span>
                           <span className="shrink-0 text-[#9bad98]">
-                            {tab.status === "closed" ? "已关闭" : "打开"}
+                            {tab.status === "closed" ? text.closed : text.open}
                           </span>
                         </button>
                       ))
                     ) : (
-                      <div className="px-2.5 py-2 text-xs text-[#9bad98]">没有匹配的标签</div>
+                      <div className="px-2.5 py-2 text-xs text-[#9bad98]">
+                        {text.noMatchingTabs}
+                      </div>
                     )}
                   </div>
                 ) : null}
@@ -1046,7 +1082,7 @@ export function TerminalPage({
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#3d503f] bg-[#1b241d] px-2.5 font-medium text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
               >
                 <Plus aria-hidden="true" size={14} strokeWidth={2} />
-                新标签
+                {text.newTab}
               </button>
               <button
                 type="button"
@@ -1054,14 +1090,14 @@ export function TerminalPage({
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[#3d503f] bg-[#1b241d] px-2.5 font-medium text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
               >
                 <FolderOpen aria-hidden="true" size={14} strokeWidth={2} />
-                工作区
+                {text.workspace}
               </button>
               <button
                 type="button"
                 onClick={() => void onPreferencesChange?.({ theme: "dark" })}
                 className="h-8 rounded-md border border-[#3d503f] bg-[#1b241d] px-2.5 font-medium text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
               >
-                深色
+                {text.dark}
               </button>
             </div>
           </div>
@@ -1071,15 +1107,17 @@ export function TerminalPage({
               onClick={() => void handleRestoreTab(recentClosedTab)}
               disabled={!recentClosedTab}
               className="inline-flex h-8 max-w-[12rem] shrink-0 items-center gap-1.5 rounded-md border border-[#3d503f] bg-[#1b241d] px-2.5 text-xs font-medium text-[#dbe8d8] transition hover:border-[#6f9369] hover:bg-[#223024] disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9fd08e]"
-              title={recentClosedTab?.label ?? "没有最近关闭的标签"}
+              title={recentClosedTab?.label ?? text.noRecentClosedTab}
             >
               <RotateCcw aria-hidden="true" size={14} strokeWidth={2} />
               <span className="truncate">
-                {recentClosedTab ? `恢复 ${recentClosedTab.label}` : "最近关闭"}
+                {recentClosedTab
+                  ? `${text.restorePrefix} ${recentClosedTab.label}`
+                  : text.recentClosed}
               </span>
             </button>
             <div
-              aria-label="终端标签"
+              aria-label={text.terminalTabs}
               className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
             >
               {openTabs.length ? (

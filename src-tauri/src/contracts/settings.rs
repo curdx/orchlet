@@ -1,6 +1,21 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::workspace::{AppLanguage, AppTheme};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct AppPreferencesSettingsSnapshot {
+    pub schema_version: u32,
+    pub theme: AppTheme,
+    pub language: AppLanguage,
+    #[ts(type = "number")]
+    pub created_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "settings.ts")]

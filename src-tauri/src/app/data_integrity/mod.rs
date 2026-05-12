@@ -8,7 +8,9 @@ use ulid::Ulid;
 use crate::{
     app::{
         roadmap::{validate_workspace_roadmap_goal_store, validate_workspace_roadmap_task_store},
-        settings::{validate_profile_avatar_library, validate_profile_settings},
+        settings::{
+            validate_app_preferences, validate_profile_avatar_library, validate_profile_settings,
+        },
         skills::{validate_skill_library_store, validate_workspace_skill_link_store},
     },
     contracts::{
@@ -19,6 +21,7 @@ use crate::{
     domain::workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME},
     infrastructure::persistence::{
         json_store::{
+            app_preferences_store::app_preferences_path,
             profile_settings_store::avatar_library_dir,
             profile_settings_store::profile_settings_path,
             skill_library_store::skill_library_path,
@@ -104,6 +107,7 @@ pub fn validate_data_integrity(
         load_workspace_fallbacks(app_data_dir)
             .map(|_| "workspace-fallbacks.json is readable and matches schema version.".to_owned()),
     ));
+    checks.push(validate_app_preferences_store(app_data_dir));
     checks.push(validate_profile_settings_store(app_data_dir));
     checks.push(validate_profile_avatar_library_store(app_data_dir));
     checks.push(validate_workspace_metadata(
@@ -167,6 +171,7 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::WorkspaceMetadata,
         StorageCategory::WorkspaceRegistry,
         StorageCategory::WorkspaceFallbacks,
+        StorageCategory::AppPreferences,
         StorageCategory::ProfileSettings,
         StorageCategory::AvatarLibrary,
         StorageCategory::MemberProfiles,
@@ -226,6 +231,16 @@ fn validate_profile_settings_store(app_data_dir: &Path) -> DataIntegrityCheckRes
         vec![profile_settings_path(app_data_dir)],
         validate_profile_settings(app_data_dir)
             .map(|_| "Profile settings are readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_app_preferences_store(app_data_dir: &Path) -> DataIntegrityCheckResult {
+    check_result(
+        "settings.preferences.load_validate",
+        StorageCategory::AppPreferences,
+        vec![app_preferences_path(app_data_dir)],
+        validate_app_preferences(app_data_dir)
+            .map(|_| "App preferences are readable when initialized.".to_owned()),
     )
 }
 
@@ -722,10 +737,11 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 17);
+        assert_eq!(manifest.len(), 18);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
+        assert!(categories.contains(&StorageCategory::AppPreferences));
         assert!(categories.contains(&StorageCategory::ProfileSettings));
         assert!(categories.contains(&StorageCategory::AvatarLibrary));
         assert!(categories.contains(&StorageCategory::MemberProfiles));
@@ -750,7 +766,7 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 18);
+        assert_eq!(report.total_checks, 19);
         assert_eq!(report.failed_checks, 0);
         assert_eq!(report.skipped_checks, 11);
         assert!(report.checks.iter().any(|check| {

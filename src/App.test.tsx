@@ -834,6 +834,8 @@ describe("App workspace entry", () => {
 
     await user.click(screen.getByRole("button", { name: "English" }));
     expect(document.documentElement.lang).toBe("en-US");
+    expect(await screen.findByRole("button", { name: "Open folder" })).toBeInTheDocument();
+    expect(screen.getByText("Choose a folder to start or resume a workspace")).toBeInTheDocument();
   });
 
   it("renders opened workspace state after successful metadata creation", async () => {

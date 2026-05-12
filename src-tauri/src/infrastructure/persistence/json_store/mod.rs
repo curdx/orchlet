@@ -1,3 +1,4 @@
+pub mod app_preferences_store;
 pub mod profile_settings_store;
 pub mod skill_library_store;
 pub mod workspace_fallback_store;

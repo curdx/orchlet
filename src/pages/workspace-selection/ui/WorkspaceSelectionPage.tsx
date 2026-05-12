@@ -279,6 +279,62 @@ const DEFAULT_PROFILE_SETTINGS: ProfileSettingsSnapshot = {
   createdAtMs: 1,
   updatedAtMs: 1,
 };
+const WORKSPACE_SELECTION_TEXT = {
+  "zh-CN": {
+    loadingEntry: "检查入口状态中",
+    workspaceOpened: "工作区已打开",
+    workspaceSelection: "工作区选择",
+    unread: "未读",
+    unreadCountLabel: "工作区未读总数",
+    refreshRecentWorkspaces: "刷新最近工作区",
+    openSettings: "打开设置",
+    openFolder: "打开文件夹",
+    openingFolder: "打开目录中",
+    openFolderSubtitle: "选择一个文件夹开始或恢复工作区",
+    recentWorkspaces: "最近的工作区",
+    recordsSuffix: "个记录",
+    searchFolders: "搜索文件夹",
+    searchFoldersPlaceholder: "搜索文件夹...",
+    openRecentPrefix: "打开",
+    open: "打开",
+    noRecentWorkspaces: "暂无最近工作区",
+    noRecentWorkspacesHint: "打开文件夹以创建你的第一个工作区。",
+    noMatchingWorkspaces: "未找到匹配的工作区",
+  },
+  "en-US": {
+    loadingEntry: "Checking entry status",
+    workspaceOpened: "Workspace open",
+    workspaceSelection: "Workspace selection",
+    unread: "Unread",
+    unreadCountLabel: "Workspace unread total",
+    refreshRecentWorkspaces: "Refresh recent workspaces",
+    openSettings: "Open settings",
+    openFolder: "Open folder",
+    openingFolder: "Opening folder",
+    openFolderSubtitle: "Choose a folder to start or resume a workspace",
+    recentWorkspaces: "Recent workspaces",
+    recordsSuffix: "records",
+    searchFolders: "Search folders",
+    searchFoldersPlaceholder: "Search folders...",
+    openRecentPrefix: "Open",
+    open: "Open",
+    noRecentWorkspaces: "No recent workspaces",
+    noRecentWorkspacesHint: "Open a folder to create your first workspace.",
+    noMatchingWorkspaces: "No matching workspaces found",
+  },
+} as const satisfies Record<AppLanguage, Record<string, string>>;
+const WINDOW_CONTEXT_TEXT = {
+  "zh-CN": {
+    windowContext: "窗口上下文",
+    currentWindow: "当前窗口",
+    openWindowPrefix: "打开",
+  },
+  "en-US": {
+    windowContext: "Window context",
+    currentWindow: "Current window",
+    openWindowPrefix: "Open ",
+  },
+} as const satisfies Record<AppLanguage, Record<string, string>>;
 
 export function WorkspaceSelectionPage({
   api = workspaceApi,
@@ -297,6 +353,8 @@ export function WorkspaceSelectionPage({
   chatApi: conversationsApi = chatApi,
 }: WorkspaceSelectionPageProps) {
   const queryClient = useQueryClient();
+  const language = windowContext?.preferences.language ?? "zh-CN";
+  const text = WORKSPACE_SELECTION_TEXT[language];
   const [isOpening, setIsOpening] = useState(false);
   const [isOpeningFileManager, setIsOpeningFileManager] = useState(false);
   const [isSyncActionPending, setIsSyncActionPending] = useState(false);
@@ -550,10 +608,10 @@ export function WorkspaceSelectionPage({
   }, [recentSearch, recentWorkspaces]);
   const modeLabel =
     activeWorkspace
-      ? "工作区已打开"
+      ? text.workspaceOpened
       : status?.windowMode === "workspaceSelection"
-        ? "工作区选择"
-        : (status?.windowMode ?? "工作区选择");
+        ? text.workspaceSelection
+        : (status?.windowMode ?? text.workspaceSelection);
 
   useEffect(() => {
     if (pendingConflict) {
@@ -2791,32 +2849,32 @@ export function WorkspaceSelectionPage({
           <div className="flex items-baseline gap-3">
             <h1 className="text-lg font-semibold tracking-normal">orchlet</h1>
             <span className="text-xs font-medium text-[#637064]">
-              {isLoading ? "检查入口状态中" : modeLabel}
+              {isLoading ? text.loadingEntry : modeLabel}
             </span>
             {activeWorkspace ? (
               <span
-                aria-label="工作区未读总数"
+                aria-label={text.unreadCountLabel}
                 className={
                   workspaceUnreadCount > 0
                     ? "rounded-full border border-[#b9d0b2] bg-[#eef6ea] px-2 py-0.5 text-xs font-semibold text-[#2f5038]"
                     : "rounded-full border border-[#d8e2d4] bg-white px-2 py-0.5 text-xs font-medium text-[#6a786c]"
                 }
               >
-                未读 {unreadBadgeLabel(workspaceUnreadCount)}
+                {text.unread} {unreadBadgeLabel(workspaceUnreadCount)}
               </span>
             ) : null}
           </div>
           <div className="flex items-center gap-2">
             <IconButton
               icon={RefreshCw}
-              label="刷新最近工作区"
-              tooltip="刷新最近工作区"
+              label={text.refreshRecentWorkspaces}
+              tooltip={text.refreshRecentWorkspaces}
               onClick={() => void recentQuery.refetch()}
             />
             <IconButton
               icon={Settings}
-              label="打开设置"
-              tooltip="打开设置"
+              label={text.openSettings}
+              tooltip={text.openSettings}
               onClick={openProfileSettings}
             />
           </div>
@@ -2826,7 +2884,7 @@ export function WorkspaceSelectionPage({
           <div className="w-full max-w-[720px]">
             <button
               type="button"
-              aria-label="打开文件夹"
+              aria-label={text.openFolder}
               disabled={isOpening}
               onClick={handleOpenWorkspace}
               className="group flex min-h-[168px] w-full items-center gap-5 rounded-lg border border-[#ccd9c8] bg-white p-6 text-left shadow-sm transition hover:border-[#8fad87] hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
@@ -2836,10 +2894,10 @@ export function WorkspaceSelectionPage({
               </span>
               <span className="min-w-0">
                 <span className="block text-2xl font-semibold tracking-normal text-[#17211b]">
-                  {isOpening ? "打开目录中" : "打开文件夹"}
+                  {isOpening ? text.openingFolder : text.openFolder}
                 </span>
                 <span className="mt-2 block text-base text-[#5e6d61]">
-                  选择一个文件夹开始或恢复工作区
+                  {text.openFolderSubtitle}
                 </span>
               </span>
             </button>
@@ -2847,6 +2905,7 @@ export function WorkspaceSelectionPage({
             {windowContext && onPreferencesChange && onOpenWindowMode ? (
               <WindowContextControls
                 snapshot={windowContext}
+                language={language}
                 disabled={isSyncActionPending}
                 onThemeChange={(theme) => void handlePreferenceChange({ theme })}
                 onLanguageChange={(language) => void handlePreferenceChange({ language })}
@@ -3174,10 +3233,11 @@ export function WorkspaceSelectionPage({
             >
               <div className="flex items-center justify-between gap-4">
                 <h2 id="recent-workspaces-title" className="text-sm font-semibold">
-                  最近的工作区
+                  {text.recentWorkspaces}
                 </h2>
                 <span className="text-xs text-[#6a786c]">
-                  {recentWorkspaces.length || status?.recentWorkspaceCount || 0} 个记录
+                  {recentWorkspaces.length || status?.recentWorkspaceCount || 0}{" "}
+                  {text.recordsSuffix}
                 </span>
               </div>
 
@@ -3185,11 +3245,11 @@ export function WorkspaceSelectionPage({
                 <div className="mt-5 space-y-3">
                   <label className="flex items-center gap-2 rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] focus-within:border-[#8fad87]">
                     <Search aria-hidden="true" size={16} strokeWidth={2} />
-                    <span className="sr-only">搜索文件夹</span>
+                    <span className="sr-only">{text.searchFolders}</span>
                     <input
                       value={recentSearch}
                       onChange={(event) => setRecentSearch(event.target.value)}
-                      placeholder="搜索文件夹..."
+                      placeholder={text.searchFoldersPlaceholder}
                       className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[#7b887a]"
                     />
                   </label>
@@ -3218,18 +3278,18 @@ export function WorkspaceSelectionPage({
                           <button
                             type="button"
                             disabled={isOpening}
-                            aria-label={`打开 ${workspace.name}`}
+                            aria-label={`${text.openRecentPrefix} ${workspace.name}`}
                             onClick={() => handleOpenRecent(workspace.path)}
                             className="shrink-0 rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-3 py-1.5 text-sm font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
                           >
-                            打开
+                            {text.open}
                           </button>
                         </li>
                       ))}
                     </ul>
                   ) : (
                     <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-4 text-sm text-[#6a786c]">
-                      未找到匹配的工作区
+                      {text.noMatchingWorkspaces}
                     </p>
                   )}
                 </div>
@@ -3239,9 +3299,11 @@ export function WorkspaceSelectionPage({
                     <History aria-hidden="true" size={20} strokeWidth={2} />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-[#263229]">暂无最近工作区</p>
+                    <p className="text-sm font-medium text-[#263229]">
+                      {text.noRecentWorkspaces}
+                    </p>
                     <p className="mt-1 text-sm text-[#6a786c]">
-                      打开文件夹以创建你的第一个工作区。
+                      {text.noRecentWorkspacesHint}
                     </p>
                   </div>
                 </div>
@@ -6578,27 +6640,31 @@ function DataIntegrityPanel({
 
 function WindowContextControls({
   snapshot,
+  language,
   disabled,
   onThemeChange,
   onLanguageChange,
   onOpenWindowMode,
 }: {
   snapshot: WindowContextSnapshot;
+  language: AppLanguage;
   disabled: boolean;
   onThemeChange: (theme: AppTheme) => void;
   onLanguageChange: (language: AppLanguage) => void;
   onOpenWindowMode: (mode: WindowMode) => void;
 }) {
+  const text = WINDOW_CONTEXT_TEXT[language];
+
   return (
     <section
-      aria-label="窗口上下文"
+      aria-label={text.windowContext}
       className="mt-4 rounded-lg border border-[#dbe4d7] bg-[#fbfcfa] p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs font-medium text-[#6a786c]">当前窗口</p>
+          <p className="text-xs font-medium text-[#6a786c]">{text.currentWindow}</p>
           <p className="mt-1 text-sm font-semibold text-[#263229]">
-            {windowModeLabel(snapshot.currentWindow.mode)}
+            {windowModeLabel(snapshot.currentWindow.mode, language)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -6610,20 +6676,20 @@ function WindowContextControls({
               onClick={() => onThemeChange(theme)}
               className={segmentedButtonClass(snapshot.preferences.theme === theme)}
             >
-              {themeLabel(theme)}
+              {themeLabel(theme, language)}
             </button>
           ))}
         </div>
         <div className="flex flex-wrap gap-2">
-          {(["zh-CN", "en-US"] satisfies AppLanguage[]).map((language) => (
+          {(["zh-CN", "en-US"] satisfies AppLanguage[]).map((targetLanguage) => (
             <button
-              key={language}
+              key={targetLanguage}
               type="button"
               disabled={disabled}
-              onClick={() => onLanguageChange(language)}
-              className={segmentedButtonClass(snapshot.preferences.language === language)}
+              onClick={() => onLanguageChange(targetLanguage)}
+              className={segmentedButtonClass(snapshot.preferences.language === targetLanguage)}
             >
-              {languageLabel(language)}
+              {languageLabel(targetLanguage, language)}
             </button>
           ))}
         </div>
@@ -6638,7 +6704,8 @@ function WindowContextControls({
               onClick={() => onOpenWindowMode(mode)}
               className="rounded-md border border-[#cfd9cc] bg-white px-3 py-1.5 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
             >
-              打开{windowModeLabel(mode)}
+              {text.openWindowPrefix}
+              {windowModeLabel(mode, language)}
             </button>
           ),
         )}
@@ -6764,7 +6831,19 @@ function reportStatusLabel(report: DataIntegrityReport) {
   return "所有检查通过";
 }
 
-function themeLabel(theme: AppTheme) {
+function themeLabel(theme: AppTheme, language: AppLanguage = "zh-CN") {
+  if (language === "en-US") {
+    switch (theme) {
+      case "dark":
+        return "Dark";
+      case "light":
+        return "Light";
+      case "system":
+      default:
+        return "System";
+    }
+  }
+
   switch (theme) {
     case "dark":
       return "深色";
@@ -6776,11 +6855,29 @@ function themeLabel(theme: AppTheme) {
   }
 }
 
-function languageLabel(language: AppLanguage) {
+function languageLabel(language: AppLanguage, displayLanguage: AppLanguage = "zh-CN") {
+  if (displayLanguage === "en-US") {
+    return language === "en-US" ? "English (US)" : "Chinese (Simplified)";
+  }
+
   return language === "en-US" ? "English" : "中文";
 }
 
-function windowModeLabel(mode: WindowMode) {
+function windowModeLabel(mode: WindowMode, language: AppLanguage = "zh-CN") {
+  if (language === "en-US") {
+    switch (mode) {
+      case "main":
+        return "Main window";
+      case "terminal":
+        return "Terminal window";
+      case "notificationPreview":
+        return "Notification preview";
+      case "workspaceSelection":
+      default:
+        return "Workspace window";
+    }
+  }
+
   switch (mode) {
     case "main":
       return "主窗口";

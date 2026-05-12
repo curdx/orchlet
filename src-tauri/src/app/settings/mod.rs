@@ -2,10 +2,11 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     contracts::{
-        AppError, DeleteUploadedProfileAvatarRequest, DeleteUploadedProfileAvatarResult,
-        GetProfileSettingsRequest, GetProfileSettingsResult, ProfileSettingsSnapshot,
-        ResetProfileAvatarRequest, ResetProfileAvatarResult, SelectProfileAvatarPresetRequest,
-        SelectProfileAvatarPresetResult, UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
+        AppError, AppPreferencesSettingsSnapshot, DeleteUploadedProfileAvatarRequest,
+        DeleteUploadedProfileAvatarResult, GetProfileSettingsRequest, GetProfileSettingsResult,
+        ProfileSettingsSnapshot, ResetProfileAvatarRequest, ResetProfileAvatarResult,
+        SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
+        UpdateAppPreferencesRequest, UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
         UploadProfileAvatarRequest, UploadProfileAvatarResult,
     },
     domain::settings::{
@@ -14,6 +15,9 @@ use crate::{
         uploaded_avatar_snapshot,
     },
     infrastructure::persistence::json_store::{
+        app_preferences_store::{
+            load_app_preferences, save_app_preferences, validate_app_preferences_store,
+        },
         profile_settings_store::{
             copy_uploaded_profile_avatar, delete_current_uploaded_profile_avatar,
             load_profile_settings, save_profile_settings, validate_avatar_library_store,
@@ -22,6 +26,47 @@ use crate::{
         workspace_registry_store::now_ms,
     },
 };
+
+pub fn get_app_preferences(
+    app_data_dir: impl AsRef<Path>,
+) -> Result<AppPreferencesSettingsSnapshot, AppError> {
+    load_app_preferences(app_data_dir.as_ref())
+}
+
+pub fn update_app_preferences(
+    app_data_dir: impl AsRef<Path>,
+    request: UpdateAppPreferencesRequest,
+) -> Result<AppPreferencesSettingsSnapshot, AppError> {
+    let app_data_dir = app_data_dir.as_ref();
+    let mut preferences = load_app_preferences(app_data_dir)?;
+    let mut changed = false;
+
+    if let Some(theme) = request.theme {
+        if preferences.theme != theme {
+            preferences.theme = theme;
+            changed = true;
+        }
+    }
+
+    if let Some(language) = request.language {
+        if preferences.language != language {
+            preferences.language = language;
+            changed = true;
+        }
+    }
+
+    if changed {
+        preferences.updated_at_ms = next_preferences_timestamp(&preferences);
+    }
+
+    save_app_preferences(app_data_dir, &preferences)?;
+
+    Ok(preferences)
+}
+
+pub fn validate_app_preferences(app_data_dir: impl AsRef<Path>) -> Result<(), AppError> {
+    validate_app_preferences_store(app_data_dir.as_ref())
+}
 
 pub fn get_profile_settings(
     app_data_dir: impl AsRef<Path>,
@@ -155,6 +200,10 @@ fn next_profile_timestamp(profile: &ProfileSettingsSnapshot) -> u64 {
     now_ms().max(profile.updated_at_ms + 1)
 }
 
+fn next_preferences_timestamp(preferences: &AppPreferencesSettingsSnapshot) -> u64 {
+    now_ms().max(preferences.updated_at_ms + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -162,14 +211,52 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        delete_uploaded_profile_avatar, get_profile_settings, reset_profile_avatar,
-        select_profile_avatar_preset, update_profile_settings, upload_profile_avatar,
+        delete_uploaded_profile_avatar, get_app_preferences, get_profile_settings,
+        reset_profile_avatar, select_profile_avatar_preset, update_app_preferences,
+        update_profile_settings, upload_profile_avatar,
     };
     use crate::contracts::{
-        DeleteUploadedProfileAvatarRequest, GetProfileSettingsRequest, ProfileAvatarKind,
-        ProfileStatus, ResetProfileAvatarRequest, SelectProfileAvatarPresetRequest,
+        AppLanguage, AppTheme, DeleteUploadedProfileAvatarRequest, GetProfileSettingsRequest,
+        ProfileAvatarKind, ProfileStatus, ResetProfileAvatarRequest,
+        SelectProfileAvatarPresetRequest, UpdateAppPreferencesRequest,
         UpdateProfileSettingsRequest, UploadProfileAvatarRequest,
     };
+
+    #[test]
+    fn app_preferences_update_persists_and_restores_from_disk() {
+        let app_data = tempdir().expect("app data dir");
+
+        let updated = update_app_preferences(
+            app_data.path(),
+            UpdateAppPreferencesRequest {
+                theme: Some(AppTheme::Dark),
+                language: Some(AppLanguage::EnUs),
+                source_window_label: Some("workspace-selection".to_owned()),
+            },
+        )
+        .expect("preferences updated");
+
+        assert_eq!(updated.theme, AppTheme::Dark);
+        assert_eq!(updated.language, AppLanguage::EnUs);
+
+        let restored = get_app_preferences(app_data.path()).expect("restored");
+
+        assert_eq!(restored, updated);
+    }
+
+    #[test]
+    fn app_preferences_reject_invalid_json() {
+        let app_data = tempdir().expect("app data dir");
+        let preferences_dir = app_data.path().join("settings");
+        fs::create_dir_all(&preferences_dir).expect("preferences dir");
+        fs::write(preferences_dir.join("preferences.json"), "{not json")
+            .expect("invalid preferences fixture");
+
+        let error = get_app_preferences(app_data.path()).expect_err("invalid json rejected");
+
+        assert_eq!(error.code, "settings.preferences.invalidJson");
+        assert!(error.recoverable);
+    }
 
     #[test]
     fn profile_settings_update_persists_and_restores_from_disk() {

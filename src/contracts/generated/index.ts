@@ -123,6 +123,7 @@ export type {
   UpdateRoadmapTaskResult,
 } from "./roadmap";
 export type {
+  AppPreferencesSettingsSnapshot,
   DeleteUploadedProfileAvatarRequest,
   DeleteUploadedProfileAvatarResult,
   GetProfileSettingsRequest,

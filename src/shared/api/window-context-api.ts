@@ -19,6 +19,8 @@ type WindowContextUpdate = {
   language?: AppLanguage | null;
 };
 
+const BROWSER_PREFERENCES_STORAGE_KEY = "orchlet.appPreferences";
+
 export type WindowContextApi = {
   getCurrentWindow: () => RegisteredWindow;
   registerCurrentWindow: () => Promise<WindowContextSnapshot>;
@@ -46,7 +48,7 @@ export const windowContextApi: WindowContextApi = {
     const window = this.getCurrentWindow();
 
     if (!isTauriRuntime()) {
-      browserSnapshot = { ...browserSnapshot, currentWindow: window };
+      browserSnapshot = { ...createBrowserSnapshot(), currentWindow: window };
       return browserSnapshot;
     }
 
@@ -66,6 +68,7 @@ export const windowContextApi: WindowContextApi = {
         updatedAtMs: Date.now(),
         sourceWindowLabel: browserSnapshot.currentWindow.label,
       };
+      saveBrowserPreferences(browserSnapshot.preferences);
       return browserSnapshot;
     }
 
@@ -93,16 +96,31 @@ export const windowContextApi: WindowContextApi = {
       return () => undefined;
     }
 
-    return listen<WindowContextSnapshot>(WINDOW_CONTEXT_CHANGED_EVENT, (event) => {
+    const handleSnapshot = (event: { payload: WindowContextSnapshot }) => {
       handler({
         ...event.payload,
         currentWindow: this.getCurrentWindow(),
       });
-    });
+    };
+    const unlistenContext = await listen<WindowContextSnapshot>(
+      WINDOW_CONTEXT_CHANGED_EVENT,
+      handleSnapshot,
+    );
+    const unlistenPreferences = await listen<WindowContextSnapshot>(
+      APP_PREFERENCES_CHANGED_EVENT,
+      handleSnapshot,
+    );
+
+    return () => {
+      unlistenContext();
+      unlistenPreferences();
+    };
   },
 };
 
 function createBrowserSnapshot(): WindowContextSnapshot {
+  const preferences = loadBrowserPreferences();
+
   return {
     schemaVersion: 1,
     currentWindow: {
@@ -110,13 +128,48 @@ function createBrowserSnapshot(): WindowContextSnapshot {
       mode: "workspaceSelection",
     },
     activeWorkspace: null,
-    preferences: {
-      theme: "system",
-      language: "zh-CN",
-    },
+    preferences,
     updatedAtMs: Date.now(),
     sourceWindowLabel: null,
   };
+}
+
+function loadBrowserPreferences(): WindowContextSnapshot["preferences"] {
+  const fallback = {
+    theme: "system" as AppTheme,
+    language: "zh-CN" as AppLanguage,
+  };
+
+  try {
+    const raw = window.localStorage.getItem(BROWSER_PREFERENCES_STORAGE_KEY);
+    if (!raw) {
+      return fallback;
+    }
+
+    const parsed = JSON.parse(raw) as Partial<WindowContextSnapshot["preferences"]>;
+    return {
+      theme: isAppTheme(parsed.theme) ? parsed.theme : fallback.theme,
+      language: isAppLanguage(parsed.language) ? parsed.language : fallback.language,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+function saveBrowserPreferences(preferences: WindowContextSnapshot["preferences"]) {
+  try {
+    window.localStorage.setItem(BROWSER_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+  } catch {
+    // Browser preview cache failures must not block desktop preference behavior.
+  }
+}
+
+function isAppTheme(value: unknown): value is AppTheme {
+  return value === "system" || value === "light" || value === "dark";
+}
+
+function isAppLanguage(value: unknown): value is AppLanguage {
+  return value === "zh-CN" || value === "en-US";
 }
 
 function modeFromLabel(label: string): WindowMode {

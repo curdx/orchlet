@@ -96,6 +96,37 @@ impl WindowContextRuntimeState {
         context.snapshot_for(window, source_window_label)
     }
 
+    pub fn replace_preferences(
+        &self,
+        preferences: AppPreferencesSnapshot,
+        source_window_label: Option<String>,
+    ) -> WindowContextSnapshot {
+        let mut context = self.context();
+        let mut changed = false;
+
+        if context.preferences != preferences {
+            context.preferences = preferences;
+            changed = true;
+        }
+
+        if changed {
+            context.touch();
+        }
+
+        let window = RegisteredWindow {
+            label: source_window_label
+                .clone()
+                .unwrap_or_else(|| "main".to_owned()),
+            mode: context
+                .registered_windows
+                .get(source_window_label.as_deref().unwrap_or("main"))
+                .cloned()
+                .unwrap_or(WindowMode::Main),
+        };
+
+        context.snapshot_for(window, source_window_label)
+    }
+
     pub fn active_workspace(&self) -> Option<OpenedWorkspace> {
         self.context().active_workspace.clone()
     }
@@ -199,5 +230,20 @@ mod tests {
         assert_eq!(first.updated_at_ms, second.updated_at_ms);
         assert_eq!(second.preferences.theme, AppTheme::Dark);
         assert_eq!(second.preferences.language, AppLanguage::EnUs);
+    }
+
+    #[test]
+    fn replaces_preferences_from_persisted_snapshot() {
+        let state = WindowContextRuntimeState::default();
+        let snapshot = state.replace_preferences(
+            crate::contracts::AppPreferencesSnapshot {
+                theme: AppTheme::Light,
+                language: AppLanguage::EnUs,
+            },
+            Some("main".to_owned()),
+        );
+
+        assert_eq!(snapshot.preferences.theme, AppTheme::Light);
+        assert_eq!(snapshot.preferences.language, AppLanguage::EnUs);
     }
 }

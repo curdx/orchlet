@@ -7,6 +7,8 @@ validateWorkspaceMetadata("fixtures/schema/valid-workspace/.orchlet/workspace.js
 validateWorkspaceMetadata("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/workspace.json");
 validateWorkspaceRegistry("fixtures/data-integrity/valid-json-stores/app-data/workspace-registry.json");
 validateWorkspaceFallbacks("fixtures/data-integrity/valid-json-stores/app-data/workspace-fallbacks.json");
+validateAppPreferences("fixtures/schema/settings-v1/app-preferences.json");
+validateAppPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/preferences.json");
 validateProfileSettings("fixtures/schema/settings-v1/profile-settings.json");
 validateProfileSettings("fixtures/data-integrity/valid-json-stores/app-data/settings/profile.json");
 validateSqliteScaffold("fixtures/schema/sqlite-workspace-v1/schema-manifest.json");
@@ -104,6 +106,18 @@ function validateProfileSettings(path) {
   assertPositiveTimestamp(profile.createdAtMs, `${path}.createdAtMs`);
   assert(profile.updatedAtMs >= profile.createdAtMs, `${path}.updatedAtMs must be >= createdAtMs`);
   validateProfileAvatar(profile.avatar, `${path}.avatar`);
+}
+
+function validateAppPreferences(path) {
+  const preferences = readJson(path);
+  assert(preferences.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(["system", "light", "dark"].includes(preferences.theme), `${path}.theme invalid`);
+  assert(["zh-CN", "en-US"].includes(preferences.language), `${path}.language invalid`);
+  assertPositiveTimestamp(preferences.createdAtMs, `${path}.createdAtMs`);
+  assert(
+    preferences.updatedAtMs >= preferences.createdAtMs,
+    `${path}.updatedAtMs must be >= createdAtMs`,
+  );
 }
 
 function validateProfileAvatar(avatar, context) {

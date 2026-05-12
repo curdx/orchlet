@@ -1,5 +1,7 @@
+use crate::infrastructure::persistence::json_store::app_preferences_store::to_runtime_preferences;
 use crate::{
     app::members::initialize_members,
+    app::settings::{get_app_preferences, update_app_preferences},
     app::window_context::{
         WindowContextRuntimeState, APP_PREFERENCES_CHANGED_EVENT, WINDOW_CONTEXT_CHANGED_EVENT,
     },
@@ -74,13 +76,15 @@ pub fn workspace_open_in_file_manager(
 
 #[tauri::command]
 pub fn window_context_get(
+    app: AppHandle,
     window_context_state: State<'_, WindowContextRuntimeState>,
     request: RegisterWindowRequest,
-) -> WindowContextSnapshot {
-    window_context_state.snapshot_for(RegisteredWindow {
+) -> Result<WindowContextSnapshot, AppError> {
+    hydrate_preferences(&app, &window_context_state)?;
+    Ok(window_context_state.snapshot_for(RegisteredWindow {
         label: request.label,
         mode: request.mode,
-    })
+    }))
 }
 
 #[tauri::command]
@@ -89,6 +93,7 @@ pub fn window_context_register(
     window_context_state: State<'_, WindowContextRuntimeState>,
     request: RegisterWindowRequest,
 ) -> Result<WindowContextSnapshot, AppError> {
+    hydrate_preferences(&app, &window_context_state)?;
     let snapshot = window_context_state.register_window(RegisteredWindow {
         label: request.label,
         mode: request.mode,
@@ -103,13 +108,15 @@ pub fn app_preferences_update(
     window_context_state: State<'_, WindowContextRuntimeState>,
     request: UpdateAppPreferencesRequest,
 ) -> Result<WindowContextSnapshot, AppError> {
+    let source_window_label = request.source_window_label.clone();
+    let preferences = update_app_preferences(app_data_dir(&app)?, request)?;
     let snapshot = window_context_state.update_preferences(
-        request.theme,
-        request.language,
-        request.source_window_label,
+        Some(preferences.theme),
+        Some(preferences.language),
+        source_window_label,
     );
 
-    app.emit(APP_PREFERENCES_CHANGED_EVENT, snapshot.preferences.clone())
+    app.emit(APP_PREFERENCES_CHANGED_EVENT, snapshot.clone())
         .map_err(|error| {
             AppError::recoverable_error(
                 "windowContext.preferencesEmitFailed",
@@ -199,6 +206,15 @@ fn emit_context_snapshot(
                 Some(error.to_string()),
             )
         })
+}
+
+fn hydrate_preferences(
+    app: &AppHandle,
+    window_context_state: &WindowContextRuntimeState,
+) -> Result<(), AppError> {
+    let preferences = get_app_preferences(app_data_dir(app)?)?;
+    window_context_state.replace_preferences(to_runtime_preferences(&preferences), None);
+    Ok(())
 }
 
 fn registered_window_for_mode(mode: WindowMode) -> RegisteredWindow {

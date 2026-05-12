@@ -23,6 +23,7 @@ pub enum StorageCategory {
     WorkspaceMetadata,
     WorkspaceRegistry,
     WorkspaceFallbacks,
+    AppPreferences,
     ProfileSettings,
     AvatarLibrary,
     MemberProfiles,

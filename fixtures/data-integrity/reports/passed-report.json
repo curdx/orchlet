@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=17"
+      "details": "entries=18"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -31,6 +31,16 @@
       "severity": "info",
       "message": "workspace-fallbacks.json is readable and matches schema version.",
       "affectedPaths": ["/fixtures/app-data/workspace-fallbacks.json"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "settings.preferences.load_validate",
+      "category": "appPreferences",
+      "status": "passed",
+      "severity": "info",
+      "message": "App preferences are readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/settings/preferences.json"],
       "userAction": null,
       "details": null
     },
@@ -185,8 +195,8 @@
       "details": null
     }
   ],
-  "totalChecks": 18,
-  "passedChecks": 18,
+  "totalChecks": 19,
+  "passedChecks": 19,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,
