@@ -1,0 +1,9 @@
+{
+  "code": "terminal.tab.label.tooLong",
+  "message": "终端标签名称过长。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请缩短标签名称后重试。",
+  "details": "maxChars=80 actualChars=81",
+  "correlationId": null
+}

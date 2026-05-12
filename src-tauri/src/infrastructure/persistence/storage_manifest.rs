@@ -124,6 +124,31 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
                 .to_owned(),
         },
         StorageManifestEntry {
+            id: "terminal.tabs".to_owned(),
+            owner: StorageOwner::Terminal,
+            category: StorageCategory::TerminalTabs,
+            description: "Workspace terminal tab metadata, ordering, pin state and latest attached session id."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataWorkspaceFile,
+            relative_path: Some(WORKSPACE_SQLITE_RELATIVE_PATH.to_owned()),
+            file_name: Some(WORKSPACE_SQLITE_FILE_NAME.to_owned()),
+            format: StorageFormat::Sqlite,
+            schema_version: WORKSPACE_SQLITE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/terminal_tab_repository.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/terminal_tab_repository.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "terminal.tabs.schema_validate".to_owned(),
+            notes: "Contains terminal tab labels, pin/order state, closed timestamp and latest terminalSessionId only; PTY handles, output, scrollback and snapshots are not persisted here."
+                .to_owned(),
+        },
+        StorageManifestEntry {
             id: "contact.profiles".to_owned(),
             owner: StorageOwner::Contact,
             category: StorageCategory::ContactProfiles,

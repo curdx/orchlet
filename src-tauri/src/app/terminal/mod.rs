@@ -15,18 +15,27 @@ use crate::{
         AppError, MemberProfile, OpenedWorkspace, TerminalAttachRequest, TerminalCloseRequest,
         TerminalInputRequest, TerminalOpenRequest, TerminalOutputEventPayload,
         TerminalResizeRequest, TerminalSessionProfile, TerminalSessionStatus,
-        TerminalStatusEventPayload, TerminalStreamKind,
+        TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
+        TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
+        TerminalTabProfile, TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
+        TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListResult,
     },
     domain::{
         member::validate_workspace_id,
         terminal::{
-            ensure_terminal_capable_member, validate_terminal_member_id,
-            validate_terminal_session_id, validate_terminal_size, TERMINAL_DEFAULT_COLS,
-            TERMINAL_DEFAULT_ROWS, TERMINAL_SCHEMA_VERSION,
+            ensure_terminal_capable_member, normalize_terminal_tab_label,
+            validate_terminal_member_id, validate_terminal_session_id, validate_terminal_size,
+            TERMINAL_DEFAULT_COLS, TERMINAL_DEFAULT_ROWS, TERMINAL_SCHEMA_VERSION,
         },
     },
     infrastructure::{
-        persistence::sqlite::member_repository::initialize_member_store,
+        persistence::sqlite::{
+            member_repository::initialize_member_store,
+            terminal_tab_repository::{
+                close_terminal_tab, create_terminal_tab, ensure_terminal_tab_for_session,
+                list_terminal_tabs, restore_terminal_tab, terminal_tab_by_id, update_terminal_tab,
+            },
+        },
         terminal::{default_shell_command, PtyTerminalLauncher},
     },
 };
@@ -159,6 +168,73 @@ impl TerminalRuntimeState {
         Ok((running_profile, true))
     }
 
+    pub fn create_new_session(
+        &self,
+        app_data_dir: PathBuf,
+        workspace: &OpenedWorkspace,
+        request: TerminalOpenRequest,
+        event_sink: TerminalEventSink,
+        status_sink: TerminalStatusSink,
+    ) -> Result<(TerminalSessionProfile, String), AppError> {
+        validate_workspace_id(&workspace.metadata.project_id)?;
+        let member = resolve_member(app_data_dir, &workspace.metadata.project_id, &request)?;
+        let key = TerminalSessionKey {
+            workspace_id: workspace.metadata.project_id.clone(),
+            member_id: member.as_ref().map(|member| member.member_id.clone()),
+        };
+        let session_id = Ulid::new().to_string();
+        let timestamp = now_ms();
+        let title = member
+            .as_ref()
+            .map(|member| member.instance_label.clone())
+            .unwrap_or_else(|| workspace.metadata.name.clone());
+        let command = member
+            .as_ref()
+            .and_then(|member| member.runtime.command.as_deref())
+            .map(str::trim)
+            .filter(|command| !command.is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(default_shell_command);
+        let profile = TerminalSessionProfile {
+            schema_version: TERMINAL_SCHEMA_VERSION,
+            terminal_session_id: session_id.clone(),
+            workspace_id: workspace.metadata.project_id.clone(),
+            member_id: key.member_id.clone(),
+            title,
+            status: TerminalSessionStatus::Starting,
+            cols: TERMINAL_DEFAULT_COLS,
+            rows: TERMINAL_DEFAULT_ROWS,
+            created_at_ms: timestamp,
+            updated_at_ms: timestamp,
+        };
+        let seq = Arc::new(AtomicU64::new(0));
+        let output_handler = output_handler_for(profile.clone(), seq, event_sink);
+        let handle = self.launcher.spawn(
+            TerminalLaunchProfile {
+                cwd: PathBuf::from(&workspace.root_path),
+                command: command.clone(),
+                use_shell_wrapper: key.member_id.is_some(),
+                cols: TERMINAL_DEFAULT_COLS,
+                rows: TERMINAL_DEFAULT_ROWS,
+            },
+            output_handler,
+        )?;
+        let mut running_profile = profile;
+        running_profile.status = TerminalSessionStatus::Running;
+        running_profile.updated_at_ms = now_ms().max(running_profile.created_at_ms);
+
+        self.insert_session(
+            key,
+            TerminalSessionEntry {
+                profile: running_profile.clone(),
+                handle,
+            },
+        );
+        emit_status(&running_profile, status_sink);
+
+        Ok((running_profile, command))
+    }
+
     pub fn attach_session(
         &self,
         workspace_id: &str,
@@ -176,7 +252,7 @@ impl TerminalRuntimeState {
                 .ok_or_else(|| session_not_found("active", workspace_id))?,
         };
         let profile = self.session_by_id_for_workspace(&terminal_session_id, workspace_id)?;
-        self.set_active_session(terminal_session_id);
+        self.set_active_session_for_profile(&profile);
         emit_status(&profile, status_sink);
 
         Ok(profile)
@@ -259,7 +335,14 @@ impl TerminalRuntimeState {
                     member_id: entry.profile.member_id.clone(),
                 }
             };
-            state.session_ids_by_key.remove(&key_to_remove);
+            if state
+                .session_ids_by_key
+                .get(&key_to_remove)
+                .map(|session_id| session_id == &request.terminal_session_id)
+                .unwrap_or(false)
+            {
+                state.session_ids_by_key.remove(&key_to_remove);
+            }
             if state.active_session_id.as_deref() == Some(request.terminal_session_id.as_str()) {
                 state.active_session_id = None;
             }
@@ -275,8 +358,199 @@ impl TerminalRuntimeState {
         Ok(profile)
     }
 
+    pub fn list_tabs(
+        &self,
+        app_data_dir: PathBuf,
+        workspace: &OpenedWorkspace,
+    ) -> Result<TerminalTabsListResult, AppError> {
+        let tabs = list_terminal_tabs(&app_data_dir, &workspace.metadata.project_id)?;
+        let active_tab_id = self.active_tab_id_for_tabs(&workspace.metadata.project_id, &tabs);
+
+        Ok(TerminalTabsListResult {
+            tabs,
+            active_tab_id,
+        })
+    }
+
+    pub fn create_tab(
+        &self,
+        app_data_dir: PathBuf,
+        workspace: &OpenedWorkspace,
+        request: TerminalTabCreateRequest,
+        event_sink: TerminalEventSink,
+        status_sink: TerminalStatusSink,
+    ) -> Result<TerminalTabCreateResult, AppError> {
+        let existing_tabs = list_terminal_tabs(&app_data_dir, &workspace.metadata.project_id)?;
+        let (session, shell) = self.create_new_session(
+            app_data_dir.clone(),
+            workspace,
+            TerminalOpenRequest {
+                member_id: request.member_id,
+                attach_current: false,
+            },
+            event_sink,
+            status_sink,
+        )?;
+        let label = normalize_terminal_tab_label(request.label, &session.title)?;
+        let timestamp = now_ms();
+        let tab = TerminalTabProfile {
+            schema_version: TERMINAL_SCHEMA_VERSION,
+            tab_id: Ulid::new().to_string(),
+            workspace_id: workspace.metadata.project_id.clone(),
+            terminal_session_id: session.terminal_session_id.clone(),
+            member_id: session.member_id.clone(),
+            label,
+            shell,
+            status: TerminalTabStatus::Open,
+            is_pinned: false,
+            sort_index: existing_tabs.len() as i32,
+            created_at_ms: timestamp,
+            updated_at_ms: timestamp,
+            closed_at_ms: None,
+        };
+        let tab = create_terminal_tab(&app_data_dir, tab)?;
+        let tabs = list_terminal_tabs(&app_data_dir, &workspace.metadata.project_id)?;
+
+        Ok(TerminalTabCreateResult { tab, session, tabs })
+    }
+
+    pub fn ensure_tab_for_session(
+        &self,
+        app_data_dir: PathBuf,
+        session: &TerminalSessionProfile,
+        shell: String,
+    ) -> Result<TerminalTabProfile, AppError> {
+        ensure_terminal_tab_for_session(
+            &app_data_dir,
+            &session.workspace_id,
+            &session.terminal_session_id,
+            session.member_id.clone(),
+            session.title.clone(),
+            shell,
+        )
+    }
+
+    pub fn close_tab(
+        &self,
+        app_data_dir: PathBuf,
+        workspace: &OpenedWorkspace,
+        request: TerminalTabCloseRequest,
+        status_sink: TerminalStatusSink,
+    ) -> Result<TerminalTabCloseResult, AppError> {
+        let tab = terminal_tab_by_id(
+            &app_data_dir,
+            &workspace.metadata.project_id,
+            &request.tab_id,
+        )?;
+        let session = self.close_session(
+            &workspace.metadata.project_id,
+            TerminalCloseRequest {
+                terminal_session_id: tab.terminal_session_id,
+            },
+            status_sink,
+        )?;
+        let tab = close_terminal_tab(
+            &app_data_dir,
+            &workspace.metadata.project_id,
+            &request.tab_id,
+        )?;
+        let tabs = list_terminal_tabs(&app_data_dir, &workspace.metadata.project_id)?;
+
+        Ok(TerminalTabCloseResult { tab, session, tabs })
+    }
+
+    pub fn restore_tab(
+        &self,
+        app_data_dir: PathBuf,
+        workspace: &OpenedWorkspace,
+        request: TerminalTabRestoreRequest,
+        event_sink: TerminalEventSink,
+        status_sink: TerminalStatusSink,
+    ) -> Result<TerminalTabRestoreResult, AppError> {
+        let tab = terminal_tab_by_id(
+            &app_data_dir,
+            &workspace.metadata.project_id,
+            &request.tab_id,
+        )?;
+
+        if tab.status != TerminalTabStatus::Closed {
+            return Err(AppError::recoverable_error(
+                "terminal.tab.restore.notClosed",
+                "终端标签仍处于打开状态。",
+                "请选择已关闭的终端标签进行恢复。",
+                Some(format!("tabId={}", request.tab_id)),
+            ));
+        }
+
+        let (session, _) = self.create_new_session(
+            app_data_dir.clone(),
+            workspace,
+            TerminalOpenRequest {
+                member_id: tab.member_id,
+                attach_current: false,
+            },
+            event_sink,
+            status_sink,
+        )?;
+        let tab = restore_terminal_tab(
+            &app_data_dir,
+            &workspace.metadata.project_id,
+            &request.tab_id,
+            &session.terminal_session_id,
+        )?;
+        let tabs = list_terminal_tabs(&app_data_dir, &workspace.metadata.project_id)?;
+
+        Ok(TerminalTabRestoreResult { tab, session, tabs })
+    }
+
+    pub fn update_tab(
+        &self,
+        app_data_dir: PathBuf,
+        workspace: &OpenedWorkspace,
+        request: TerminalTabUpdateRequest,
+    ) -> Result<TerminalTabUpdateResult, AppError> {
+        let label = match request.label {
+            Some(label) => Some(normalize_terminal_tab_label(Some(label), "")?),
+            None => None,
+        };
+        let tab = update_terminal_tab(
+            &app_data_dir,
+            &workspace.metadata.project_id,
+            &request.tab_id,
+            label,
+            request.is_pinned,
+            request.sort_index,
+        )?;
+        let tabs = list_terminal_tabs(&app_data_dir, &workspace.metadata.project_id)?;
+
+        Ok(TerminalTabUpdateResult { tab, tabs })
+    }
+
     pub fn session_count(&self) -> usize {
         self.state().sessions_by_id.len()
+    }
+
+    fn active_tab_id_for_tabs(
+        &self,
+        workspace_id: &str,
+        tabs: &[TerminalTabProfile],
+    ) -> Option<String> {
+        let active_session_id = self.active_session_id_for_workspace(workspace_id);
+        active_session_id
+            .as_deref()
+            .and_then(|session_id| {
+                tabs.iter()
+                    .find(|tab| {
+                        tab.status == TerminalTabStatus::Open
+                            && tab.terminal_session_id == session_id
+                    })
+                    .map(|tab| tab.tab_id.clone())
+            })
+            .or_else(|| {
+                tabs.iter()
+                    .find(|tab| tab.status == TerminalTabStatus::Open)
+                    .map(|tab| tab.tab_id.clone())
+            })
     }
 
     fn active_session_key_for_workspace(&self, workspace_id: &str) -> Option<TerminalSessionKey> {
@@ -353,6 +627,19 @@ impl TerminalRuntimeState {
 
     fn set_active_session(&self, terminal_session_id: String) {
         self.state().active_session_id = Some(terminal_session_id);
+    }
+
+    fn set_active_session_for_profile(&self, profile: &TerminalSessionProfile) {
+        let mut state = self.state();
+        let terminal_session_id = profile.terminal_session_id.clone();
+        let key = TerminalSessionKey {
+            workspace_id: profile.workspace_id.clone(),
+            member_id: profile.member_id.clone(),
+        };
+        state
+            .session_ids_by_key
+            .insert(key, terminal_session_id.clone());
+        state.active_session_id = Some(terminal_session_id);
     }
 
     fn state(&self) -> MutexGuard<'_, TerminalState> {
@@ -506,7 +793,9 @@ mod tests {
             AppError, InviteMemberRequest, InvitedMemberType, MemberIsolation, MemberPermissions,
             MemberRuntimeKind, MemberRuntimeProfile, OpenedWorkspace, TerminalAttachRequest,
             TerminalCloseRequest, TerminalInputRequest, TerminalOpenRequest, TerminalResizeRequest,
-            TerminalSessionStatus, TerminalStreamKind, WorkspaceAccessMode, WorkspaceMetadata,
+            TerminalSessionStatus, TerminalStreamKind, TerminalTabCloseRequest,
+            TerminalTabCreateRequest, TerminalTabRestoreRequest, TerminalTabStatus,
+            TerminalTabUpdateRequest, WorkspaceAccessMode, WorkspaceMetadata,
             WorkspaceRegistryAction, WorkspaceRegistryEntry,
         },
     };
@@ -834,6 +1123,162 @@ mod tests {
             .expect("statuses")
             .iter()
             .any(|event| event.status == TerminalSessionStatus::Exited));
+    }
+
+    #[test]
+    fn creates_closes_restores_and_updates_terminal_tabs() {
+        let app_data = tempdir().expect("app data");
+        let launcher = Arc::new(MockLauncher::default());
+        let state = TerminalRuntimeState::with_launcher(launcher.clone());
+        let workspace = workspace();
+        let output_sink: TerminalEventSink = Arc::new(|_| {});
+        let status_sink: TerminalStatusSink = Arc::new(|_| {});
+
+        let first = state
+            .create_tab(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalTabCreateRequest {
+                    member_id: None,
+                    label: Some("Alpha".to_owned()),
+                },
+                Arc::clone(&output_sink),
+                Arc::clone(&status_sink),
+            )
+            .expect("first tab");
+        let second = state
+            .create_tab(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalTabCreateRequest {
+                    member_id: None,
+                    label: Some("Beta".to_owned()),
+                },
+                Arc::clone(&output_sink),
+                Arc::clone(&status_sink),
+            )
+            .expect("second tab");
+
+        assert_ne!(
+            first.session.terminal_session_id,
+            second.session.terminal_session_id
+        );
+        assert_eq!(state.session_count(), 2);
+        assert_eq!(
+            state
+                .list_tabs(app_data.path().to_path_buf(), &workspace)
+                .expect("tabs")
+                .tabs
+                .len(),
+            2
+        );
+
+        let closed = state
+            .close_tab(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalTabCloseRequest {
+                    tab_id: first.tab.tab_id.clone(),
+                },
+                Arc::clone(&status_sink),
+            )
+            .expect("closed tab");
+        assert_eq!(closed.tab.status, TerminalTabStatus::Closed);
+        assert_eq!(closed.session.status, TerminalSessionStatus::Exited);
+
+        let (reused, created) = state
+            .open_or_create_session(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalOpenRequest {
+                    member_id: None,
+                    attach_current: false,
+                },
+                Arc::clone(&output_sink),
+                Arc::clone(&status_sink),
+            )
+            .expect("reuse surviving tab session");
+        assert!(!created);
+        assert_eq!(
+            reused.terminal_session_id,
+            second.session.terminal_session_id
+        );
+
+        let restored = state
+            .restore_tab(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalTabRestoreRequest {
+                    tab_id: first.tab.tab_id.clone(),
+                },
+                Arc::clone(&output_sink),
+                Arc::clone(&status_sink),
+            )
+            .expect("restored tab");
+        assert_eq!(restored.tab.status, TerminalTabStatus::Open);
+        assert_ne!(
+            restored.session.terminal_session_id,
+            first.session.terminal_session_id
+        );
+        assert_eq!(
+            restored.tab.terminal_session_id,
+            restored.session.terminal_session_id
+        );
+
+        let updated = state
+            .update_tab(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalTabUpdateRequest {
+                    tab_id: restored.tab.tab_id.clone(),
+                    label: Some("Pinned".to_owned()),
+                    is_pinned: Some(true),
+                    sort_index: Some(0),
+                },
+            )
+            .expect("updated tab");
+        assert_eq!(updated.tab.label, "Pinned");
+        assert!(updated.tab.is_pinned);
+        assert_eq!(updated.tabs[0].tab_id, updated.tab.tab_id);
+        assert!(launcher
+            .operations
+            .lock()
+            .expect("operations")
+            .iter()
+            .any(|operation| operation == "close"));
+    }
+
+    #[test]
+    fn terminal_tab_use_cases_reject_invalid_or_missing_tabs() {
+        let app_data = tempdir().expect("app data");
+        let state = TerminalRuntimeState::with_launcher(Arc::new(MockLauncher::default()));
+        let workspace = workspace();
+
+        let invalid = state
+            .update_tab(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalTabUpdateRequest {
+                    tab_id: "bad-tab".to_owned(),
+                    label: None,
+                    is_pinned: None,
+                    sort_index: None,
+                },
+            )
+            .expect_err("invalid tab id rejected");
+        assert_eq!(invalid.code, "terminal.tab.invalidId");
+
+        let missing = state
+            .close_tab(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalTabCloseRequest {
+                    tab_id: "01K00000000000000000000099".to_owned(),
+                },
+                Arc::new(|_| {}),
+            )
+            .expect_err("missing tab rejected");
+        assert_eq!(missing.code, "terminal.tab.notFound");
     }
 
     fn workspace() -> OpenedWorkspace {

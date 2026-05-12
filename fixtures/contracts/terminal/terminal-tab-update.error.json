@@ -1,0 +1,9 @@
+{
+  "code": "terminal.tab.order.invalid",
+  "message": "终端标签排序无效。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新终端标签后重试。",
+  "details": "tabId=01K00000000000000000000080 sortIndex=-1",
+  "correlationId": null
+}

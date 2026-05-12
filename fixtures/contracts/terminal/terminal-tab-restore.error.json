@@ -1,0 +1,9 @@
+{
+  "code": "terminal.tab.restore.notClosed",
+  "message": "终端标签仍处于打开状态。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请选择已关闭的终端标签进行恢复。",
+  "details": "tabId=01K00000000000000000000080",
+  "correlationId": null
+}

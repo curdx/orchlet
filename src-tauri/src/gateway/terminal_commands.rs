@@ -7,7 +7,10 @@ use crate::{
     contracts::{
         AppError, TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest,
         TerminalCloseResult, TerminalInputRequest, TerminalInputResult, TerminalOpenRequest,
-        TerminalOpenResult, TerminalResizeRequest, TerminalResizeResult, WindowMode,
+        TerminalOpenResult, TerminalResizeRequest, TerminalResizeResult, TerminalTabCloseRequest,
+        TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
+        TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabUpdateRequest,
+        TerminalTabUpdateResult, TerminalTabsListRequest, TerminalTabsListResult, WindowMode,
     },
     domain::terminal::{TERMINAL_OUTPUT_EVENT, TERMINAL_STATUS_CHANGE_EVENT},
     gateway::workspace_commands::open_or_focus_window_mode,
@@ -30,13 +33,15 @@ pub async fn terminal_open(
     })?;
     let event_sink = terminal_output_sink(&app);
     let status_sink = terminal_status_sink(&app);
+    let app_data_dir = app_data_dir(&app)?;
     let (session, session_created) = terminal_state.open_or_create_session(
-        app_data_dir(&app)?,
+        app_data_dir.clone(),
         &workspace,
         request,
         event_sink,
         status_sink,
     )?;
+    terminal_state.ensure_tab_for_session(app_data_dir, &session, session.title.clone())?;
     let window_result =
         open_or_focus_window_mode(&app, &window_context_state, WindowMode::Terminal).await?;
 
@@ -109,6 +114,78 @@ pub fn terminal_close(
     )?;
 
     Ok(TerminalCloseResult { session })
+}
+
+#[tauri::command]
+pub fn terminal_tabs_list(
+    app: AppHandle,
+    window_context_state: State<'_, WindowContextRuntimeState>,
+    terminal_state: State<'_, TerminalRuntimeState>,
+    _request: TerminalTabsListRequest,
+) -> Result<TerminalTabsListResult, AppError> {
+    let workspace = active_workspace(&window_context_state)?;
+    terminal_state.list_tabs(app_data_dir(&app)?, &workspace)
+}
+
+#[tauri::command]
+pub fn terminal_tab_create(
+    app: AppHandle,
+    window_context_state: State<'_, WindowContextRuntimeState>,
+    terminal_state: State<'_, TerminalRuntimeState>,
+    request: TerminalTabCreateRequest,
+) -> Result<TerminalTabCreateResult, AppError> {
+    let workspace = active_workspace(&window_context_state)?;
+    terminal_state.create_tab(
+        app_data_dir(&app)?,
+        &workspace,
+        request,
+        terminal_output_sink(&app),
+        terminal_status_sink(&app),
+    )
+}
+
+#[tauri::command]
+pub fn terminal_tab_close(
+    app: AppHandle,
+    window_context_state: State<'_, WindowContextRuntimeState>,
+    terminal_state: State<'_, TerminalRuntimeState>,
+    request: TerminalTabCloseRequest,
+) -> Result<TerminalTabCloseResult, AppError> {
+    let workspace = active_workspace(&window_context_state)?;
+    terminal_state.close_tab(
+        app_data_dir(&app)?,
+        &workspace,
+        request,
+        terminal_status_sink(&app),
+    )
+}
+
+#[tauri::command]
+pub fn terminal_tab_restore(
+    app: AppHandle,
+    window_context_state: State<'_, WindowContextRuntimeState>,
+    terminal_state: State<'_, TerminalRuntimeState>,
+    request: TerminalTabRestoreRequest,
+) -> Result<TerminalTabRestoreResult, AppError> {
+    let workspace = active_workspace(&window_context_state)?;
+    terminal_state.restore_tab(
+        app_data_dir(&app)?,
+        &workspace,
+        request,
+        terminal_output_sink(&app),
+        terminal_status_sink(&app),
+    )
+}
+
+#[tauri::command]
+pub fn terminal_tab_update(
+    app: AppHandle,
+    window_context_state: State<'_, WindowContextRuntimeState>,
+    terminal_state: State<'_, TerminalRuntimeState>,
+    request: TerminalTabUpdateRequest,
+) -> Result<TerminalTabUpdateResult, AppError> {
+    let workspace = active_workspace(&window_context_state)?;
+    terminal_state.update_tab(app_data_dir(&app)?, &workspace, request)
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<PathBuf, AppError> {

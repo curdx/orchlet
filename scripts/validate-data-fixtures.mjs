@@ -12,6 +12,7 @@ validateMemberProfiles("fixtures/schema/members-v1/member-profiles.json");
 validateContactProfiles("fixtures/schema/contacts-v1/contact-profiles.json");
 validateConversationList("fixtures/schema/conversations-v1/conversation-list.json");
 validateMessageHistory("fixtures/schema/messages-v1/message-history.json");
+validateTerminalTabs("fixtures/schema/terminal-tabs-v1/terminal-tabs.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/passed-report.json");
 validateDataIntegrityReport("fixtures/data-integrity/reports/failed-registry-report.json");
 validateTerminalStreams("fixtures/terminal-streams");
@@ -75,10 +76,11 @@ function validateSqliteScaffold(path) {
       schema.tables.includes("conversation_members") &&
       schema.tables.includes("messages") &&
       schema.tables.includes("message_mentions") &&
-      schema.tables.includes("conversation_read_positions"),
+      schema.tables.includes("conversation_read_positions") &&
+      schema.tables.includes("terminal_tabs"),
     `${path} must include current member, conversation and message schema tables`,
   );
-  assert(schema.tables.length === 7, `${path} must include only current workspace tables`);
+  assert(schema.tables.length === 8, `${path} must include only current workspace tables`);
   assert(!schema.tables.includes("terminal_sessions"), `${path} must not include future terminal tables`);
   assert(Array.isArray(schema.migrationFiles), `${path}.migrationFiles must be an array`);
   assert(
@@ -110,8 +112,50 @@ function validateSqliteScaffold(path) {
     `${path} must include the message mentions migration file`,
   );
   assert(
+    schema.migrationFiles.includes("202605121900__terminal_tabs.sql"),
+    `${path} must include the terminal tabs migration file`,
+  );
+  assert(
     Array.isArray(schema.ownedByFutureStories) && schema.ownedByFutureStories.includes("notification"),
     `${path} must identify future story ownership`,
+  );
+}
+
+function validateTerminalTabs(path) {
+  const fixture = readJson(path);
+  assert(fixture.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assertValidUlid(fixture.workspaceId, `${path}.workspaceId`);
+  assert(Array.isArray(fixture.tabs) && fixture.tabs.length >= 2, `${path}.tabs must include open and closed tabs`);
+
+  const tabIds = new Set();
+  for (const tab of fixture.tabs) {
+    assert(tab.schemaVersion === 1, `${path}.tabs[].schemaVersion must be 1`);
+    assertValidUlid(tab.tabId, `${path}.tabs[].tabId`);
+    assert(!tabIds.has(tab.tabId), `${path}.tabs[].tabId must be unique`);
+    tabIds.add(tab.tabId);
+    assert(tab.workspaceId === fixture.workspaceId, `${path}.tabs[].workspaceId must match`);
+    assertValidUlid(tab.terminalSessionId, `${path}.tabs[].terminalSessionId`);
+    if (tab.memberId !== null) assertValidUlid(tab.memberId, `${path}.tabs[].memberId`);
+    assertNonEmptyString(tab.label, `${path}.tabs[].label`);
+    assertNonEmptyString(tab.shell, `${path}.tabs[].shell`);
+    assert(["open", "closed"].includes(tab.status), `${path}.tabs[].status invalid`);
+    assert(typeof tab.isPinned === "boolean", `${path}.tabs[].isPinned must be boolean`);
+    assert(Number.isInteger(tab.sortIndex) && tab.sortIndex >= 0, `${path}.tabs[].sortIndex must be non-negative`);
+    assertPositiveTimestamp(tab.createdAtMs, `${path}.tabs[].createdAtMs`);
+    assert(tab.updatedAtMs >= tab.createdAtMs, `${path}.tabs[].updatedAtMs must be >= createdAtMs`);
+    if (tab.status === "closed") {
+      assertPositiveTimestamp(tab.closedAtMs, `${path}.tabs[].closedAtMs`);
+    } else {
+      assert(tab.closedAtMs === null, `${path}.open tabs must not have closedAtMs`);
+    }
+  }
+
+  assert(fixture.tabs.some((tab) => tab.isPinned), `${path} must include a pinned tab`);
+  assert(fixture.tabs.some((tab) => tab.status === "closed"), `${path} must include a closed tab`);
+  assert(Array.isArray(fixture.excludedPayloads), `${path}.excludedPayloads must be an array`);
+  assert(
+    fixture.excludedPayloads.some((item) => item.includes("output")),
+    `${path} must document excluded terminal output`,
   );
 }
 

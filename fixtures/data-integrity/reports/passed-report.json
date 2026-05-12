@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=10"
+      "details": "entries=11"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -113,10 +113,20 @@
       "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
       "userAction": null,
       "details": null
+    },
+    {
+      "checkId": "terminal.tabs.schema_validate",
+      "category": "terminalTabs",
+      "status": "passed",
+      "severity": "info",
+      "message": "Terminal tab store is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/workspaces/01K00000000000000000000000/orchlet.sqlite"],
+      "userAction": null,
+      "details": null
     }
   ],
-  "totalChecks": 11,
-  "passedChecks": 11,
+  "totalChecks": 12,
+  "passedChecks": 12,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,

@@ -9,6 +9,7 @@ pub const TERMINAL_DEFAULT_COLS: u16 = 120;
 pub const TERMINAL_DEFAULT_ROWS: u16 = 30;
 pub const TERMINAL_MAX_COLS: u16 = 500;
 pub const TERMINAL_MAX_ROWS: u16 = 200;
+pub const TERMINAL_TAB_LABEL_MAX_CHARS: usize = 80;
 
 pub fn validate_terminal_member_id(member_id: &str) -> Result<(), AppError> {
     if member_id.parse::<Ulid>().is_err() {
@@ -37,6 +38,55 @@ pub fn validate_terminal_session_id(terminal_session_id: &str) -> Result<(), App
     }
 
     Ok(())
+}
+
+pub fn validate_terminal_tab_id(tab_id: &str) -> Result<(), AppError> {
+    if tab_id.parse::<Ulid>().is_err() {
+        return Err(AppError::recoverable_error(
+            "terminal.tab.invalidId",
+            "终端标签标识无效。",
+            "请刷新终端窗口后重试。",
+            Some(format!("tabId must be a ULID string: {}", tab_id)),
+        ));
+    }
+
+    Ok(())
+}
+
+pub fn normalize_terminal_tab_label(
+    label: Option<String>,
+    fallback: &str,
+) -> Result<String, AppError> {
+    let label = label
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(fallback)
+        .trim();
+
+    if label.is_empty() {
+        return Err(AppError::recoverable_error(
+            "terminal.tab.label.empty",
+            "终端标签名称不能为空。",
+            "请输入标签名称后重试。",
+            None,
+        ));
+    }
+
+    if label.chars().count() > TERMINAL_TAB_LABEL_MAX_CHARS {
+        return Err(AppError::recoverable_error(
+            "terminal.tab.label.tooLong",
+            "终端标签名称过长。",
+            "请缩短标签名称后重试。",
+            Some(format!(
+                "maxChars={} actualChars={}",
+                TERMINAL_TAB_LABEL_MAX_CHARS,
+                label.chars().count()
+            )),
+        ));
+    }
+
+    Ok(label.to_owned())
 }
 
 pub fn validate_terminal_size(cols: u16, rows: u16) -> Result<(), AppError> {

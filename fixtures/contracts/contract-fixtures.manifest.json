@@ -116,6 +116,61 @@
       "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
     },
     {
+      "domain": "terminal",
+      "command": "terminal_tabs_list",
+      "requestFixture": "fixtures/contracts/terminal/terminal-tabs-list.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-tabs-list.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-tabs-list.error.json",
+      "rustRequestDto": "TerminalTabsListRequest",
+      "rustSuccessDto": "TerminalTabsListResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "terminal",
+      "command": "terminal_tab_create",
+      "requestFixture": "fixtures/contracts/terminal/terminal-tab-create.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-tab-create.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-tab-create.error.json",
+      "rustRequestDto": "TerminalTabCreateRequest",
+      "rustSuccessDto": "TerminalTabCreateResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "terminal",
+      "command": "terminal_tab_close",
+      "requestFixture": "fixtures/contracts/terminal/terminal-tab-close.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-tab-close.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-tab-close.error.json",
+      "rustRequestDto": "TerminalTabCloseRequest",
+      "rustSuccessDto": "TerminalTabCloseResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "terminal",
+      "command": "terminal_tab_restore",
+      "requestFixture": "fixtures/contracts/terminal/terminal-tab-restore.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-tab-restore.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-tab-restore.error.json",
+      "rustRequestDto": "TerminalTabRestoreRequest",
+      "rustSuccessDto": "TerminalTabRestoreResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "terminal",
+      "command": "terminal_tab_update",
+      "requestFixture": "fixtures/contracts/terminal/terminal-tab-update.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-tab-update.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-tab-update.error.json",
+      "rustRequestDto": "TerminalTabUpdateRequest",
+      "rustSuccessDto": "TerminalTabUpdateResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

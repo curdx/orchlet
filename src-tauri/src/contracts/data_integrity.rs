@@ -9,6 +9,7 @@ pub enum StorageOwner {
     Member,
     Contact,
     Chat,
+    Terminal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
@@ -27,6 +28,7 @@ pub enum StorageCategory {
     MessageMentions,
     ConversationReadPositions,
     PrivateConversations,
+    TerminalTabs,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]

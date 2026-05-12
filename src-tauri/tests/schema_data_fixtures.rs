@@ -6,7 +6,8 @@ use orchlet_lib::{
     contracts::{
         ChatMessageProfile, ChatMessageStatus, ContactProfile, ConversationKind,
         ConversationProfile, ConversationReadPositionProfile, DataIntegrityReport,
-        DataIntegrityStatus, MemberProfile, WorkspaceMetadata,
+        DataIntegrityStatus, MemberProfile, TerminalTabProfile, TerminalTabStatus,
+        WorkspaceMetadata,
     },
     domain::workspace::validate_workspace_metadata,
     infrastructure::persistence::json_store::{
@@ -92,6 +93,16 @@ struct MessageMentionFixture {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct TerminalTabsFixture {
+    schema_version: u32,
+    workspace_id: String,
+    tabs: Vec<TerminalTabProfile>,
+    ordering_rule: String,
+    excluded_payloads: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TerminalStreamFixture {
     schema_version: u32,
     case: String,
@@ -162,7 +173,7 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 11);
+    assert_eq!(report.total_checks, 12);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -176,9 +187,9 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 11);
+    assert_eq!(report.total_checks, 12);
     assert_eq!(report.failed_checks, 1);
-    assert_eq!(report.skipped_checks, 7);
+    assert_eq!(report.skipped_checks, 8);
     assert!(report.has_failures);
 }
 
@@ -216,7 +227,8 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
             "conversation_members",
             "messages",
             "message_mentions",
-            "conversation_read_positions"
+            "conversation_read_positions",
+            "terminal_tabs"
         ]
     );
     assert_eq!(
@@ -228,7 +240,8 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
             "202605121300__conversation_list_groups.sql",
             "202605121430__messages_read_positions.sql",
             "202605121600__conversation_management.sql",
-            "202605121700__message_mentions.sql"
+            "202605121700__message_mentions.sql",
+            "202605121900__terminal_tabs.sql"
         ]
     );
     assert!(fixture
@@ -259,6 +272,10 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
         .validation_paths
         .iter()
         .any(|path| path.contains("conversation_read_positions")));
+    assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("terminal_tabs")));
     assert!(fixture
         .owned_by_future_stories
         .iter()
@@ -405,6 +422,37 @@ fn message_history_fixture_covers_status_pagination_and_read_position() {
         .excluded_future_tables
         .iter()
         .any(|table| table == "terminal_dispatches"));
+}
+
+#[test]
+fn terminal_tabs_fixture_covers_ordering_restore_metadata_and_excluded_payloads() {
+    let fixture: TerminalTabsFixture =
+        read_fixture("../fixtures/schema/terminal-tabs-v1/terminal-tabs.json");
+
+    assert_eq!(fixture.schema_version, 1);
+    assert_eq!(fixture.workspace_id, "01K00000000000000000000000");
+    assert_eq!(fixture.tabs.len(), 2);
+    assert!(fixture
+        .tabs
+        .iter()
+        .any(|tab| tab.status == TerminalTabStatus::Open && tab.is_pinned));
+    assert!(fixture
+        .tabs
+        .iter()
+        .any(|tab| { tab.status == TerminalTabStatus::Closed && tab.closed_at_ms.is_some() }));
+    assert!(fixture
+        .tabs
+        .iter()
+        .all(|tab| tab.workspace_id == fixture.workspace_id));
+    assert!(fixture.ordering_rule.contains("Pinned"));
+    assert!(fixture
+        .excluded_payloads
+        .iter()
+        .any(|payload| payload.contains("output")));
+    assert!(fixture
+        .excluded_payloads
+        .iter()
+        .any(|payload| payload.contains("scrollback")));
 }
 
 #[test]

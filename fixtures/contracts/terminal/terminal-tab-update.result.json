@@ -1,0 +1,34 @@
+{
+  "tab": {
+    "schemaVersion": 1,
+    "tabId": "01K00000000000000000000080",
+    "workspaceId": "01K00000000000000000000000",
+    "terminalSessionId": "01K00000000000000000000090",
+    "memberId": "01K00000000000000000000031",
+    "label": "Pinned Codex",
+    "shell": "codex",
+    "status": "open",
+    "isPinned": true,
+    "sortIndex": 0,
+    "createdAtMs": 1760000000000,
+    "updatedAtMs": 1760000000400,
+    "closedAtMs": null
+  },
+  "tabs": [
+    {
+      "schemaVersion": 1,
+      "tabId": "01K00000000000000000000080",
+      "workspaceId": "01K00000000000000000000000",
+      "terminalSessionId": "01K00000000000000000000090",
+      "memberId": "01K00000000000000000000031",
+      "label": "Pinned Codex",
+      "shell": "codex",
+      "status": "open",
+      "isPinned": true,
+      "sortIndex": 0,
+      "createdAtMs": 1760000000000,
+      "updatedAtMs": 1760000000400,
+      "closedAtMs": null
+    }
+  ]
+}

@@ -30,3 +30,27 @@ export type TerminalSessionStatus = "starting" | "running" | "exited";
 export type TerminalStatusEventPayload = { schemaVersion: number, terminalSessionId: string, workspaceId: string, memberId: string | null, title: string, status: TerminalSessionStatus, cols: number, rows: number, emittedAtMs: number, };
 
 export type TerminalStreamKind = "stdout" | "stderr" | "system";
+
+export type TerminalTabCloseRequest = { tabId: string, };
+
+export type TerminalTabCloseResult = { tab: TerminalTabProfile, session: TerminalSessionProfile, tabs: Array<TerminalTabProfile>, };
+
+export type TerminalTabCreateRequest = { memberId: string | null, label: string | null, };
+
+export type TerminalTabCreateResult = { tab: TerminalTabProfile, session: TerminalSessionProfile, tabs: Array<TerminalTabProfile>, };
+
+export type TerminalTabProfile = { schemaVersion: number, tabId: string, workspaceId: string, terminalSessionId: string, memberId: string | null, label: string, shell: string, status: TerminalTabStatus, isPinned: boolean, sortIndex: number, createdAtMs: number, updatedAtMs: number, closedAtMs: number | null, };
+
+export type TerminalTabRestoreRequest = { tabId: string, };
+
+export type TerminalTabRestoreResult = { tab: TerminalTabProfile, session: TerminalSessionProfile, tabs: Array<TerminalTabProfile>, };
+
+export type TerminalTabStatus = "open" | "closed";
+
+export type TerminalTabUpdateRequest = { tabId: string, label: string | null, isPinned: boolean | null, sortIndex: number | null, };
+
+export type TerminalTabUpdateResult = { tab: TerminalTabProfile, tabs: Array<TerminalTabProfile>, };
+
+export type TerminalTabsListRequest = Record<symbol, never>;
+
+export type TerminalTabsListResult = { tabs: Array<TerminalTabProfile>, activeTabId: string | null, };

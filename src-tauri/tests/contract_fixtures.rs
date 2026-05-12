@@ -14,7 +14,11 @@ use orchlet_lib::contracts::{
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
     TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
     TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
-    TerminalStatusEventPayload, TerminalStreamKind, UpdateContactRequest, UpdateContactResult,
+    TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
+    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
+    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
+    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    TerminalTabsListResult, UpdateContactRequest, UpdateContactResult,
     UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
     UpdateReadPositionRequest, UpdateReadPositionResult, WindowMode, WorkspaceOpenStatus,
@@ -138,6 +142,36 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/terminal/terminal-close.error.json");
     let status_event: TerminalStatusEventPayload =
         read_fixture("../fixtures/contracts/terminal/terminal-status.event.json");
+    let _tabs_list_request: TerminalTabsListRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-tabs-list.request.json");
+    let tabs_list_result: TerminalTabsListResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-tabs-list.result.json");
+    let tabs_list_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-tabs-list.error.json");
+    let tab_create_request: TerminalTabCreateRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-create.request.json");
+    let tab_create_result: TerminalTabCreateResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-create.result.json");
+    let tab_create_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-create.error.json");
+    let tab_close_request: TerminalTabCloseRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-close.request.json");
+    let tab_close_result: TerminalTabCloseResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-close.result.json");
+    let tab_close_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-close.error.json");
+    let tab_restore_request: TerminalTabRestoreRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-restore.request.json");
+    let tab_restore_result: TerminalTabRestoreResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-restore.result.json");
+    let tab_restore_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-restore.error.json");
+    let tab_update_request: TerminalTabUpdateRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-update.request.json");
+    let tab_update_result: TerminalTabUpdateResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-update.result.json");
+    let tab_update_error: AppError =
+        read_fixture("../fixtures/contracts/terminal/terminal-tab-update.error.json");
 
     assert_eq!(
         request.member_id.as_deref(),
@@ -190,6 +224,44 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(status_event.status, TerminalSessionStatus::Running);
     assert_eq!(status_event.cols, 100);
     assert_eq!(status_event.rows, 32);
+    assert_eq!(tabs_list_result.tabs.len(), 2);
+    assert_eq!(
+        tabs_list_result.active_tab_id.as_deref(),
+        Some("01K00000000000000000000080")
+    );
+    assert_eq!(tabs_list_result.tabs[0].status, TerminalTabStatus::Open);
+    assert!(tabs_list_result.tabs[0].is_pinned);
+    assert_eq!(tabs_list_result.tabs[1].status, TerminalTabStatus::Closed);
+    assert_eq!(tabs_list_error.code, "terminal.workspace.required");
+    assert_eq!(
+        tab_create_request.member_id.as_deref(),
+        Some("01K00000000000000000000031")
+    );
+    assert_eq!(
+        tab_create_result.tab.terminal_session_id,
+        tab_create_result.session.terminal_session_id
+    );
+    assert_eq!(tab_create_result.tabs.len(), 1);
+    assert_eq!(tab_create_error.code, "terminal.tab.label.tooLong");
+    assert_eq!(tab_close_request.tab_id, "01K00000000000000000000080");
+    assert_eq!(tab_close_result.tab.status, TerminalTabStatus::Closed);
+    assert_eq!(
+        tab_close_result.session.status,
+        TerminalSessionStatus::Exited
+    );
+    assert_eq!(tab_close_error.code, "terminal.close.failed");
+    assert_eq!(tab_restore_request.tab_id, tab_close_request.tab_id);
+    assert_eq!(tab_restore_result.tab.status, TerminalTabStatus::Open);
+    assert_eq!(
+        tab_restore_result.tab.terminal_session_id,
+        tab_restore_result.session.terminal_session_id
+    );
+    assert_eq!(tab_restore_error.code, "terminal.tab.restore.notClosed");
+    assert_eq!(tab_update_request.label.as_deref(), Some("Pinned Codex"));
+    assert_eq!(tab_update_request.is_pinned, Some(true));
+    assert_eq!(tab_update_result.tab.status, TerminalTabStatus::Open);
+    assert!(tab_update_result.tab.is_pinned);
+    assert_eq!(tab_update_error.code, "terminal.tab.order.invalid");
 }
 
 #[test]

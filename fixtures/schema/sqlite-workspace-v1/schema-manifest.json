@@ -11,7 +11,8 @@
     "conversation_members",
     "messages",
     "message_mentions",
-    "conversation_read_positions"
+    "conversation_read_positions",
+    "terminal_tabs"
   ],
   "migrationFiles": [
     "202605112300__members.sql",
@@ -20,7 +21,8 @@
     "202605121300__conversation_list_groups.sql",
     "202605121430__messages_read_positions.sql",
     "202605121600__conversation_management.sql",
-    "202605121700__message_mentions.sql"
+    "202605121700__message_mentions.sql",
+    "202605121900__terminal_tabs.sql"
   ],
   "validationPaths": [
     "member profiles database must contain exactly one owner per workspace",
@@ -32,6 +34,7 @@
     "messages records persist local text messages with send status",
     "message_mentions records persist structured mentioned member ids separately from message body",
     "conversation_read_positions records persist local read cursor per conversation",
+    "terminal_tabs records persist labels, pin/order state, closed timestamp and latest attached session id without terminal output",
     "future stories must add their own manifest entries, migrations and fixtures with their own tables"
   ],
   "ownedByFutureStories": [

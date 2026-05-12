@@ -21,6 +21,14 @@ pub enum TerminalStreamKind {
     System,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub enum TerminalTabStatus {
+    Open,
+    Closed,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "terminal.ts")]
@@ -59,6 +67,43 @@ pub struct TerminalResizeRequest {
 #[ts(export, export_to = "terminal.ts")]
 pub struct TerminalCloseRequest {
     pub terminal_session_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabsListRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabCreateRequest {
+    pub member_id: Option<String>,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabCloseRequest {
+    pub tab_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabRestoreRequest {
+    pub tab_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabUpdateRequest {
+    pub tab_id: String,
+    pub label: Option<String>,
+    pub is_pinned: Option<bool>,
+    pub sort_index: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
@@ -115,6 +160,71 @@ pub struct TerminalResizeResult {
 #[ts(export, export_to = "terminal.ts")]
 pub struct TerminalCloseResult {
     pub session: TerminalSessionProfile,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabProfile {
+    pub schema_version: u32,
+    pub tab_id: String,
+    pub workspace_id: String,
+    pub terminal_session_id: String,
+    pub member_id: Option<String>,
+    pub label: String,
+    pub shell: String,
+    pub status: TerminalTabStatus,
+    pub is_pinned: bool,
+    pub sort_index: i32,
+    #[ts(type = "number")]
+    pub created_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+    #[ts(type = "number | null")]
+    pub closed_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabsListResult {
+    pub tabs: Vec<TerminalTabProfile>,
+    pub active_tab_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabCreateResult {
+    pub tab: TerminalTabProfile,
+    pub session: TerminalSessionProfile,
+    pub tabs: Vec<TerminalTabProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabCloseResult {
+    pub tab: TerminalTabProfile,
+    pub session: TerminalSessionProfile,
+    pub tabs: Vec<TerminalTabProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabRestoreResult {
+    pub tab: TerminalTabProfile,
+    pub session: TerminalSessionProfile,
+    pub tabs: Vec<TerminalTabProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "terminal.ts")]
+pub struct TerminalTabUpdateResult {
+    pub tab: TerminalTabProfile,
+    pub tabs: Vec<TerminalTabProfile>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]

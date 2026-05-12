@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "workspaceId": "01K00000000000000000000000",
+  "tabs": [
+    {
+      "schemaVersion": 1,
+      "tabId": "01K00000000000000000000080",
+      "workspaceId": "01K00000000000000000000000",
+      "terminalSessionId": "01K00000000000000000000090",
+      "memberId": "01K00000000000000000000031",
+      "label": "Codex Reviewer",
+      "shell": "codex",
+      "status": "open",
+      "isPinned": true,
+      "sortIndex": 0,
+      "createdAtMs": 1760000000000,
+      "updatedAtMs": 1760000000001,
+      "closedAtMs": null
+    },
+    {
+      "schemaVersion": 1,
+      "tabId": "01K00000000000000000000081",
+      "workspaceId": "01K00000000000000000000000",
+      "terminalSessionId": "01K00000000000000000000091",
+      "memberId": null,
+      "label": "Workspace shell",
+      "shell": "zsh",
+      "status": "closed",
+      "isPinned": false,
+      "sortIndex": 1,
+      "createdAtMs": 1760000000100,
+      "updatedAtMs": 1760000000200,
+      "closedAtMs": 1760000000200
+    }
+  ],
+  "orderingRule": "Pinned tabs sort before unpinned tabs, then sortIndex, then createdAtMs and tabId tie breakers.",
+  "excludedPayloads": [
+    "terminal output chunks",
+    "xterm scrollback",
+    "session snapshots",
+    "PTY handles"
+  ]
+}

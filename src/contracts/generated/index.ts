@@ -87,6 +87,18 @@ export type {
   TerminalSessionStatus,
   TerminalStatusEventPayload,
   TerminalStreamKind,
+  TerminalTabCloseRequest,
+  TerminalTabCloseResult,
+  TerminalTabCreateRequest,
+  TerminalTabCreateResult,
+  TerminalTabProfile,
+  TerminalTabRestoreRequest,
+  TerminalTabRestoreResult,
+  TerminalTabStatus,
+  TerminalTabUpdateRequest,
+  TerminalTabUpdateResult,
+  TerminalTabsListRequest,
+  TerminalTabsListResult,
 } from "./terminal";
 export type {
   AppLanguage,

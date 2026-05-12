@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=10"
+      "details": "entries=11"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -113,12 +113,22 @@
       "affectedPaths": [],
       "userAction": null,
       "details": null
+    },
+    {
+      "checkId": "terminal.tabs.schema_validate",
+      "category": "terminalTabs",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace id is available for terminal tab validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
     }
   ],
-  "totalChecks": 11,
+  "totalChecks": 12,
   "passedChecks": 3,
   "failedChecks": 1,
-  "skippedChecks": 7,
+  "skippedChecks": 8,
   "hasFailures": true,
   "batched": true
 }

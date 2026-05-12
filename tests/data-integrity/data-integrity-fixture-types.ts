@@ -50,6 +50,7 @@ function storageCategory(value: string): StorageCategory {
     case "messageMentions":
     case "conversationReadPositions":
     case "privateConversations":
+    case "terminalTabs":
       return value;
     default:
       throw new Error(`Unknown storage category: ${value}`);

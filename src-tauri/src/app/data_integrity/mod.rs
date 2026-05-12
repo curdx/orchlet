@@ -26,6 +26,7 @@ use crate::{
                 validate_read_position_store,
             },
             member_repository::validate_member_store,
+            terminal_tab_repository::validate_terminal_tab_store,
             workspace_database::workspace_database_path,
         },
         storage_manifest::storage_manifest_entries,
@@ -122,6 +123,10 @@ pub fn validate_data_integrity(
         app_data_dir,
         workspace_id.as_deref(),
     ));
+    checks.push(validate_terminal_tabs(
+        app_data_dir,
+        workspace_id.as_deref(),
+    ));
 
     report_from_checks(manifest, checks)
 }
@@ -153,6 +158,7 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::MessageRecords,
         StorageCategory::MessageMentions,
         StorageCategory::ConversationReadPositions,
+        StorageCategory::TerminalTabs,
     ];
     let missing_categories = expected_categories
         .iter()
@@ -198,6 +204,33 @@ fn validate_contact_profiles(app_data_dir: &Path) -> DataIntegrityCheckResult {
         vec![contact_database_path(app_data_dir)],
         validate_contact_store(app_data_dir)
             .map(|_| "Global contact store is readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_terminal_tabs(
+    app_data_dir: &Path,
+    workspace_id: Option<&str>,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_id) = workspace_id else {
+        return DataIntegrityCheckResult {
+            check_id: "terminal.tabs.schema_validate".to_owned(),
+            category: StorageCategory::TerminalTabs,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace id is available for terminal tab validation.".to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+    check_result(
+        "terminal.tabs.schema_validate",
+        StorageCategory::TerminalTabs,
+        vec![database_path],
+        validate_terminal_tab_store(app_data_dir, workspace_id)
+            .map(|_| "Terminal tab store is readable when initialized.".to_owned()),
     )
 }
 
@@ -565,7 +598,7 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 10);
+        assert_eq!(manifest.len(), 11);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
@@ -576,6 +609,7 @@ mod tests {
         assert!(categories.contains(&StorageCategory::MessageRecords));
         assert!(categories.contains(&StorageCategory::MessageMentions));
         assert!(categories.contains(&StorageCategory::ConversationReadPositions));
+        assert!(categories.contains(&StorageCategory::TerminalTabs));
         assert!(manifest
             .iter()
             .all(|entry| entry.schema_version == 1 && entry.fixture_required));
@@ -586,9 +620,9 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 11);
+        assert_eq!(report.total_checks, 12);
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 7);
+        assert_eq!(report.skipped_checks, 8);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Skipped
@@ -677,7 +711,7 @@ mod tests {
         );
 
         assert_eq!(report.failed_checks, 1);
-        assert_eq!(report.skipped_checks, 6);
+        assert_eq!(report.skipped_checks, 7);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Failed
@@ -725,7 +759,7 @@ mod tests {
         let report = validate_data_integrity(app_data.path(), None, None);
 
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 7);
+        assert_eq!(report.skipped_checks, 8);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceRegistry
                 && check.status == DataIntegrityStatus::Passed

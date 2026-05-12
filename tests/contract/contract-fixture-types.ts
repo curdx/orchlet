@@ -81,6 +81,18 @@ import type {
   TerminalSessionStatus,
   TerminalStatusEventPayload,
   TerminalStreamKind,
+  TerminalTabCloseRequest,
+  TerminalTabCloseResult,
+  TerminalTabCreateRequest,
+  TerminalTabCreateResult,
+  TerminalTabProfile,
+  TerminalTabRestoreRequest,
+  TerminalTabRestoreResult,
+  TerminalTabStatus,
+  TerminalTabUpdateRequest,
+  TerminalTabUpdateResult,
+  TerminalTabsListRequest,
+  TerminalTabsListResult,
 } from "../../src/contracts/generated/terminal";
 import type {
   WorkspaceAccessMode,
@@ -162,6 +174,21 @@ import terminalResizeError from "../../fixtures/contracts/terminal/terminal-resi
 import terminalResizeRequest from "../../fixtures/contracts/terminal/terminal-resize.request.json";
 import terminalResizeResult from "../../fixtures/contracts/terminal/terminal-resize.result.json";
 import terminalStatusEvent from "../../fixtures/contracts/terminal/terminal-status.event.json";
+import terminalTabsListError from "../../fixtures/contracts/terminal/terminal-tabs-list.error.json";
+import terminalTabsListRequest from "../../fixtures/contracts/terminal/terminal-tabs-list.request.json";
+import terminalTabsListResult from "../../fixtures/contracts/terminal/terminal-tabs-list.result.json";
+import terminalTabCreateError from "../../fixtures/contracts/terminal/terminal-tab-create.error.json";
+import terminalTabCreateRequest from "../../fixtures/contracts/terminal/terminal-tab-create.request.json";
+import terminalTabCreateResult from "../../fixtures/contracts/terminal/terminal-tab-create.result.json";
+import terminalTabCloseError from "../../fixtures/contracts/terminal/terminal-tab-close.error.json";
+import terminalTabCloseRequest from "../../fixtures/contracts/terminal/terminal-tab-close.request.json";
+import terminalTabCloseResult from "../../fixtures/contracts/terminal/terminal-tab-close.result.json";
+import terminalTabRestoreError from "../../fixtures/contracts/terminal/terminal-tab-restore.error.json";
+import terminalTabRestoreRequest from "../../fixtures/contracts/terminal/terminal-tab-restore.request.json";
+import terminalTabRestoreResult from "../../fixtures/contracts/terminal/terminal-tab-restore.result.json";
+import terminalTabUpdateError from "../../fixtures/contracts/terminal/terminal-tab-update.error.json";
+import terminalTabUpdateRequest from "../../fixtures/contracts/terminal/terminal-tab-update.request.json";
+import terminalTabUpdateResult from "../../fixtures/contracts/terminal/terminal-tab-update.result.json";
 import workspaceError from "../../fixtures/contracts/workspace/workspace-open.error.json";
 import workspaceRequest from "../../fixtures/contracts/workspace/workspace-open.request.json";
 import workspaceResult from "../../fixtures/contracts/workspace/workspace-open.result.json";
@@ -257,6 +284,44 @@ export const terminalStatusEventFixture: TerminalStatusEventPayload = {
   ...terminalStatusEvent,
   status: terminalSessionStatus(terminalStatusEvent.status),
 };
+export const terminalTabsListRequestFixture: TerminalTabsListRequest =
+  terminalTabsListRequest;
+export const terminalTabsListResultFixture: TerminalTabsListResult = {
+  ...terminalTabsListResult,
+  tabs: terminalTabsListResult.tabs.map(terminalTabProfile),
+};
+export const terminalTabsListErrorFixture: AppError = appError(terminalTabsListError);
+export const terminalTabCreateRequestFixture: TerminalTabCreateRequest =
+  terminalTabCreateRequest;
+export const terminalTabCreateResultFixture: TerminalTabCreateResult = {
+  tab: terminalTabProfile(terminalTabCreateResult.tab),
+  session: terminalSessionProfile(terminalTabCreateResult.session),
+  tabs: terminalTabCreateResult.tabs.map(terminalTabProfile),
+};
+export const terminalTabCreateErrorFixture: AppError = appError(terminalTabCreateError);
+export const terminalTabCloseRequestFixture: TerminalTabCloseRequest =
+  terminalTabCloseRequest;
+export const terminalTabCloseResultFixture: TerminalTabCloseResult = {
+  tab: terminalTabProfile(terminalTabCloseResult.tab),
+  session: terminalSessionProfile(terminalTabCloseResult.session),
+  tabs: terminalTabCloseResult.tabs.map(terminalTabProfile),
+};
+export const terminalTabCloseErrorFixture: AppError = appError(terminalTabCloseError);
+export const terminalTabRestoreRequestFixture: TerminalTabRestoreRequest =
+  terminalTabRestoreRequest;
+export const terminalTabRestoreResultFixture: TerminalTabRestoreResult = {
+  tab: terminalTabProfile(terminalTabRestoreResult.tab),
+  session: terminalSessionProfile(terminalTabRestoreResult.session),
+  tabs: terminalTabRestoreResult.tabs.map(terminalTabProfile),
+};
+export const terminalTabRestoreErrorFixture: AppError = appError(terminalTabRestoreError);
+export const terminalTabUpdateRequestFixture: TerminalTabUpdateRequest =
+  terminalTabUpdateRequest;
+export const terminalTabUpdateResultFixture: TerminalTabUpdateResult = {
+  tab: terminalTabProfile(terminalTabUpdateResult.tab),
+  tabs: terminalTabUpdateResult.tabs.map(terminalTabProfile),
+};
+export const terminalTabUpdateErrorFixture: AppError = appError(terminalTabUpdateError);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -396,6 +461,11 @@ type ErrorJson =
   | typeof terminalInputError
   | typeof terminalResizeError
   | typeof terminalCloseError
+  | typeof terminalTabsListError
+  | typeof terminalTabCreateError
+  | typeof terminalTabCloseError
+  | typeof terminalTabRestoreError
+  | typeof terminalTabUpdateError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -503,6 +573,7 @@ function storageOwner(value: string): StorageOwner {
     case "member":
     case "contact":
     case "chat":
+    case "terminal":
       return value;
     default:
       throw new Error(`Unknown storage owner: ${value}`);
@@ -523,6 +594,7 @@ function storageCategory(value: string): StorageCategory {
     case "messageMentions":
     case "conversationReadPositions":
     case "privateConversations":
+    case "terminalTabs":
       return value;
     default:
       throw new Error(`Unknown storage category: ${value}`);
@@ -759,6 +831,37 @@ function terminalStreamKind(value: string): TerminalStreamKind {
     default:
       throw new Error(`Unknown terminal stream kind: ${value}`);
   }
+}
+
+function terminalTabStatus(value: string): TerminalTabStatus {
+  switch (value) {
+    case "open":
+    case "closed":
+      return value;
+    default:
+      throw new Error(`Unknown terminal tab status: ${value}`);
+  }
+}
+
+function terminalTabProfile(tab: {
+  schemaVersion: number;
+  tabId: string;
+  workspaceId: string;
+  terminalSessionId: string;
+  memberId: string | null;
+  label: string;
+  shell: string;
+  status: string;
+  isPinned: boolean;
+  sortIndex: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+  closedAtMs: number | null;
+}): TerminalTabProfile {
+  return {
+    ...tab,
+    status: terminalTabStatus(tab.status),
+  };
 }
 
 function dataIntegrityStatus(value: string): DataIntegrityStatus {
