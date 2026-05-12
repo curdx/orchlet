@@ -3,10 +3,12 @@ use crate::{
         StorageCategory, StorageFormat, StorageManifestEntry, StorageOwner, StoragePathPolicy,
         StoragePrivacyClass,
     },
-    domain::workspace::{
-        WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME, WORKSPACE_SCHEMA_VERSION,
+    domain::{
+        settings::PROFILE_SETTINGS_FILE_NAME,
+        workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME, WORKSPACE_SCHEMA_VERSION},
     },
     infrastructure::persistence::json_store::{
+        profile_settings_store::PROFILE_SETTINGS_STORE_SCHEMA_VERSION,
         skill_library_store::{SKILL_LIBRARY_FILE_NAME, SKILL_LIBRARY_SCHEMA_VERSION},
         workspace_fallback_store::{
             WORKSPACE_FALLBACK_FILE_NAME, WORKSPACE_FALLBACK_SCHEMA_VERSION,
@@ -103,6 +105,31 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "workspace.fallbacks.load_validate".to_owned(),
             notes: "This store preserves stable project ids when workspace-local metadata cannot be written."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "settings.profile".to_owned(),
+            owner: StorageOwner::Settings,
+            category: StorageCategory::ProfileSettings,
+            description: "App-data local profile display identity, timezone, status and status message."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataFile,
+            relative_path: Some(format!("settings/{}", PROFILE_SETTINGS_FILE_NAME)),
+            file_name: Some(PROFILE_SETTINGS_FILE_NAME.to_owned()),
+            format: StorageFormat::Json,
+            schema_version: PROFILE_SETTINGS_STORE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/profile_settings_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/profile_settings_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::AppState,
+            fixture_required: true,
+            validation_check_id: "settings.profile.load_validate".to_owned(),
+            notes: "Local-only profile settings; no remote account, email, team membership or authentication fields are stored."
                 .to_owned(),
         },
         StorageManifestEntry {

@@ -12,13 +12,13 @@ export type DataIntegrityValidateRequest = { workspaceRoot: string | null, };
 
 export type DataIntegrityValidateResult = { report: DataIntegrityReport, };
 
-export type StorageCategory = "storageManifest" | "workspaceMetadata" | "workspaceRegistry" | "workspaceFallbacks" | "memberProfiles" | "contactProfiles" | "conversationRecords" | "conversationMembers" | "messageRecords" | "messageMentions" | "conversationReadPositions" | "privateConversations" | "terminalTabs" | "skillLibrary" | "workspaceSkillLinks" | "roadmapTasks" | "roadmapGoals";
+export type StorageCategory = "storageManifest" | "workspaceMetadata" | "workspaceRegistry" | "workspaceFallbacks" | "profileSettings" | "memberProfiles" | "contactProfiles" | "conversationRecords" | "conversationMembers" | "messageRecords" | "messageMentions" | "conversationReadPositions" | "privateConversations" | "terminalTabs" | "skillLibrary" | "workspaceSkillLinks" | "roadmapTasks" | "roadmapGoals";
 
 export type StorageFormat = "json" | "sqlite";
 
 export type StorageManifestEntry = { id: string, owner: StorageOwner, category: StorageCategory, description: string, pathPolicy: StoragePathPolicy, relativePath: string | null, fileName: string | null, format: StorageFormat, schemaVersion: number, readers: Array<string>, writers: Array<string>, privacyClass: StoragePrivacyClass, fixtureRequired: boolean, validationCheckId: string, notes: string, };
 
-export type StorageOwner = "workspace" | "member" | "contact" | "chat" | "terminal" | "skill" | "roadmap";
+export type StorageOwner = "workspace" | "settings" | "member" | "contact" | "chat" | "terminal" | "skill" | "roadmap";
 
 export type StoragePathPolicy = "workspaceLocalRelative" | "appDataFile" | "appDataWorkspaceFile";
 

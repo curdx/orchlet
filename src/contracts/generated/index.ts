@@ -123,6 +123,14 @@ export type {
   UpdateRoadmapTaskResult,
 } from "./roadmap";
 export type {
+  GetProfileSettingsRequest,
+  GetProfileSettingsResult,
+  ProfileSettingsSnapshot,
+  ProfileStatus,
+  UpdateProfileSettingsRequest,
+  UpdateProfileSettingsResult,
+} from "./settings";
+export type {
   DeleteSkillRequest,
   DeleteSkillResult,
   ImportLocalSkillFolderRequest,

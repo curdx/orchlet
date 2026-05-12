@@ -441,6 +441,28 @@
       "requirements": ["FR62", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
     },
     {
+      "domain": "settings",
+      "command": "profile_settings_get",
+      "requestFixture": "fixtures/contracts/settings/profile-settings-get.request.json",
+      "successResultFixture": "fixtures/contracts/settings/profile-settings-get.result.json",
+      "errorFixture": "fixtures/contracts/settings/profile-settings-get.error.json",
+      "rustRequestDto": "GetProfileSettingsRequest",
+      "rustSuccessDto": "GetProfileSettingsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR63", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "profile_settings_update",
+      "requestFixture": "fixtures/contracts/settings/profile-settings-update.request.json",
+      "successResultFixture": "fixtures/contracts/settings/profile-settings-update.result.json",
+      "errorFixture": "fixtures/contracts/settings/profile-settings-update.error.json",
+      "rustRequestDto": "UpdateProfileSettingsRequest",
+      "rustSuccessDto": "UpdateProfileSettingsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR63", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

@@ -6,6 +6,7 @@ pub mod member;
 pub mod notification;
 pub mod orchestration;
 pub mod roadmap;
+pub mod settings;
 pub mod skill;
 pub mod terminal;
 pub mod workspace;
@@ -58,6 +59,10 @@ pub use roadmap::{
     ListRoadmapGoalsResult, ListRoadmapTasksRequest, ListRoadmapTasksResult, RoadmapGoalEntry,
     RoadmapTaskEntry, RoadmapTaskStatus, UpdateRoadmapGoalRequest, UpdateRoadmapGoalResult,
     UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult,
+};
+pub use settings::{
+    GetProfileSettingsRequest, GetProfileSettingsResult, ProfileSettingsSnapshot, ProfileStatus,
+    UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
 };
 pub use skill::{
     DeleteSkillRequest, DeleteSkillResult, ImportLocalSkillFolderRequest,

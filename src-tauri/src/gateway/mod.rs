@@ -5,6 +5,7 @@ pub mod member_commands;
 pub mod notification_commands;
 pub mod orchestration_commands;
 pub mod roadmap_commands;
+pub mod settings_commands;
 pub mod skills_commands;
 pub mod terminal_commands;
 pub mod workspace_commands;

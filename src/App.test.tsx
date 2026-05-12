@@ -48,6 +48,8 @@ import type {
   NotificationUnreadUpdateRequest,
   NotificationUnreadUpdateResult,
   OpenWorkspaceResult,
+  ProfileSettingsSnapshot,
+  ProfileStatus,
   RecentWorkspaceEntry,
   RemoveMemberRequest,
   RemoveMemberResult,
@@ -82,6 +84,7 @@ import type {
   UpdateRoadmapTaskResult,
   UpdateMemberStatusRequest,
   UpdateMemberStatusResult,
+  UpdateProfileSettingsResult,
   UpdateGroupConversationMembersResult,
   UpdateReadPositionRequest,
   UpdateReadPositionResult,
@@ -196,6 +199,15 @@ function renderWorkspaceSelection(api: {
     ) => Promise<UpdateRoadmapGoalResult>;
     deleteGoal: (workspaceRoot: string, goalId: string) => Promise<DeleteRoadmapGoalResult>;
   }>;
+  settingsApi?: Partial<{
+    getProfileSettings: () => Promise<{ profile: ProfileSettingsSnapshot }>;
+    updateProfileSettings: (input: {
+      displayName: string;
+      timezone: string;
+      status: ProfileStatus;
+      statusMessage: string;
+    }) => Promise<UpdateProfileSettingsResult>;
+  }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
     createContact: (request: CreateContactRequest) => Promise<CreateContactResult>;
@@ -230,6 +242,7 @@ function renderWorkspaceSelection(api: {
     notificationApi,
     skillsApi,
     roadmapApi,
+    settingsApi,
     terminalApi,
     terminalDispatchApi,
     contactApi,
@@ -301,6 +314,12 @@ function renderWorkspaceSelection(api: {
           updateGoal: () => Promise.reject(new Error("updateGoal mock missing")),
           deleteGoal: () => Promise.reject(new Error("deleteGoal mock missing")),
           ...roadmapApi,
+        }}
+        settingsApi={{
+          getProfileSettings: () => Promise.resolve({ profile: profileSettingsSnapshot() }),
+          updateProfileSettings: () =>
+            Promise.reject(new Error("updateProfileSettings mock missing")),
+          ...settingsApi,
         }}
         terminalDispatchApi={{
           dispatchChatMessage: () =>
@@ -596,6 +615,21 @@ function roadmapGoalEntry(overrides: Partial<RoadmapGoalEntry> = {}): RoadmapGoa
   };
 }
 
+function profileSettingsSnapshot(
+  overrides: Partial<ProfileSettingsSnapshot> = {},
+): ProfileSettingsSnapshot {
+  return {
+    schemaVersion: 1,
+    displayName: "Owner",
+    timezone: "UTC",
+    status: "online",
+    statusMessage: null,
+    createdAtMs: 1760000050000,
+    updatedAtMs: 1760000050000,
+    ...overrides,
+  };
+}
+
 function dataIntegrityReport(
   overrides: Partial<DataIntegrityReport> = {},
 ): DataIntegrityReport {
@@ -782,6 +816,127 @@ describe("App workspace entry", () => {
     expect(screen.getByText("Schema v1")).toBeInTheDocument();
     expect(screen.getByText("可写模式")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "打开文件管理器" })).toBeInTheDocument();
+  });
+
+  it("saves profile settings and reflects them on the owner member surface", async () => {
+    const user = userEvent.setup();
+    const owner = memberProfile({ displayName: "Workspace Owner", status: "online" });
+    const updateProfileSettings = vi.fn(
+      (input: {
+        displayName: string;
+        timezone: string;
+        status: ProfileStatus;
+        statusMessage: string;
+      }) =>
+      Promise.resolve({
+        profile: profileSettingsSnapshot({
+          displayName: input.displayName,
+          timezone: input.timezone,
+          status: input.status,
+          statusMessage: input.statusMessage,
+          updatedAtMs: 1760000051000,
+        }),
+      } satisfies UpdateProfileSettingsResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers: () => Promise.resolve({ members: [owner] }) },
+      settingsApi: { updateProfileSettings },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    const initialMembersPanel = await screen.findByRole("region", { name: "Owner 与邀请成员" });
+    expect(within(initialMembersPanel).getByText("Owner · 在线 · 无运行时")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "打开设置" }));
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.clear(within(form).getByLabelText("显示名称"));
+    await user.type(within(form).getByLabelText("显示名称"), "Dana");
+    await user.selectOptions(within(form).getByLabelText("时区"), "Asia/Shanghai");
+    await user.selectOptions(within(form).getByLabelText("状态"), "working");
+    await user.type(within(form).getByLabelText("状态消息"), "Reviewing Story 7.1");
+    await user.click(within(form).getByRole("button", { name: "保存资料" }));
+
+    expect(updateProfileSettings).toHaveBeenCalledWith({
+      displayName: "Dana",
+      timezone: "Asia/Shanghai",
+      status: "working",
+      statusMessage: "Reviewing Story 7.1",
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("个人资料已保存");
+
+    const membersPanel = await screen.findByRole("region", { name: "Owner 与邀请成员" });
+    expect(within(membersPanel).getByText("Dana")).toBeInTheDocument();
+    expect(within(membersPanel).getByText("Owner · 工作中 · 无运行时")).toBeInTheDocument();
+  });
+
+  it("keeps editable profile drafts visible when validation fails", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers: () => Promise.resolve({ members: [memberProfile()] }) },
+      settingsApi: {
+        updateProfileSettings: () =>
+          Promise.reject({
+            code: "settings.profile.invalidDisplayName",
+            message: "显示名称不能为空。",
+            severity: "error",
+            recoverable: true,
+            userAction: "请输入显示名称后重试。",
+            details: "field=displayName",
+            correlationId: null,
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.clear(within(form).getByLabelText("显示名称"));
+    await user.type(within(form).getByLabelText("显示名称"), "Draft Name");
+    await user.click(within(form).getByRole("button", { name: "保存资料" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("显示名称不能为空。");
+    expect(within(form).getByLabelText("显示名称")).toHaveValue("Draft Name");
+    expect(within(form).getByText("显示名称不能为空。")).toBeInTheDocument();
+  });
+
+  it("restores saved profile values into settings and member surfaces", async () => {
+    const user = userEvent.setup();
+    const savedProfile = profileSettingsSnapshot({
+      displayName: "Restored Dana",
+      timezone: "Europe/London",
+      status: "doNotDisturb",
+      statusMessage: "Focus block",
+      updatedAtMs: 1760000053000,
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers: () => Promise.resolve({ members: [memberProfile()] }) },
+      settingsApi: {
+        getProfileSettings: () => Promise.resolve({ profile: savedProfile }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const membersPanel = await screen.findByRole("region", { name: "Owner 与邀请成员" });
+    expect(await within(membersPanel).findByText("Restored Dana")).toBeInTheDocument();
+    expect(within(membersPanel).getByText("Owner · 请勿打扰 · 无运行时")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "打开设置" }));
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    expect(within(form).getByLabelText("显示名称")).toHaveValue("Restored Dana");
+    expect(within(form).getByLabelText("时区")).toHaveValue("Europe/London");
+    expect(within(form).getByLabelText("状态")).toHaveValue("doNotDisturb");
+    expect(within(form).getByLabelText("状态消息")).toHaveValue("Focus block");
   });
 
   it("imports a local skill folder and shows it in the skill library", async () => {
@@ -3586,7 +3741,7 @@ describe("App workspace entry", () => {
     await user.click(screen.getByRole("button", { name: "打开文件夹" }));
 
     const membersPanel = await screen.findByRole("region", { name: "Owner 与邀请成员" });
-    expect(within(membersPanel).getByText("Workspace Owner")).toBeInTheDocument();
+    expect(within(membersPanel).getByText("Owner")).toBeInTheDocument();
     expect(within(membersPanel).getByText("Owner · 在线 · 无运行时")).toBeInTheDocument();
 
     await user.type(within(membersPanel).getByLabelText("显示名称"), "Codex Reviewer");

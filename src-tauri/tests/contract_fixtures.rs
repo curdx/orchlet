@@ -10,37 +10,39 @@ use orchlet_lib::contracts::{
     DeleteRoadmapGoalRequest, DeleteRoadmapGoalResult, DeleteRoadmapTaskRequest,
     DeleteRoadmapTaskResult, DeleteSkillRequest, DeleteSkillResult, DispatchChatMessageRequest,
     DispatchChatMessageResult, DispatchQueueResumeRequest, DispatchQueueResumeResult,
-    DispatchRequestStatus, DispatchTargetResolutionSource, ImportLocalSkillFolderRequest,
-    ImportLocalSkillFolderResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
-    LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult,
-    ListConversationsRequest, ListConversationsResult, ListMembersRequest, ListMembersResult,
-    ListMessagesRequest, ListMessagesResult, ListRoadmapGoalsRequest, ListRoadmapGoalsResult,
-    ListRoadmapTasksRequest, ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest,
-    ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind, MemberStatus,
-    NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
-    NotificationNavigationKind, NotificationNavigationPendingRequest,
-    NotificationNavigationPendingResult, NotificationNavigationRequest,
-    NotificationNavigationResult, NotificationUnreadSummary, NotificationUnreadSummaryRequest,
-    NotificationUnreadSummaryResult, NotificationUnreadUpdateRequest,
-    NotificationUnreadUpdateResult, OpenSkillFolderRequest, OpenSkillFolderResult,
-    OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult,
-    RoadmapTaskStatus, SendMessageRequest, SendMessageResult, SkillImportStatus,
-    SkillLibraryListRequest, SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
-    StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
-    TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
-    TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
-    TerminalInputResult, TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload,
-    TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus, TerminalStatusEventPayload,
-    TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
-    TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
-    TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    DispatchRequestStatus, DispatchTargetResolutionSource, GetProfileSettingsRequest,
+    GetProfileSettingsResult, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
+    InviteMemberRequest, InviteMemberResult, InvitedMemberType, LinkWorkspaceSkillRequest,
+    LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult, ListConversationsRequest,
+    ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
+    ListMessagesResult, ListRoadmapGoalsRequest, ListRoadmapGoalsResult, ListRoadmapTasksRequest,
+    ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult,
+    MemberRole, MemberRuntimeKind, MemberStatus, NotificationIgnoreAllRequest,
+    NotificationIgnoreAllResult, NotificationNavigationAction, NotificationNavigationKind,
+    NotificationNavigationPendingRequest, NotificationNavigationPendingResult,
+    NotificationNavigationRequest, NotificationNavigationResult, NotificationUnreadSummary,
+    NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
+    NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenSkillFolderRequest,
+    OpenSkillFolderResult, OpenWorkspaceRequest, OpenWorkspaceResult, ProfileStatus,
+    RemoveMemberRequest, RemoveMemberResult, RoadmapTaskStatus, SendMessageRequest,
+    SendMessageResult, SkillImportStatus, SkillLibraryListRequest, SkillLibraryListResult,
+    SkillSource, StartPrivateConversationRequest, StartPrivateConversationResult,
+    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
+    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
+    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
+    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
+    TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
+    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
+    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
+    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
     TerminalTabsListResult, UnlinkWorkspaceSkillRequest, UnlinkWorkspaceSkillResult,
     UpdateContactRequest, UpdateContactResult, UpdateConversationSettingsRequest,
     UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
     UpdateGroupConversationMembersResult, UpdateMemberStatusRequest, UpdateMemberStatusResult,
-    UpdateReadPositionRequest, UpdateReadPositionResult, UpdateRoadmapGoalRequest,
-    UpdateRoadmapGoalResult, UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult, WindowMode,
-    WorkspaceOpenStatus, WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
+    UpdateProfileSettingsRequest, UpdateProfileSettingsResult, UpdateReadPositionRequest,
+    UpdateReadPositionResult, UpdateRoadmapGoalRequest, UpdateRoadmapGoalResult,
+    UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult, WindowMode, WorkspaceOpenStatus,
+    WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -86,6 +88,40 @@ fn data_integrity_contract_fixtures_deserialize_into_rust_dtos() {
     assert!(!result.report.has_failures);
     assert_eq!(error.code, "dataIntegrity.appDataDirFailed");
     assert!(error.recoverable);
+}
+
+#[test]
+fn profile_settings_contract_fixtures_deserialize_into_rust_dtos() {
+    let get_request: GetProfileSettingsRequest =
+        read_fixture("../fixtures/contracts/settings/profile-settings-get.request.json");
+    let get_result: GetProfileSettingsResult =
+        read_fixture("../fixtures/contracts/settings/profile-settings-get.result.json");
+    let get_error: AppError =
+        read_fixture("../fixtures/contracts/settings/profile-settings-get.error.json");
+    let update_request: UpdateProfileSettingsRequest =
+        read_fixture("../fixtures/contracts/settings/profile-settings-update.request.json");
+    let update_result: UpdateProfileSettingsResult =
+        read_fixture("../fixtures/contracts/settings/profile-settings-update.result.json");
+    let update_error: AppError =
+        read_fixture("../fixtures/contracts/settings/profile-settings-update.error.json");
+
+    let _ = get_request;
+    assert_eq!(get_result.profile.display_name, "Dana");
+    assert_eq!(get_result.profile.timezone, "Asia/Shanghai");
+    assert_eq!(get_result.profile.status, ProfileStatus::Working);
+    assert_eq!(
+        get_result.profile.status_message.as_deref(),
+        Some("Reviewing Story 7.1")
+    );
+    assert_eq!(get_error.code, "settings.profile.invalidJson");
+    assert_eq!(update_request.status.as_deref(), Some("working"));
+    assert_eq!(update_result.profile.updated_at_ms, 1_760_000_062_000);
+    assert_eq!(update_error.code, "settings.profile.invalidDisplayName");
+    assert!(update_error
+        .details
+        .as_deref()
+        .unwrap_or_default()
+        .contains("displayName"));
 }
 
 #[test]

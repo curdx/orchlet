@@ -53,6 +53,8 @@ pub fn run() {
             gateway::roadmap_commands::roadmap_goal_create,
             gateway::roadmap_commands::roadmap_goal_update,
             gateway::roadmap_commands::roadmap_goal_delete,
+            gateway::settings_commands::profile_settings_get,
+            gateway::settings_commands::profile_settings_update,
             gateway::terminal_commands::terminal_open,
             gateway::terminal_commands::terminal_attach,
             gateway::terminal_commands::terminal_input,

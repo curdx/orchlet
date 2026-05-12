@@ -6,6 +6,7 @@ use ts_rs::TS;
 #[ts(export, export_to = "data_integrity.ts")]
 pub enum StorageOwner {
     Workspace,
+    Settings,
     Member,
     Contact,
     Chat,
@@ -22,6 +23,7 @@ pub enum StorageCategory {
     WorkspaceMetadata,
     WorkspaceRegistry,
     WorkspaceFallbacks,
+    ProfileSettings,
     MemberProfiles,
     ContactProfiles,
     ConversationRecords,

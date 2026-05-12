@@ -15,7 +15,7 @@ export function isTauriRuntime() {
 
 function invokeBrowserFallback<T>(
   command: string,
-  _args?: Record<string, unknown>,
+  args?: Record<string, unknown>,
 ): Promise<T> {
   if (command === "workspace_selection_status") {
     return Promise.resolve({
@@ -51,6 +51,41 @@ function invokeBrowserFallback<T>(
 
   if (command === "roadmap_goals_list") {
     return Promise.resolve({ goals: [] } as T);
+  }
+
+  if (command === "profile_settings_get") {
+    return Promise.resolve({
+      profile: {
+        schemaVersion: 1,
+        displayName: "Owner",
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        status: "online",
+        statusMessage: null,
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+      },
+    } as T);
+  }
+
+  if (command === "profile_settings_update") {
+    const request = (args?.request ?? {}) as {
+      displayName?: string | null;
+      timezone?: string | null;
+      status?: string | null;
+      statusMessage?: string | null;
+    };
+
+    return Promise.resolve({
+      profile: {
+        schemaVersion: 1,
+        displayName: request.displayName?.trim() || "Owner",
+        timezone: request.timezone || "UTC",
+        status: request.status || "online",
+        statusMessage: request.statusMessage?.trim() || null,
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+      },
+    } as T);
   }
 
   return Promise.reject({

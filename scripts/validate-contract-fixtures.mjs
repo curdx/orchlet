@@ -43,6 +43,8 @@ const requiredCommands = new Set([
   "roadmap_goal_create",
   "roadmap_goal_update",
   "roadmap_goal_delete",
+  "profile_settings_get",
+  "profile_settings_update",
   "contacts_list",
   "contact_create",
   "contact_update",

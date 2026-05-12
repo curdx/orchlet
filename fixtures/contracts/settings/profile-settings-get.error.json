@@ -1,0 +1,9 @@
+{
+  "code": "settings.profile.invalidJson",
+  "message": "个人资料设置不是有效 JSON。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请先备份或修复 settings/profile.json 后重试。",
+  "details": "/fixtures/app-data/settings/profile.json: expected value",
+  "correlationId": null
+}

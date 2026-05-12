@@ -42,6 +42,7 @@ import {
   notificationApi,
   normalizeAppError,
   roadmapApi,
+  settingsApi,
   skillsApi,
   terminalDispatchApi,
   terminalApi,
@@ -58,6 +59,7 @@ import type {
   UpdateRoadmapGoalInput,
   UpdateRoadmapTaskInput,
 } from "../../../shared/api/roadmap-api";
+import type { SettingsApi } from "../../../shared/api/settings-api";
 import type { SkillsApi } from "../../../shared/api/skills-api";
 import type { TerminalDispatchApi } from "../../../shared/api/terminal-dispatch-api";
 import type { TerminalApi } from "../../../shared/api/terminal-api";
@@ -100,6 +102,10 @@ import type {
   RoadmapTaskEntry,
   RoadmapTaskStatus,
 } from "../../../contracts/generated/roadmap";
+import type {
+  ProfileSettingsSnapshot,
+  ProfileStatus,
+} from "../../../contracts/generated/settings";
 import { IconButton, Toast, useToastStore } from "../../../shared/ui";
 import type { WorkspaceApi } from "../../../shared/api/workspace-api";
 
@@ -145,6 +151,7 @@ type WorkspaceSelectionPageProps = {
     | "updateGoal"
     | "deleteGoal"
   >;
+  settingsApi?: Pick<SettingsApi, "getProfileSettings" | "updateProfileSettings">;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
     TerminalDispatchApi,
@@ -211,11 +218,39 @@ type MemberTerminalActivity = {
   exitReasonMessage: string | null;
   updatedAtMs: number;
 };
+type ProfileSettingsDraft = {
+  displayName: string;
+  timezone: string;
+  status: ProfileStatus;
+  statusMessage: string;
+};
+type ProfileSettingsField = keyof ProfileSettingsDraft;
 
 const MESSAGE_PAGE_LIMIT = 30;
 const RECENT_EMOJI_STORAGE_KEY = "orchlet.chat.recentEmojis";
 const TERMINAL_STREAM_FLUSH_MS = 100;
 const TERMINAL_STREAM_MAX_CHARS = 4000;
+const PROFILE_TIMEZONE_OPTIONS = [
+  "UTC",
+  "Asia/Shanghai",
+  "Asia/Tokyo",
+  "Europe/London",
+  "Europe/Berlin",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "Australia/Sydney",
+] as const;
+const DEFAULT_PROFILE_SETTINGS: ProfileSettingsSnapshot = {
+  schemaVersion: 1,
+  displayName: "Owner",
+  timezone: "UTC",
+  status: "online",
+  statusMessage: null,
+  createdAtMs: 1,
+  updatedAtMs: 1,
+};
 
 export function WorkspaceSelectionPage({
   api = workspaceApi,
@@ -227,6 +262,7 @@ export function WorkspaceSelectionPage({
   notificationApi: notificationsApi = notificationApi,
   skillsApi: localSkillsApi = skillsApi,
   roadmapApi: localRoadmapApi = roadmapApi,
+  settingsApi: profileSettingsApi = settingsApi,
   terminalApi: terminalsApi = terminalApi,
   terminalDispatchApi: dispatchApi = terminalDispatchApi,
   contactApi: contactsApi = contactApi,
@@ -255,6 +291,15 @@ export function WorkspaceSelectionPage({
   const [pendingRoadmapGoalDeleteId, setPendingRoadmapGoalDeleteId] = useState<string | null>(
     null,
   );
+  const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false);
+  const [isSavingProfileSettings, setIsSavingProfileSettings] = useState(false);
+  const [profileSettingsDraft, setProfileSettingsDraft] = useState<ProfileSettingsDraft>(
+    profileSnapshotToDraft(DEFAULT_PROFILE_SETTINGS),
+  );
+  const [profileSettingsFieldError, setProfileSettingsFieldError] = useState<{
+    field: ProfileSettingsField;
+    message: string;
+  } | null>(null);
   const [isInvitingMember, setIsInvitingMember] = useState(false);
   const [openedWorkspace, setOpenedWorkspace] = useState<OpenedWorkspace | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
@@ -394,6 +439,16 @@ export function WorkspaceSelectionPage({
     retry: false,
   });
   const roadmapGoals = roadmapGoalsQuery.data?.goals ?? [];
+  const profileSettingsQuery = useQuery({
+    queryKey: ["profile-settings"],
+    queryFn: profileSettingsApi.getProfileSettings,
+    retry: false,
+  });
+  const profileSettings = profileSettingsQuery.data?.profile ?? DEFAULT_PROFILE_SETTINGS;
+  const profiledMembers = useMemo(
+    () => applyProfileSettingsToOwnerMembers(members, profileSettings),
+    [members, profileSettings],
+  );
   const selectedConversation =
     conversations.find((conversation) => conversation.conversationId === selectedConversationId) ??
     conversations[0] ??
@@ -585,8 +640,32 @@ export function WorkspaceSelectionPage({
   }, [roadmapGoalsQuery.error, showToast]);
 
   useEffect(() => {
-    membersRef.current = members;
-  }, [members]);
+    if (!profileSettingsQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(profileSettingsQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载个人资料",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [profileSettingsQuery.error, showToast]);
+
+  useEffect(() => {
+    if (isProfileSettingsOpen) {
+      return;
+    }
+
+    setProfileSettingsDraft(profileSnapshotToDraft(profileSettings));
+    setProfileSettingsFieldError(null);
+  }, [isProfileSettingsOpen, profileSettings]);
+
+  useEffect(() => {
+    membersRef.current = profiledMembers;
+  }, [profiledMembers]);
 
   useEffect(() => {
     const request = {
@@ -1811,9 +1890,9 @@ export function WorkspaceSelectionPage({
       return;
     }
 
-    const resolution = dispatchResolutionForMessage(message, members, selectedConversation);
+    const resolution = dispatchResolutionForMessage(message, profiledMembers, selectedConversation);
     const target = selectedMemberId
-      ? members.find((member) => member.memberId === selectedMemberId) ?? null
+      ? profiledMembers.find((member) => member.memberId === selectedMemberId) ?? null
       : resolution.target;
     if (!target) {
       if (resolution.candidates.length > 1) {
@@ -1857,8 +1936,9 @@ export function WorkspaceSelectionPage({
         memberId: selectedMemberId ?? null,
       });
       const resolvedMember =
-        members.find((member) => member.memberId === result.dispatch.targetResolution.memberId) ??
-        target;
+        profiledMembers.find(
+          (member) => member.memberId === result.dispatch.targetResolution.memberId,
+        ) ?? target;
 
       if (result.dispatch.status === "failed") {
         setMessageDispatchStates((current) => ({
@@ -2523,13 +2603,44 @@ export function WorkspaceSelectionPage({
     }
   }
 
-  function showDeferredToast(title: string, message: string) {
-    showToast({
-      tone: "info",
-      title,
-      message,
-      action: "后续 Story 会接入真实数据和桌面能力。",
-    });
+  function openProfileSettings() {
+    setProfileSettingsDraft(profileSnapshotToDraft(profileSettings));
+    setProfileSettingsFieldError(null);
+    setIsProfileSettingsOpen(true);
+  }
+
+  async function handleSaveProfileSettings() {
+    setIsSavingProfileSettings(true);
+    setProfileSettingsFieldError(null);
+
+    try {
+      const result = await profileSettingsApi.updateProfileSettings(profileSettingsDraft);
+
+      queryClient.setQueryData(["profile-settings"], { profile: result.profile });
+      setProfileSettingsDraft(profileSnapshotToDraft(result.profile));
+      setIsProfileSettingsOpen(false);
+      showToast({
+        tone: "info",
+        title: "个人资料已保存",
+        message: `${result.profile.displayName} · ${memberStatusLabel(result.profile.status)}`,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+      const field = profileSettingsFieldFromError(appError);
+
+      if (field) {
+        setProfileSettingsFieldError({ field, message: appError.message });
+      }
+
+      showToast({
+        tone: appError.severity,
+        title: "个人资料保存失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSavingProfileSettings(false);
+    }
   }
 
   return (
@@ -2565,7 +2676,7 @@ export function WorkspaceSelectionPage({
               icon={Settings}
               label="打开设置"
               tooltip="打开设置"
-              onClick={() => showDeferredToast("设置尚未接入", "当前启动故事只提供入口外壳。")}
+              onClick={openProfileSettings}
             />
           </div>
         </header>
@@ -2645,6 +2756,14 @@ export function WorkspaceSelectionPage({
                     </span>
                     <button
                       type="button"
+                      onClick={openProfileSettings}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+                    >
+                      <Settings aria-hidden="true" size={14} strokeWidth={2} />
+                      Profile
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setFocusedRoadmapTaskId(null);
                         setIsRoadmapOpen(true);
@@ -2722,7 +2841,7 @@ export function WorkspaceSelectionPage({
                 messages={messages}
                 dispatchStates={messageDispatchStates}
                 terminalStreams={terminalChatStreamEntries}
-                members={members}
+                members={profiledMembers}
                 conversationFilter={conversationFilter}
                 unreadConversationCount={unreadConversations.length}
                 isLoading={conversationQuery.isLoading}
@@ -2777,7 +2896,7 @@ export function WorkspaceSelectionPage({
 
             {activeWorkspace ? (
               <MembersPanel
-                members={members}
+                members={profiledMembers}
                 terminalActivity={memberTerminalActivity}
                 isLoading={memberQuery.isLoading}
                 isInviting={isInvitingMember}
@@ -2864,6 +2983,19 @@ export function WorkspaceSelectionPage({
                 onDelete={(skillId) => void handleDeleteSkill(skillId)}
                 onLink={(skillId) => void handleLinkWorkspaceSkill(skillId)}
                 onUnlink={(skillId) => void handleUnlinkWorkspaceSkill(skillId)}
+              />
+            ) : null}
+
+            {isProfileSettingsOpen ? (
+              <ProfileSettingsModal
+                draft={profileSettingsDraft}
+                savedProfile={profileSettings}
+                fieldError={profileSettingsFieldError}
+                isLoading={profileSettingsQuery.isLoading}
+                isSaving={isSavingProfileSettings}
+                onDraftChange={setProfileSettingsDraft}
+                onClose={() => setIsProfileSettingsOpen(false)}
+                onSave={() => void handleSaveProfileSettings()}
               />
             ) : null}
 
@@ -3204,6 +3336,175 @@ function SkillLibraryPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+function ProfileSettingsModal({
+  draft,
+  savedProfile,
+  fieldError,
+  isLoading,
+  isSaving,
+  onDraftChange,
+  onClose,
+  onSave,
+}: {
+  draft: ProfileSettingsDraft;
+  savedProfile: ProfileSettingsSnapshot;
+  fieldError: { field: ProfileSettingsField; message: string } | null;
+  isLoading: boolean;
+  isSaving: boolean;
+  onDraftChange: (draft: ProfileSettingsDraft) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const canSave = draft.displayName.trim().length > 0 && draft.timezone.trim().length > 0;
+
+  return (
+    <div className="fixed inset-0 z-40 grid place-items-center bg-[#17211b]/35 px-4">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-settings-title"
+        className="w-full max-w-[560px] rounded-lg border border-[#dbe4d7] bg-white p-5 shadow-xl"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-[#6a786c]">Profile</p>
+            <h2 id="profile-settings-title" className="mt-1 text-base font-semibold text-[#263229]">
+              个人资料设置
+            </h2>
+            <p className="mt-2 text-sm text-[#526054]">
+              当前保存：{savedProfile.displayName} · {memberStatusLabel(savedProfile.status)}
+            </p>
+          </div>
+          <button
+            type="button"
+            aria-label="关闭个人资料设置"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[#d8e2d4] bg-white text-[#526054] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+          >
+            <X aria-hidden="true" size={16} strokeWidth={2} />
+          </button>
+        </div>
+
+        <form
+          aria-label="个人资料设置"
+          className="mt-5 grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSave();
+          }}
+        >
+          <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+            显示名称
+            <input
+              value={draft.displayName}
+              aria-label="显示名称"
+              aria-invalid={fieldError?.field === "displayName"}
+              onChange={(event) =>
+                onDraftChange({ ...draft, displayName: event.target.value })
+              }
+              className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87]"
+            />
+            {fieldError?.field === "displayName" ? (
+              <span className="text-xs font-medium text-[#8a3b2f]">{fieldError.message}</span>
+            ) : null}
+          </label>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+              时区
+              <select
+                value={draft.timezone}
+                aria-label="时区"
+                aria-invalid={fieldError?.field === "timezone"}
+                onChange={(event) =>
+                  onDraftChange({ ...draft, timezone: event.target.value })
+                }
+                className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87]"
+              >
+                {PROFILE_TIMEZONE_OPTIONS.map((timezone) => (
+                  <option key={timezone} value={timezone}>
+                    {timezone}
+                  </option>
+                ))}
+              </select>
+              {fieldError?.field === "timezone" ? (
+                <span className="text-xs font-medium text-[#8a3b2f]">{fieldError.message}</span>
+              ) : null}
+            </label>
+
+            <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+              状态
+              <select
+                value={draft.status}
+                aria-label="状态"
+                aria-invalid={fieldError?.field === "status"}
+                onChange={(event) =>
+                  onDraftChange({ ...draft, status: event.target.value as ProfileStatus })
+                }
+                className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87]"
+              >
+                <option value="online">在线</option>
+                <option value="working">工作中</option>
+                <option value="doNotDisturb">请勿打扰</option>
+                <option value="offline">离线</option>
+              </select>
+              {fieldError?.field === "status" ? (
+                <span className="text-xs font-medium text-[#8a3b2f]">{fieldError.message}</span>
+              ) : null}
+            </label>
+          </div>
+
+          <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+            状态消息
+            <textarea
+              value={draft.statusMessage}
+              aria-label="状态消息"
+              maxLength={160}
+              rows={3}
+              aria-invalid={fieldError?.field === "statusMessage"}
+              onChange={(event) =>
+                onDraftChange({ ...draft, statusMessage: event.target.value })
+              }
+              className="resize-none rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87]"
+            />
+            <span className="text-[11px] text-[#7a8678]">
+              {draft.statusMessage.trim().length}/160
+            </span>
+            {fieldError?.field === "statusMessage" ? (
+              <span className="text-xs font-medium text-[#8a3b2f]">{fieldError.message}</span>
+            ) : null}
+          </label>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#edf1eb] pt-4">
+            <p className="text-xs text-[#6a786c]">
+              {isLoading
+                ? "正在读取已保存资料"
+                : `更新时间：${new Date(savedProfile.updatedAtMs).toLocaleString()}`}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-xs font-semibold text-[#425044] transition hover:bg-[#f7f9f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                disabled={isSaving || !canSave}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+              >
+                <CheckCircle2 aria-hidden="true" size={14} strokeWidth={2} />
+                {isSaving ? "保存中" : "保存资料"}
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -5753,6 +6054,59 @@ function contactKindLabel(kind: ContactKind) {
     case "contact":
       return "联系人";
   }
+}
+
+function profileSnapshotToDraft(profile: ProfileSettingsSnapshot): ProfileSettingsDraft {
+  const timezone = PROFILE_TIMEZONE_OPTIONS.includes(
+    profile.timezone as (typeof PROFILE_TIMEZONE_OPTIONS)[number],
+  )
+    ? profile.timezone
+    : "UTC";
+
+  return {
+    displayName: profile.displayName,
+    timezone,
+    status: profile.status,
+    statusMessage: profile.statusMessage ?? "",
+  };
+}
+
+function applyProfileSettingsToOwnerMembers(
+  members: MemberProfile[],
+  profile: ProfileSettingsSnapshot,
+): MemberProfile[] {
+  return members.map((member) => {
+    if (member.role !== "owner") {
+      return member;
+    }
+
+    return {
+      ...member,
+      displayName: profile.displayName,
+      instanceLabel: profile.displayName,
+      status: profile.status,
+      updatedAtMs: Math.max(member.updatedAtMs, profile.updatedAtMs),
+    };
+  });
+}
+
+function profileSettingsFieldFromError(
+  error: ReturnType<typeof normalizeAppError>,
+): ProfileSettingsField | null {
+  const details = error.details ?? "";
+
+  for (const field of [
+    "displayName",
+    "timezone",
+    "status",
+    "statusMessage",
+  ] satisfies ProfileSettingsField[]) {
+    if (details.includes(`field=${field}`)) {
+      return field;
+    }
+  }
+
+  return null;
 }
 
 function conversationKindLabel(conversation: ConversationProfile) {

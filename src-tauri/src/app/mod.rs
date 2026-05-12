@@ -5,6 +5,7 @@ pub mod members;
 pub mod notification;
 pub mod orchestration;
 pub mod roadmap;
+pub mod settings;
 pub mod skills;
 pub mod terminal;
 pub mod window_context;

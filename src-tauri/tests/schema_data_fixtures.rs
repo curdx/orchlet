@@ -6,12 +6,14 @@ use orchlet_lib::{
     contracts::{
         ChatMessageProfile, ChatMessageStatus, ContactProfile, ConversationKind,
         ConversationProfile, ConversationReadPositionProfile, DataIntegrityReport,
-        DataIntegrityStatus, MemberProfile, RoadmapGoalEntry, RoadmapTaskEntry, RoadmapTaskStatus,
-        SkillLibraryEntry, TerminalTabProfile, TerminalTabStatus, WorkspaceMetadata,
-        WorkspaceSkillLinkEntry, WorkspaceSkillLinkMode,
+        DataIntegrityStatus, MemberProfile, ProfileSettingsSnapshot, ProfileStatus,
+        RoadmapGoalEntry, RoadmapTaskEntry, RoadmapTaskStatus, SkillLibraryEntry,
+        TerminalTabProfile, TerminalTabStatus, WorkspaceMetadata, WorkspaceSkillLinkEntry,
+        WorkspaceSkillLinkMode,
     },
     domain::workspace::validate_workspace_metadata,
     infrastructure::persistence::json_store::{
+        profile_settings_store::load_profile_settings,
         workspace_fallback_store::load_workspace_fallbacks,
         workspace_registry_store::load_workspace_registry,
     },
@@ -141,6 +143,18 @@ struct RoadmapGoalsFixture {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ProfileSettingsFixture {
+    schema_version: u32,
+    display_name: String,
+    timezone: String,
+    status: ProfileStatus,
+    status_message: Option<String>,
+    created_at_ms: u64,
+    updated_at_ms: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct TerminalStreamFixture {
     schema_version: u32,
     case: String,
@@ -196,6 +210,12 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
         app_data.join("workspace-fallbacks.json"),
     )
     .expect("fallbacks copied");
+    fs::create_dir_all(app_data.join("settings")).expect("settings dir");
+    fs::copy(
+        fixture_app_data.join("settings/profile.json"),
+        app_data.join("settings/profile.json"),
+    )
+    .expect("profile settings copied");
     fs::create_dir_all(app_data.join("skills")).expect("skills dir");
     fs::copy(
         fixture_app_data.join("skills/skill-library.json"),
@@ -231,10 +251,11 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
 
     load_workspace_registry(&app_data).expect("registry fixture loads");
     load_workspace_fallbacks(&app_data).expect("fallback fixture loads");
+    load_profile_settings(&app_data).expect("profile settings fixture loads");
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 16);
+    assert_eq!(report.total_checks, 17);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -248,7 +269,7 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 16);
+    assert_eq!(report.total_checks, 17);
     assert_eq!(report.failed_checks, 1);
     assert_eq!(report.skipped_checks, 11);
     assert!(report.has_failures);
@@ -605,6 +626,25 @@ fn roadmap_goals_fixture_covers_related_tasks_and_progress_policy() {
     assert_eq!(fixture.goals[0].sort_order, 0);
     assert!(fixture.ordering_rule.contains("sortOrder"));
     assert!(fixture.progress_rule.contains("derived"));
+}
+
+#[test]
+fn profile_settings_fixture_covers_local_identity_status_and_message() {
+    let fixture: ProfileSettingsFixture =
+        read_fixture("../fixtures/schema/settings-v1/profile-settings.json");
+    let snapshot: ProfileSettingsSnapshot =
+        read_fixture("../fixtures/schema/settings-v1/profile-settings.json");
+
+    assert_eq!(fixture.schema_version, 1);
+    assert_eq!(fixture.display_name, "Dana");
+    assert_eq!(fixture.timezone, "Asia/Shanghai");
+    assert_eq!(fixture.status, ProfileStatus::Working);
+    assert_eq!(
+        fixture.status_message.as_deref(),
+        Some("Reviewing Story 7.1")
+    );
+    assert!(fixture.updated_at_ms >= fixture.created_at_ms);
+    assert_eq!(snapshot.status, ProfileStatus::Working);
 }
 
 #[test]

@@ -113,6 +113,14 @@ import type {
   UpdateRoadmapTaskResult,
 } from "../../src/contracts/generated/roadmap";
 import type {
+  GetProfileSettingsRequest,
+  GetProfileSettingsResult,
+  ProfileSettingsSnapshot,
+  ProfileStatus,
+  UpdateProfileSettingsRequest,
+  UpdateProfileSettingsResult,
+} from "../../src/contracts/generated/settings";
+import type {
   DeleteSkillRequest,
   DeleteSkillResult,
   ImportLocalSkillFolderRequest,
@@ -304,6 +312,12 @@ import roadmapGoalUpdateResult from "../../fixtures/contracts/roadmap/roadmap-go
 import roadmapGoalDeleteError from "../../fixtures/contracts/roadmap/roadmap-goal-delete.error.json";
 import roadmapGoalDeleteRequest from "../../fixtures/contracts/roadmap/roadmap-goal-delete.request.json";
 import roadmapGoalDeleteResult from "../../fixtures/contracts/roadmap/roadmap-goal-delete.result.json";
+import profileSettingsGetError from "../../fixtures/contracts/settings/profile-settings-get.error.json";
+import profileSettingsGetRequest from "../../fixtures/contracts/settings/profile-settings-get.request.json";
+import profileSettingsGetResult from "../../fixtures/contracts/settings/profile-settings-get.result.json";
+import profileSettingsUpdateError from "../../fixtures/contracts/settings/profile-settings-update.error.json";
+import profileSettingsUpdateRequest from "../../fixtures/contracts/settings/profile-settings-update.request.json";
+import profileSettingsUpdateResult from "../../fixtures/contracts/settings/profile-settings-update.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -666,6 +680,19 @@ export const roadmapGoalDeleteResultFixture: DeleteRoadmapGoalResult = {
 };
 export const roadmapGoalDeleteErrorFixture: AppError = appError(roadmapGoalDeleteError);
 
+export const profileSettingsGetRequestFixture: GetProfileSettingsRequest =
+  profileSettingsGetRequest;
+export const profileSettingsGetResultFixture: GetProfileSettingsResult = {
+  profile: profileSettingsSnapshot(profileSettingsGetResult.profile),
+};
+export const profileSettingsGetErrorFixture: AppError = appError(profileSettingsGetError);
+export const profileSettingsUpdateRequestFixture: UpdateProfileSettingsRequest =
+  profileSettingsUpdateRequest;
+export const profileSettingsUpdateResultFixture: UpdateProfileSettingsResult = {
+  profile: profileSettingsSnapshot(profileSettingsUpdateResult.profile),
+};
+export const profileSettingsUpdateErrorFixture: AppError = appError(profileSettingsUpdateError);
+
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
   contacts: listContactsResult.contacts.map(contactProfile),
@@ -833,6 +860,8 @@ type ErrorJson =
   | typeof roadmapGoalCreateError
   | typeof roadmapGoalUpdateError
   | typeof roadmapGoalDeleteError
+  | typeof profileSettingsGetError
+  | typeof profileSettingsUpdateError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -919,6 +948,10 @@ type RoadmapGoalEntryJson =
   | (typeof roadmapGoalUpdateResult.goals)[number]
   | (typeof roadmapGoalDeleteResult.goals)[number];
 
+type ProfileSettingsSnapshotJson =
+  | typeof profileSettingsGetResult.profile
+  | typeof profileSettingsUpdateResult.profile;
+
 function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {
   return {
     ...skill,
@@ -983,6 +1016,27 @@ function roadmapGoalEntry(goal: RoadmapGoalEntryJson): RoadmapGoalEntry {
   return {
     ...goal,
   };
+}
+
+function profileSettingsSnapshot(
+  profile: ProfileSettingsSnapshotJson,
+): ProfileSettingsSnapshot {
+  return {
+    ...profile,
+    status: profileStatus(profile.status),
+  };
+}
+
+function profileStatus(value: string): ProfileStatus {
+  switch (value) {
+    case "online":
+    case "offline":
+    case "working":
+    case "doNotDisturb":
+      return value;
+    default:
+      throw new Error(`Unknown profile status: ${value}`);
+  }
 }
 
 function roadmapTaskStatus(value: string): RoadmapTaskStatus {
@@ -1085,6 +1139,7 @@ function windowMode(value: string): WindowMode {
 function storageOwner(value: string): StorageOwner {
   switch (value) {
     case "workspace":
+    case "settings":
     case "member":
     case "contact":
     case "chat":
@@ -1103,6 +1158,7 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceMetadata":
     case "workspaceRegistry":
     case "workspaceFallbacks":
+    case "profileSettings":
     case "memberProfiles":
     case "contactProfiles":
     case "conversationRecords":

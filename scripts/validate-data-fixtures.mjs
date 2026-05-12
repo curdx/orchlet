@@ -7,6 +7,8 @@ validateWorkspaceMetadata("fixtures/schema/valid-workspace/.orchlet/workspace.js
 validateWorkspaceMetadata("fixtures/data-integrity/valid-json-stores/workspace/.orchlet/workspace.json");
 validateWorkspaceRegistry("fixtures/data-integrity/valid-json-stores/app-data/workspace-registry.json");
 validateWorkspaceFallbacks("fixtures/data-integrity/valid-json-stores/app-data/workspace-fallbacks.json");
+validateProfileSettings("fixtures/schema/settings-v1/profile-settings.json");
+validateProfileSettings("fixtures/data-integrity/valid-json-stores/app-data/settings/profile.json");
 validateSqliteScaffold("fixtures/schema/sqlite-workspace-v1/schema-manifest.json");
 validateMemberProfiles("fixtures/schema/members-v1/member-profiles.json");
 validateContactProfiles("fixtures/schema/contacts-v1/contact-profiles.json");
@@ -69,6 +71,38 @@ function validateWorkspaceFallbacks(path) {
       `${path}.entries[].updatedAtMs must be >= createdAtMs`,
     );
   }
+}
+
+function validateProfileSettings(path) {
+  const profile = readJson(path);
+  assert(profile.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assertNonEmptyString(profile.displayName, `${path}.displayName`);
+  assert(profile.displayName.trim() === profile.displayName, `${path}.displayName must be normalized`);
+  assert(
+    [
+      "UTC",
+      "Asia/Shanghai",
+      "Asia/Tokyo",
+      "Europe/London",
+      "Europe/Berlin",
+      "America/New_York",
+      "America/Chicago",
+      "America/Denver",
+      "America/Los_Angeles",
+      "Australia/Sydney",
+    ].includes(profile.timezone),
+    `${path}.timezone must be supported`,
+  );
+  assert(
+    ["online", "offline", "working", "doNotDisturb"].includes(profile.status),
+    `${path}.status invalid`,
+  );
+  if (profile.statusMessage !== null) {
+    assertNonEmptyString(profile.statusMessage, `${path}.statusMessage`);
+    assert(profile.statusMessage.length <= 160, `${path}.statusMessage too long`);
+  }
+  assertPositiveTimestamp(profile.createdAtMs, `${path}.createdAtMs`);
+  assert(profile.updatedAtMs >= profile.createdAtMs, `${path}.updatedAtMs must be >= createdAtMs`);
 }
 
 function validateSqliteScaffold(path) {

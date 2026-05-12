@@ -5,6 +5,7 @@ export { memberApi } from "./member-api";
 export { notificationApi } from "./notification-api";
 export { normalizeAppError } from "./errors";
 export { roadmapApi } from "./roadmap-api";
+export { settingsApi } from "./settings-api";
 export { skillsApi } from "./skills-api";
 export { terminalDispatchApi } from "./terminal-dispatch-api";
 export { terminalApi } from "./terminal-api";

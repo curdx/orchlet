@@ -3,6 +3,7 @@ pub mod contact;
 pub mod member;
 pub mod orchestration;
 pub mod roadmap;
+pub mod settings;
 pub mod skill;
 pub mod terminal;
 pub mod workspace;
