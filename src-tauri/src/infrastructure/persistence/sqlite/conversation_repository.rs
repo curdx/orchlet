@@ -208,6 +208,19 @@ pub fn message_by_id(
     Ok(message)
 }
 
+pub fn conversation_by_id(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+) -> Result<ConversationProfile, AppError> {
+    validate_workspace_id(workspace_id)?;
+    validate_conversation_id(conversation_id)?;
+
+    let connection = open_conversation_connection(app_data_dir, workspace_id)?;
+    ensure_default_channel(&connection, workspace_id)?;
+    conversation_by_id_from_connection(&connection, workspace_id, conversation_id)
+}
+
 pub fn update_read_position(
     app_data_dir: &Path,
     request: UpdateReadPositionRequest,

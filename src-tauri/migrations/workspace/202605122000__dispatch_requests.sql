@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS dispatch_requests (
     conversation_id TEXT NOT NULL,
     message_id TEXT NOT NULL,
     member_id TEXT NOT NULL,
+    target_source TEXT NOT NULL DEFAULT 'user_selected',
+    target_reason TEXT NOT NULL DEFAULT 'Existing dispatch target.',
     status TEXT NOT NULL,
     terminal_session_id TEXT,
     failure_code TEXT,

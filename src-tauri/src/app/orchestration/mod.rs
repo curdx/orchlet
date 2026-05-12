@@ -7,13 +7,14 @@ use crate::{
         TerminalInputRequest, TerminalOpenRequest,
     },
     domain::orchestration::{
-        normalize_dispatch_payload, resolve_explicit_dispatch_member, validate_dispatch_scope,
+        normalize_dispatch_payload, resolve_dispatch_target, validate_dispatch_scope,
     },
     infrastructure::persistence::sqlite::{
-        conversation_repository::message_by_id,
+        conversation_repository::{conversation_by_id, message_by_id},
         dispatch_repository::{
             create_pending_dispatch, mark_dispatch_dispatched, mark_dispatch_failed,
         },
+        member_repository::initialize_member_store,
     },
 };
 
@@ -37,22 +38,30 @@ pub fn dispatch_chat_message(
         &request.conversation_id,
         &request.message_id,
     )?;
-    let member_id = resolve_explicit_dispatch_member(
+    let conversation = conversation_by_id(
+        &app_data_dir,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+    let members = initialize_member_store(&app_data_dir, &request.workspace_id)?.members;
+    let target_resolution = resolve_dispatch_target(
         request.member_id.as_deref(),
         &message.mentioned_member_ids,
+        &conversation,
+        &members,
     )?;
     let dispatch = create_pending_dispatch(
         &app_data_dir,
         &request.workspace_id,
         &request.conversation_id,
         &request.message_id,
-        &member_id,
+        &target_resolution,
     )?;
     let terminal_result = terminal_state.open_or_create_session(
         app_data_dir.clone(),
         workspace,
         TerminalOpenRequest {
-            member_id: Some(member_id),
+            member_id: Some(target_resolution.member_id.clone()),
             attach_current: false,
         },
         event_sink,
@@ -119,7 +128,10 @@ mod tests {
     use crate::contracts::AppError;
     use crate::{
         app::{
-            chat::{list_workspace_conversations, send_workspace_message},
+            chat::{
+                list_workspace_conversations, send_workspace_message,
+                start_workspace_private_conversation,
+            },
             members::invite_workspace_member,
             orchestration::dispatch_chat_message,
             terminal::{
@@ -129,10 +141,12 @@ mod tests {
             },
         },
         contracts::{
-            DispatchChatMessageRequest, DispatchRequestStatus, InviteMemberRequest,
-            InvitedMemberType, ListConversationsRequest, MemberRuntimeKind, MemberRuntimeProfile,
-            OpenedWorkspace, SendMessageRequest, TerminalStreamKind, WorkspaceAccessMode,
-            WorkspaceMetadata, WorkspaceRegistryAction, WorkspaceRegistryEntry,
+            ConversationParticipantKind, DispatchChatMessageRequest, DispatchRequestStatus,
+            DispatchTargetResolutionSource, InviteMemberRequest, InvitedMemberType,
+            ListConversationsRequest, MemberRuntimeKind, MemberRuntimeProfile, OpenedWorkspace,
+            SendMessageRequest, StartPrivateConversationRequest, TerminalStreamKind,
+            WorkspaceAccessMode, WorkspaceMetadata, WorkspaceRegistryAction,
+            WorkspaceRegistryEntry,
         },
         infrastructure::persistence::sqlite::dispatch_repository::dispatches_for_message,
     };
@@ -203,6 +217,25 @@ mod tests {
         )
         .expect("member")
         .member;
+        let other_command = available_command(app_data.path(), "gemini");
+        invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Gemini Builder".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("gemini".to_owned()),
+                    label: Some("Gemini CLI".to_owned()),
+                    command: Some(other_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("other member");
         let conversation = list_workspace_conversations(
             app_data.path(),
             ListConversationsRequest {
@@ -250,6 +283,14 @@ mod tests {
         assert_eq!(result.dispatch.message_id, message.message_id);
         assert_eq!(result.dispatch.member_id, member.member_id);
         assert_eq!(
+            result.dispatch.target_resolution.source,
+            DispatchTargetResolutionSource::ExplicitMention
+        );
+        assert_eq!(
+            result.dispatch.target_resolution.member_id,
+            member.member_id
+        );
+        assert_eq!(
             result.dispatch.terminal_session_id.as_deref(),
             result
                 .terminal_session
@@ -276,6 +317,259 @@ mod tests {
         .expect("persisted dispatches");
         assert_eq!(persisted.len(), 1);
         assert_eq!(persisted[0].status, DispatchRequestStatus::Dispatched);
+    }
+
+    #[test]
+    fn dispatch_uses_private_conversation_context_and_records_reason() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Private Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let conversation = start_workspace_private_conversation(
+            app_data.path(),
+            StartPrivateConversationRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                participant_kind: ConversationParticipantKind::Member,
+                participant_id: member.member_id.clone(),
+            },
+        )
+        .expect("private conversation")
+        .conversation;
+        let message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "No mention needed in private chat".to_owned(),
+                mentioned_member_ids: vec![],
+            },
+        )
+        .expect("message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            DispatchChatMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                message_id: message.message_id.clone(),
+                member_id: None,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("dispatch");
+
+        assert_eq!(result.dispatch.member_id, member.member_id);
+        assert_eq!(
+            result.dispatch.target_resolution.source,
+            DispatchTargetResolutionSource::PrivateConversation
+        );
+        assert!(result
+            .dispatch
+            .target_resolution
+            .reason
+            .contains("Private Reviewer"));
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            ["input:No mention needed in private chat\n"]
+        );
+    }
+
+    #[test]
+    fn dispatch_uses_single_workspace_terminal_member_as_default_target() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Default Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Use the default target".to_owned(),
+                mentioned_member_ids: vec![],
+            },
+        )
+        .expect("message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher);
+
+        let result = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            DispatchChatMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id,
+                message_id: message.message_id,
+                member_id: None,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("dispatch");
+
+        assert_eq!(result.dispatch.member_id, member.member_id);
+        assert_eq!(
+            result.dispatch.target_resolution.source,
+            DispatchTargetResolutionSource::WorkspaceDefault
+        );
+    }
+
+    #[test]
+    fn dispatch_rejects_ambiguous_mentioned_targets_without_guessing() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let first_command = available_command(app_data.path(), "codex");
+        let first = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "First Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(first_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("first member")
+        .member;
+        let second_command = available_command(app_data.path(), "gemini");
+        let second = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Second Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("gemini".to_owned()),
+                    label: Some("Gemini CLI".to_owned()),
+                    command: Some(second_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("second member")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let message = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "@First @Second pick one".to_owned(),
+                mentioned_member_ids: vec![first.member_id.clone(), second.member_id.clone()],
+            },
+        )
+        .expect("message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let error = dispatch_chat_message(
+            app_data.path().to_path_buf(),
+            &workspace,
+            DispatchChatMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                message_id: message.message_id.clone(),
+                member_id: None,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect_err("ambiguous dispatch should fail before opening terminal");
+
+        assert_eq!(error.code, "dispatch.target.ambiguous");
+        assert!(error
+            .details
+            .as_deref()
+            .unwrap_or("")
+            .contains(&first.member_id));
+        assert!(error
+            .details
+            .as_deref()
+            .unwrap_or("")
+            .contains(&second.member_id));
+        assert_eq!(terminal_state.session_count(), 0);
+        assert!(launcher.launches.lock().expect("launches").is_empty());
+        assert!(dispatches_for_message(
+            app_data.path(),
+            &workspace.metadata.project_id,
+            &conversation.conversation_id,
+            &message.message_id,
+        )
+        .expect("persisted dispatches")
+        .is_empty());
     }
 
     #[test]

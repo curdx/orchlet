@@ -115,14 +115,23 @@ type PendingConflict = {
 };
 
 type AttachmentEntry = "image" | "roadmap";
+type DispatchTargetCandidate = {
+  memberId: string;
+  memberLabel: string;
+};
 type MessageDispatchState = {
-  status: "dispatching" | "dispatched" | "failed";
+  status: "selecting" | "dispatching" | "dispatched" | "failed";
   dispatchRequestId?: string;
   memberId?: string;
   memberLabel?: string;
   terminalSessionId?: string | null;
   message?: string;
   userAction?: string;
+  candidates?: DispatchTargetCandidate[];
+};
+type DispatchResolutionState = {
+  target: MemberProfile | null;
+  candidates: MemberProfile[];
 };
 
 const MESSAGE_PAGE_LIMIT = 30;
@@ -1111,17 +1120,36 @@ export function WorkspaceSelectionPage({
     }
   }
 
-  async function handleDispatchMessage(message: ChatMessageProfile) {
+  async function handleDispatchMessage(message: ChatMessageProfile, selectedMemberId?: string) {
     if (!activeWorkspaceId || !selectedConversation) {
       return;
     }
 
-    const target = dispatchTargetForMessage(message, members);
+    const resolution = dispatchResolutionForMessage(message, members, selectedConversation);
+    const target = selectedMemberId
+      ? members.find((member) => member.memberId === selectedMemberId) ?? null
+      : resolution.target;
     if (!target) {
+      if (resolution.candidates.length > 1) {
+        setMessageDispatchStates((current) => ({
+          ...current,
+          [message.messageId]: {
+            status: "selecting",
+            candidates: resolution.candidates.map((member) => ({
+              memberId: member.memberId,
+              memberLabel: member.instanceLabel,
+            })),
+            message: "请选择派发目标。",
+            userAction: "多个成员都可以接收这条任务。",
+          },
+        }));
+        return;
+      }
+
       showToast({
         tone: "warning",
         title: "无法派发消息",
-        message: "请选择只提及一名可运行终端的成员消息后再派发。",
+        message: "请选择一名可运行终端的成员后再派发。",
       });
       return;
     }
@@ -1140,8 +1168,11 @@ export function WorkspaceSelectionPage({
         workspaceId: activeWorkspaceId,
         conversationId: selectedConversation.conversationId,
         messageId: message.messageId,
-        memberId: target.memberId,
+        memberId: selectedMemberId ?? null,
       });
+      const resolvedMember =
+        members.find((member) => member.memberId === result.dispatch.targetResolution.memberId) ??
+        target;
 
       if (result.dispatch.status === "failed") {
         setMessageDispatchStates((current) => ({
@@ -1149,8 +1180,8 @@ export function WorkspaceSelectionPage({
           [message.messageId]: {
             status: "failed",
             dispatchRequestId: result.dispatch.dispatchRequestId,
-            memberId: target.memberId,
-            memberLabel: target.instanceLabel,
+            memberId: resolvedMember.memberId,
+            memberLabel: resolvedMember.instanceLabel,
             message: result.dispatch.failure?.message ?? "派发未能启动。",
             userAction: result.dispatch.failure?.userAction ?? "请修复问题后重试派发。",
           },
@@ -1166,18 +1197,19 @@ export function WorkspaceSelectionPage({
 
       setMessageDispatchStates((current) => ({
         ...current,
-        [message.messageId]: {
-          status: "dispatched",
-          dispatchRequestId: result.dispatch.dispatchRequestId,
-          memberId: target.memberId,
-          memberLabel: target.instanceLabel,
-          terminalSessionId: result.dispatch.terminalSessionId,
-        },
-      }));
+          [message.messageId]: {
+            status: "dispatched",
+            dispatchRequestId: result.dispatch.dispatchRequestId,
+            memberId: resolvedMember.memberId,
+            memberLabel: resolvedMember.instanceLabel,
+            terminalSessionId: result.dispatch.terminalSessionId,
+            message: result.dispatch.targetResolution.reason,
+          },
+        }));
       showToast({
         tone: "info",
         title: "消息已派发",
-        message: `${target.instanceLabel} 的终端已收到任务。`,
+        message: `${resolvedMember.instanceLabel} 的终端已收到任务。`,
         action: result.dispatch.terminalSessionId ?? undefined,
       });
     } catch (error) {
@@ -1611,7 +1643,7 @@ export function WorkspaceSelectionPage({
                 onAddAttachmentEntry={addAttachmentEntry}
                 onRemoveAttachmentEntry={removeAttachmentEntry}
                 onSendMessage={() => void handleSendMessage()}
-                onDispatchMessage={(message) => void handleDispatchMessage(message)}
+                onDispatchMessage={(message, memberId) => void handleDispatchMessage(message, memberId)}
                 onLoadOlderMessages={() => void handleLoadOlderMessages()}
                 onGroupTitleChange={setGroupTitle}
                 onToggleCreateGroupMember={handleToggleCreateGroupMember}
@@ -1872,7 +1904,7 @@ function ConversationPanel({
   onAddAttachmentEntry: (entry: AttachmentEntry) => void;
   onRemoveAttachmentEntry: (entry: AttachmentEntry) => void;
   onSendMessage: () => void;
-  onDispatchMessage: (message: ChatMessageProfile) => void;
+  onDispatchMessage: (message: ChatMessageProfile, memberId?: string) => void;
   onLoadOlderMessages: () => void;
   onGroupTitleChange: (value: string) => void;
   onToggleCreateGroupMember: (memberId: string) => void;
@@ -2141,7 +2173,11 @@ function ConversationPanel({
                 </p>
               ) : messages.length > 0 ? (
                 messages.map((message) => {
-                  const dispatchTarget = dispatchTargetForMessage(message, members);
+                  const dispatchResolution = selectedConversation
+                    ? dispatchResolutionForMessage(message, members, selectedConversation)
+                    : { target: null, candidates: [] };
+                  const dispatchTarget = dispatchResolution.target;
+                  const hasAmbiguousTargets = dispatchResolution.candidates.length > 1;
                   const dispatchState = dispatchStates[message.messageId];
 
                   return (
@@ -2163,9 +2199,9 @@ function ConversationPanel({
                           {messageStatusLabel(message.status)}
                         </span>
                       </div>
-                      {dispatchTarget || dispatchState ? (
+                      {dispatchTarget || hasAmbiguousTargets || dispatchState ? (
                         <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[#edf1ea] pt-2 text-[11px]">
-                          {dispatchTarget ? (
+                          {dispatchTarget || hasAmbiguousTargets ? (
                             <button
                               type="button"
                               disabled={
@@ -2178,11 +2214,16 @@ function ConversationPanel({
                               <SquareTerminal aria-hidden="true" size={12} strokeWidth={2} />
                               {dispatchState?.status === "dispatching"
                                 ? "派发中"
-                                : `派发到 ${dispatchTarget.instanceLabel}`}
+                                : dispatchTarget
+                                  ? `派发到 ${dispatchTarget.instanceLabel}`
+                                  : "选择派发目标"}
                             </button>
                           ) : null}
                           {dispatchState ? (
-                            <DispatchStateBadge state={dispatchState} />
+                            <DispatchStateBadge
+                              state={dispatchState}
+                              onSelectTarget={(memberId) => onDispatchMessage(message, memberId)}
+                            />
                           ) : null}
                         </div>
                       ) : null}
@@ -2646,7 +2687,40 @@ function messageStatusLabel(status: ChatMessageProfile["status"]) {
   return "sent";
 }
 
-function DispatchStateBadge({ state }: { state: MessageDispatchState }) {
+function DispatchStateBadge({
+  state,
+  onSelectTarget,
+}: {
+  state: MessageDispatchState;
+  onSelectTarget: (memberId: string) => void;
+}) {
+  if (state.status === "selecting") {
+    return (
+      <span
+        aria-label="派发目标选择"
+        className="grid gap-1 rounded-md border border-[#d6c48e] bg-[#fffaf0] px-2 py-1 text-[#6f5420]"
+      >
+        <span className="inline-flex items-center gap-1 font-semibold">
+          <Users aria-hidden="true" size={12} strokeWidth={2} />
+          {state.message ?? "请选择派发目标"}
+        </span>
+        <span className="flex flex-wrap gap-1">
+          {(state.candidates ?? []).map((candidate) => (
+            <button
+              key={candidate.memberId}
+              type="button"
+              onClick={() => onSelectTarget(candidate.memberId)}
+              className="inline-flex min-h-6 items-center rounded border border-[#d6c48e] bg-white px-1.5 font-semibold text-[#5d4518] transition hover:border-[#a9852d] hover:bg-[#fff4d8] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#a9852d]"
+            >
+              {candidate.memberLabel}
+            </button>
+          ))}
+        </span>
+        {state.userAction ? <span>{state.userAction}</span> : null}
+      </span>
+    );
+  }
+
   if (state.status === "dispatching") {
     return (
       <span
@@ -2679,36 +2753,69 @@ function DispatchStateBadge({ state }: { state: MessageDispatchState }) {
   return (
     <span
       aria-label="派发状态"
-      className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[#b9d0b2] bg-[#eef6ea] px-2 font-semibold text-[#2f5038]"
+      className="grid gap-1 rounded-md border border-[#b9d0b2] bg-[#eef6ea] px-2 py-1 font-semibold text-[#2f5038]"
     >
-      <CheckCircle2 aria-hidden="true" size={12} strokeWidth={2} />
-      已派发到 {state.memberLabel}
-      {state.terminalSessionId ? ` · ${shortId(state.terminalSessionId)}` : ""}
+      <span className="inline-flex items-center gap-1.5">
+        <CheckCircle2 aria-hidden="true" size={12} strokeWidth={2} />
+        已派发到 {state.memberLabel}
+        {state.terminalSessionId ? ` · ${shortId(state.terminalSessionId)}` : ""}
+      </span>
+      {state.message ? <span className="font-medium">{state.message}</span> : null}
     </span>
   );
 }
 
-function dispatchTargetForMessage(
+function dispatchResolutionForMessage(
   message: ChatMessageProfile,
   members: MemberProfile[],
-): MemberProfile | null {
+  conversation: ConversationProfile,
+): DispatchResolutionState {
   if (message.messageId.startsWith("pending-")) {
-    return null;
+    return { target: null, candidates: [] };
   }
 
   const memberIds = [...new Set(message.mentionedMemberIds)];
 
-  if (memberIds.length !== 1) {
-    return null;
+  if (memberIds.length > 0) {
+    const candidates = terminalCapableMembersByIds(memberIds, members);
+    return {
+      target: candidates.length === 1 ? candidates[0] : null,
+      candidates,
+    };
   }
 
-  const member = members.find((item) => item.memberId === memberIds[0]);
+  if (conversation.kind === "private" && conversation.participantKind === "member") {
+    const privateMember = members.find(
+      (member) =>
+        member.memberId === conversation.participantId && isTerminalCapableMember(member),
+    );
 
-  if (!member || !isTerminalCapableMember(member)) {
-    return null;
+    if (privateMember) {
+      return { target: privateMember, candidates: [privateMember] };
+    }
   }
 
-  return member;
+  const conversationMemberIds = conversation.members.map((member) => member.memberId);
+  const conversationCandidates = terminalCapableMembersByIds(conversationMemberIds, members);
+  if (conversationCandidates.length > 0) {
+    return {
+      target: conversationCandidates.length === 1 ? conversationCandidates[0] : null,
+      candidates: conversationCandidates,
+    };
+  }
+
+  const workspaceCandidates = members.filter(isTerminalCapableMember);
+  return {
+    target: workspaceCandidates.length === 1 ? workspaceCandidates[0] : null,
+    candidates: workspaceCandidates,
+  };
+}
+
+function terminalCapableMembersByIds(memberIds: string[], members: MemberProfile[]) {
+  const uniqueIds = [...new Set(memberIds)];
+  return uniqueIds
+    .map((memberId) => members.find((member) => member.memberId === memberId))
+    .filter((member): member is MemberProfile => Boolean(member && isTerminalCapableMember(member)));
 }
 
 function shortId(value: string) {

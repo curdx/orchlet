@@ -7,6 +7,10 @@ export type DispatchChatMessageResult = { dispatch: DispatchRequestProfile, term
 
 export type DispatchFailureProfile = { code: string, message: string, userAction: string, details: string | null, };
 
-export type DispatchRequestProfile = { schemaVersion: number, dispatchRequestId: string, workspaceId: string, conversationId: string, messageId: string, memberId: string, status: DispatchRequestStatus, terminalSessionId: string | null, failure: DispatchFailureProfile | null, createdAtMs: number, updatedAtMs: number, };
+export type DispatchRequestProfile = { schemaVersion: number, dispatchRequestId: string, workspaceId: string, conversationId: string, messageId: string, memberId: string, targetResolution: DispatchTargetResolutionProfile, status: DispatchRequestStatus, terminalSessionId: string | null, failure: DispatchFailureProfile | null, createdAtMs: number, updatedAtMs: number, };
 
 export type DispatchRequestStatus = "pending" | "dispatched" | "failed";
+
+export type DispatchTargetResolutionProfile = { memberId: string, source: DispatchTargetResolutionSource, reason: string, };
+
+export type DispatchTargetResolutionSource = "userSelected" | "explicitMention" | "privateConversation" | "conversationDefault" | "workspaceDefault";

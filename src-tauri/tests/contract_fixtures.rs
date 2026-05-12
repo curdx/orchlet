@@ -6,20 +6,20 @@ use orchlet_lib::contracts::{
     CreateGroupConversationRequest, CreateGroupConversationResult, DataIntegrityValidateRequest,
     DataIntegrityValidateResult, DeleteContactRequest, DeleteContactResult,
     DeleteConversationRequest, DeleteConversationResult, DispatchChatMessageRequest,
-    DispatchChatMessageResult, DispatchRequestStatus, InviteMemberRequest, InviteMemberResult,
-    InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
-    ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
-    ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest,
-    OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
-    SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
-    TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,
-    TerminalEnvironmentStatus, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
-    TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
-    TerminalOutputEventPayload, TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus,
-    TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
-    TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
-    TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
-    TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+    DispatchChatMessageResult, DispatchRequestStatus, DispatchTargetResolutionSource,
+    InviteMemberRequest, InviteMemberResult, InvitedMemberType, ListContactsRequest,
+    ListContactsResult, ListConversationsRequest, ListConversationsResult, ListMembersRequest,
+    ListMembersResult, ListMessagesRequest, ListMessagesResult, MemberRole, MemberRuntimeKind,
+    MemberStatus, OpenWorkspaceRequest, OpenWorkspaceResult, RemoveMemberRequest,
+    RemoveMemberResult, SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
+    StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
+    TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
+    TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
+    TerminalInputResult, TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload,
+    TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus, TerminalStatusEventPayload,
+    TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
+    TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
+    TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
     TerminalTabsListResult, UpdateContactRequest, UpdateContactResult,
     UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
@@ -309,11 +309,16 @@ fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/orchestration/dispatch-chat-message.error.json");
 
     assert_eq!(request.workspace_id, "01K00000000000000000000000");
-    assert_eq!(
-        request.member_id.as_deref(),
-        Some("01K00000000000000000000031")
-    );
+    assert!(request.member_id.is_none());
     assert_eq!(result.dispatch.status, DispatchRequestStatus::Dispatched);
+    assert_eq!(
+        result.dispatch.target_resolution.source,
+        DispatchTargetResolutionSource::ExplicitMention
+    );
+    assert_eq!(
+        result.dispatch.target_resolution.member_id,
+        "01K00000000000000000000031"
+    );
     assert_eq!(
         result.dispatch.terminal_session_id.as_deref(),
         Some("01K00000000000000000000080")
@@ -328,7 +333,7 @@ fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
             .status,
         TerminalSessionStatus::Running
     );
-    assert_eq!(error.code, "dispatch.target.required");
+    assert_eq!(error.code, "dispatch.target.ambiguous");
     assert!(error.recoverable);
 }
 

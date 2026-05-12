@@ -1,8 +1,8 @@
 {
-  "code": "dispatch.target.required",
-  "message": "需要明确的派发成员。",
-  "userAction": "请选择一名成员或只提及一个成员后再派发。",
-  "details": "mentionedMemberCount=0",
+  "code": "dispatch.target.ambiguous",
+  "message": "消息提及了多个可派发成员。",
+  "userAction": "请从候选成员中选择一个派发目标。",
+  "details": "candidateMemberIds=01K00000000000000000000031,01K00000000000000000000032",
   "severity": "error",
   "recoverable": true,
   "correlationId": null

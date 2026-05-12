@@ -36,7 +36,8 @@ pub use member::{
 };
 pub use orchestration::{
     DispatchChatMessageRequest, DispatchChatMessageResult, DispatchFailureProfile,
-    DispatchRequestProfile, DispatchRequestStatus,
+    DispatchRequestProfile, DispatchRequestStatus, DispatchTargetResolutionProfile,
+    DispatchTargetResolutionSource,
 };
 pub use terminal::{
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,

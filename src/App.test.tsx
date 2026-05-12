@@ -931,6 +931,11 @@ describe("App workspace entry", () => {
           conversationId: channel.conversationId,
           messageId: message.messageId,
           memberId: reviewer.memberId,
+          targetResolution: {
+            memberId: reviewer.memberId,
+            source: "explicitMention",
+            reason: "消息明确提及 Reviewer。",
+          },
           status: "dispatched",
           terminalSessionId: "01KTERMINAL00000000000010",
           failure: null,
@@ -989,7 +994,7 @@ describe("App workspace entry", () => {
       workspaceId: "01K00000000000000000000000",
       conversationId: channel.conversationId,
       messageId: message.messageId,
-      memberId: reviewer.memberId,
+      memberId: null,
     });
     expect(await within(conversationPanel).findByText(/已派发到 Reviewer/))
       .toBeInTheDocument();
@@ -1028,6 +1033,11 @@ describe("App workspace entry", () => {
           conversationId: channel.conversationId,
           messageId: message.messageId,
           memberId: reviewer.memberId,
+          targetResolution: {
+            memberId: reviewer.memberId,
+            source: "explicitMention",
+            reason: "消息明确提及 Reviewer。",
+          },
           status: "failed",
           terminalSessionId: null,
           failure: {
@@ -1088,6 +1098,240 @@ describe("App workspace entry", () => {
     ).toBeInTheDocument();
     expect(within(conversationPanel).getByText("@Reviewer run checks")).toBeInTheDocument();
     expect(await screen.findByRole("status")).toHaveTextContent("派发失败");
+  });
+
+  it("dispatches a private conversation message through backend target fallback", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const privateConversation = conversationProfile({
+      conversationId: "01KPRIVATE000000000000001",
+      title: "Reviewer",
+      kind: "private",
+      participantKind: "member",
+      participantId: reviewer.memberId,
+    });
+    const message = chatMessage({
+      conversationId: privateConversation.conversationId,
+      body: "Please inspect this context",
+      mentionedMemberIds: [],
+    });
+    const dispatchChatMessage = vi.fn(() =>
+      Promise.resolve({
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: "01KDISPATCH00000000000003",
+          workspaceId: privateConversation.workspaceId,
+          conversationId: privateConversation.conversationId,
+          messageId: message.messageId,
+          memberId: reviewer.memberId,
+          targetResolution: {
+            memberId: reviewer.memberId,
+            source: "privateConversation",
+            reason: "当前私聊对象 Reviewer 是可运行终端的成员。",
+          },
+          status: "dispatched",
+          terminalSessionId: "01KTERMINAL00000000000011",
+          failure: null,
+          createdAtMs: 1760000002000,
+          updatedAtMs: 1760000002001,
+        },
+        terminalSession: terminalOpenResult({
+          session: {
+            ...terminalOpenResult().session,
+            terminalSessionId: "01KTERMINAL00000000000011",
+            memberId: reviewer.memberId,
+            title: "Reviewer",
+          },
+        }).session,
+        sessionCreated: true,
+      } satisfies DispatchChatMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [privateConversation] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [message],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: privateConversation,
+          }),
+        updateReadPosition: () =>
+          Promise.resolve({
+            readPosition: readPosition({
+              conversationId: privateConversation.conversationId,
+              lastReadMessageId: message.messageId,
+            }),
+            conversation: privateConversation,
+          }),
+      },
+      terminalDispatchApi: {
+        dispatchChatMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(await within(conversationPanel).findByRole("button", {
+      name: "派发到 Reviewer",
+    }));
+
+    expect(dispatchChatMessage).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: privateConversation.conversationId,
+      messageId: message.messageId,
+      memberId: null,
+    });
+    expect(
+      await within(conversationPanel).findByText(
+        "当前私聊对象 Reviewer 是可运行终端的成员。",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("asks for target selection when mentioned dispatch targets are ambiguous", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const builder = memberProfile({
+      memberId: "01KMEMBER000000000000000011",
+      role: "assistant",
+      displayName: "Builder",
+      instanceLabel: "Builder",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "gemini",
+        label: "Gemini CLI",
+        command: "gemini",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel();
+    const message = chatMessage({
+      body: "@Reviewer @Builder please decide",
+      mentionedMemberIds: [reviewer.memberId, builder.memberId],
+    });
+    const dispatchChatMessage = vi.fn((request: DispatchChatMessageRequest) =>
+      Promise.resolve({
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: "01KDISPATCH00000000000004",
+          workspaceId: channel.workspaceId,
+          conversationId: channel.conversationId,
+          messageId: message.messageId,
+          memberId: request.memberId ?? builder.memberId,
+          targetResolution: {
+            memberId: request.memberId ?? builder.memberId,
+            source: "userSelected",
+            reason: "用户选择了派发目标 Builder。",
+          },
+          status: "dispatched",
+          terminalSessionId: "01KTERMINAL00000000000012",
+          failure: null,
+          createdAtMs: 1760000002000,
+          updatedAtMs: 1760000002001,
+        },
+        terminalSession: terminalOpenResult({
+          session: {
+            ...terminalOpenResult().session,
+            terminalSessionId: "01KTERMINAL00000000000012",
+            memberId: request.memberId ?? builder.memberId,
+            title: "Builder",
+          },
+        }).session,
+        sessionCreated: true,
+      } satisfies DispatchChatMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer, builder] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [message],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+        updateReadPosition: () =>
+          Promise.resolve({
+            readPosition: readPosition({
+              lastReadMessageId: message.messageId,
+            }),
+            conversation: channel,
+          }),
+      },
+      terminalDispatchApi: {
+        dispatchChatMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(await within(conversationPanel).findByRole("button", {
+      name: "选择派发目标",
+    }));
+    expect(
+      await within(conversationPanel).findByLabelText("派发目标选择"),
+    ).toBeInTheDocument();
+
+    await user.click(within(conversationPanel).getByRole("button", { name: "Builder" }));
+
+    expect(dispatchChatMessage).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: channel.conversationId,
+      messageId: message.messageId,
+      memberId: builder.memberId,
+    });
+    expect(await within(conversationPanel).findByText(/已派发到 Builder/))
+      .toBeInTheDocument();
   });
 
   it("inserts member mention suggestions as chips and sends structured mention ids", async () => {

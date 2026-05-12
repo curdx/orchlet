@@ -6,6 +6,11 @@
     "conversationId": "01K00000000000000000000050",
     "messageId": "01K00000000000000000000070",
     "memberId": "01K00000000000000000000031",
+    "targetResolution": {
+      "memberId": "01K00000000000000000000031",
+      "source": "explicitMention",
+      "reason": "消息明确提及 Codex Reviewer。"
+    },
     "status": "dispatched",
     "terminalSessionId": "01K00000000000000000000080",
     "failure": null,

@@ -15,6 +15,26 @@ pub enum DispatchRequestStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "orchestration.ts")]
+pub enum DispatchTargetResolutionSource {
+    UserSelected,
+    ExplicitMention,
+    PrivateConversation,
+    ConversationDefault,
+    WorkspaceDefault,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "orchestration.ts")]
+pub struct DispatchTargetResolutionProfile {
+    pub member_id: String,
+    pub source: DispatchTargetResolutionSource,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "orchestration.ts")]
 pub struct DispatchFailureProfile {
     pub code: String,
     pub message: String,
@@ -32,6 +52,7 @@ pub struct DispatchRequestProfile {
     pub conversation_id: String,
     pub message_id: String,
     pub member_id: String,
+    pub target_resolution: DispatchTargetResolutionProfile,
     pub status: DispatchRequestStatus,
     pub terminal_session_id: Option<String>,
     pub failure: Option<DispatchFailureProfile>,

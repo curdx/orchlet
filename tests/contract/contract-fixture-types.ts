@@ -70,6 +70,7 @@ import type {
   DispatchChatMessageResult,
   DispatchRequestProfile,
   DispatchRequestStatus,
+  DispatchTargetResolutionSource,
 } from "../../src/contracts/generated/orchestration";
 import type {
   TerminalAttachRequest,
@@ -880,6 +881,10 @@ function dispatchRequestProfile(
 ): DispatchRequestProfile {
   return {
     ...dispatch,
+    targetResolution: {
+      ...dispatch.targetResolution,
+      source: dispatchTargetResolutionSource(dispatch.targetResolution.source),
+    },
     status: dispatchRequestStatus(dispatch.status),
     terminalSessionId: dispatch.terminalSessionId,
     failure: dispatch.failure,
@@ -894,6 +899,19 @@ function dispatchRequestStatus(value: string): DispatchRequestStatus {
       return value;
     default:
       throw new Error(`Unknown dispatch request status: ${value}`);
+  }
+}
+
+function dispatchTargetResolutionSource(value: string): DispatchTargetResolutionSource {
+  switch (value) {
+    case "userSelected":
+    case "explicitMention":
+    case "privateConversation":
+    case "conversationDefault":
+    case "workspaceDefault":
+      return value;
+    default:
+      throw new Error(`Unknown dispatch target resolution source: ${value}`);
   }
 }
 

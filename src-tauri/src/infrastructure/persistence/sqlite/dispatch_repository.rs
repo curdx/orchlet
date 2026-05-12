@@ -4,8 +4,14 @@ use rusqlite::{params, Connection};
 use ulid::Ulid;
 
 use crate::{
-    contracts::{AppError, DispatchFailureProfile, DispatchRequestProfile, DispatchRequestStatus},
-    domain::{member::validate_workspace_id, orchestration::DISPATCH_SCHEMA_VERSION},
+    contracts::{
+        AppError, DispatchFailureProfile, DispatchRequestProfile, DispatchRequestStatus,
+        DispatchTargetResolutionProfile, DispatchTargetResolutionSource,
+    },
+    domain::{
+        member::validate_workspace_id,
+        orchestration::{target_resolution_from_parts, DISPATCH_SCHEMA_VERSION},
+    },
     infrastructure::persistence::{
         json_store::workspace_registry_store::now_ms,
         sqlite::workspace_database::{open_workspace_database, sqlite_error},
@@ -20,7 +26,7 @@ pub fn create_pending_dispatch(
     workspace_id: &str,
     conversation_id: &str,
     message_id: &str,
-    member_id: &str,
+    target_resolution: &DispatchTargetResolutionProfile,
 ) -> Result<DispatchRequestProfile, AppError> {
     validate_workspace_id(workspace_id)?;
     let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
@@ -31,7 +37,8 @@ pub fn create_pending_dispatch(
         workspace_id: workspace_id.to_owned(),
         conversation_id: conversation_id.to_owned(),
         message_id: message_id.to_owned(),
-        member_id: member_id.to_owned(),
+        member_id: target_resolution.member_id.clone(),
+        target_resolution: target_resolution.clone(),
         status: DispatchRequestStatus::Pending,
         terminal_session_id: None,
         failure: None,
@@ -129,7 +136,8 @@ pub fn dispatches_for_message(
     let connection = open_dispatch_connection(app_data_dir, workspace_id)?;
     let mut statement = connection
         .prepare(
-            "SELECT id, workspace_id, conversation_id, message_id, member_id, status,
+            "SELECT id, workspace_id, conversation_id, message_id, member_id,
+                    target_source, target_reason, status,
                     terminal_session_id, failure_code, failure_message,
                     failure_user_action, failure_details, created_at_ms, updated_at_ms
              FROM dispatch_requests
@@ -170,6 +178,7 @@ fn open_dispatch_connection(
     connection
         .execute_batch(DISPATCH_REQUESTS_MIGRATION_SQL)
         .map_err(sqlite_error("dispatch.migration.failed"))?;
+    apply_dispatch_target_resolution_migration(&connection)?;
 
     Ok(connection)
 }
@@ -181,16 +190,19 @@ fn insert_dispatch(
     connection
         .execute(
             "INSERT INTO dispatch_requests (
-                id, workspace_id, conversation_id, message_id, member_id, status,
-                terminal_session_id, failure_code, failure_message, failure_user_action,
-                failure_details, created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                id, workspace_id, conversation_id, message_id, member_id,
+                target_source, target_reason, status, terminal_session_id,
+                failure_code, failure_message, failure_user_action, failure_details,
+                created_at_ms, updated_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 dispatch.dispatch_request_id,
                 dispatch.workspace_id,
                 dispatch.conversation_id,
                 dispatch.message_id,
                 dispatch.member_id,
+                target_source_to_str(&dispatch.target_resolution.source),
+                dispatch.target_resolution.reason,
                 dispatch_status_to_str(&dispatch.status),
                 dispatch.terminal_session_id,
                 dispatch
@@ -224,7 +236,8 @@ fn dispatch_by_id(
 ) -> Result<DispatchRequestProfile, AppError> {
     let mut statement = connection
         .prepare(
-            "SELECT id, workspace_id, conversation_id, message_id, member_id, status,
+            "SELECT id, workspace_id, conversation_id, message_id, member_id,
+                    target_source, target_reason, status,
                     terminal_session_id, failure_code, failure_message,
                     failure_user_action, failure_details, created_at_ms, updated_at_ms
              FROM dispatch_requests
@@ -249,10 +262,15 @@ fn dispatch_by_id(
 }
 
 fn dispatch_from_row(row: &rusqlite::Row<'_>) -> Result<DispatchRequestProfile, rusqlite::Error> {
-    let failure_code: Option<String> = row.get(7)?;
-    let failure_message: Option<String> = row.get(8)?;
-    let failure_user_action: Option<String> = row.get(9)?;
-    let failure_details: Option<String> = row.get(10)?;
+    let target_resolution = target_resolution_from_parts(
+        row.get(4)?,
+        target_source_from_str(row.get::<_, String>(5)?.as_str()),
+        row.get(6)?,
+    );
+    let failure_code: Option<String> = row.get(9)?;
+    let failure_message: Option<String> = row.get(10)?;
+    let failure_user_action: Option<String> = row.get(11)?;
+    let failure_details: Option<String> = row.get(12)?;
     let failure = match (failure_code, failure_message, failure_user_action) {
         (Some(code), Some(message), Some(user_action)) => Some(DispatchFailureProfile {
             code,
@@ -269,13 +287,52 @@ fn dispatch_from_row(row: &rusqlite::Row<'_>) -> Result<DispatchRequestProfile, 
         workspace_id: row.get(1)?,
         conversation_id: row.get(2)?,
         message_id: row.get(3)?,
-        member_id: row.get(4)?,
-        status: dispatch_status_from_str(row.get::<_, String>(5)?.as_str()),
-        terminal_session_id: row.get(6)?,
+        member_id: target_resolution.member_id.clone(),
+        target_resolution,
+        status: dispatch_status_from_str(row.get::<_, String>(7)?.as_str()),
+        terminal_session_id: row.get(8)?,
         failure,
-        created_at_ms: row.get::<_, i64>(11)? as u64,
-        updated_at_ms: row.get::<_, i64>(12)? as u64,
+        created_at_ms: row.get::<_, i64>(13)? as u64,
+        updated_at_ms: row.get::<_, i64>(14)? as u64,
     })
+}
+
+fn apply_dispatch_target_resolution_migration(connection: &Connection) -> Result<(), AppError> {
+    let has_target_source = dispatch_column_exists(connection, "target_source")?;
+    let has_target_reason = dispatch_column_exists(connection, "target_reason")?;
+
+    if !has_target_source {
+        connection
+            .execute(
+                "ALTER TABLE dispatch_requests ADD COLUMN target_source TEXT NOT NULL DEFAULT 'user_selected'",
+                [],
+            )
+            .map_err(sqlite_error("dispatch.targetMigration.sourceFailed"))?;
+    }
+
+    if !has_target_reason {
+        connection
+            .execute(
+                "ALTER TABLE dispatch_requests ADD COLUMN target_reason TEXT NOT NULL DEFAULT 'Existing dispatch target.'",
+                [],
+            )
+            .map_err(sqlite_error("dispatch.targetMigration.reasonFailed"))?;
+    }
+
+    Ok(())
+}
+
+fn dispatch_column_exists(connection: &Connection, column_name: &str) -> Result<bool, AppError> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(dispatch_requests)")
+        .map_err(sqlite_error("dispatch.tableInfo.prepareFailed"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(sqlite_error("dispatch.tableInfo.queryFailed"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlite_error("dispatch.tableInfo.decodeFailed"))?;
+
+    Ok(columns.iter().any(|column| column == column_name))
 }
 
 fn dispatch_status_to_str(status: &DispatchRequestStatus) -> &'static str {
@@ -292,5 +349,25 @@ fn dispatch_status_from_str(value: &str) -> DispatchRequestStatus {
         "failed" => DispatchRequestStatus::Failed,
         "pending" => DispatchRequestStatus::Pending,
         _ => DispatchRequestStatus::Failed,
+    }
+}
+
+fn target_source_to_str(source: &DispatchTargetResolutionSource) -> &'static str {
+    match source {
+        DispatchTargetResolutionSource::UserSelected => "user_selected",
+        DispatchTargetResolutionSource::ExplicitMention => "explicit_mention",
+        DispatchTargetResolutionSource::PrivateConversation => "private_conversation",
+        DispatchTargetResolutionSource::ConversationDefault => "conversation_default",
+        DispatchTargetResolutionSource::WorkspaceDefault => "workspace_default",
+    }
+}
+
+fn target_source_from_str(value: &str) -> DispatchTargetResolutionSource {
+    match value {
+        "explicit_mention" => DispatchTargetResolutionSource::ExplicitMention,
+        "private_conversation" => DispatchTargetResolutionSource::PrivateConversation,
+        "conversation_default" => DispatchTargetResolutionSource::ConversationDefault,
+        "workspace_default" => DispatchTargetResolutionSource::WorkspaceDefault,
+        _ => DispatchTargetResolutionSource::UserSelected,
     }
 }
