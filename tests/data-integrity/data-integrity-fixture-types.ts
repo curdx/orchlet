@@ -43,6 +43,7 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceRegistry":
     case "workspaceFallbacks":
     case "appPreferences":
+    case "shortcutPreferences":
     case "notificationPreferences":
     case "profileSettings":
     case "avatarLibrary":

@@ -7,6 +7,7 @@ use crate::{
         notification::NOTIFICATION_PREFERENCES_FILE_NAME,
         settings::{
             APP_PREFERENCES_FILE_NAME, AVATAR_LIBRARY_DIR_NAME, PROFILE_SETTINGS_FILE_NAME,
+            SHORTCUT_PREFERENCES_FILE_NAME,
         },
         workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME, WORKSPACE_SCHEMA_VERSION},
     },
@@ -14,6 +15,7 @@ use crate::{
         app_preferences_store::APP_PREFERENCES_STORE_SCHEMA_VERSION,
         notification_preferences_store::NOTIFICATION_PREFERENCES_STORE_SCHEMA_VERSION,
         profile_settings_store::PROFILE_SETTINGS_STORE_SCHEMA_VERSION,
+        shortcut_preferences_store::SHORTCUT_PREFERENCES_STORE_SCHEMA_VERSION,
         skill_library_store::{SKILL_LIBRARY_FILE_NAME, SKILL_LIBRARY_SCHEMA_VERSION},
         workspace_fallback_store::{
             WORKSPACE_FALLBACK_FILE_NAME, WORKSPACE_FALLBACK_SCHEMA_VERSION,
@@ -160,6 +162,31 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "settings.notifications.load_validate".to_owned(),
             notes: "Notification preferences are local app settings; OS notification permission is represented but no platform adapter is stored."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "settings.shortcuts".to_owned(),
+            owner: StorageOwner::Settings,
+            category: StorageCategory::ShortcutPreferences,
+            description: "App-data shortcut profile, enabled state, hint visibility and per-action disable preferences."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataFile,
+            relative_path: Some(format!("settings/{}", SHORTCUT_PREFERENCES_FILE_NAME)),
+            file_name: Some(SHORTCUT_PREFERENCES_FILE_NAME.to_owned()),
+            format: StorageFormat::Json,
+            schema_version: SHORTCUT_PREFERENCES_STORE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/shortcut_preferences_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/shortcut_preferences_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::AppState,
+            fixture_required: true,
+            validation_check_id: "settings.shortcuts.load_validate".to_owned(),
+            notes: "Shortcut preferences are local app settings; OS-global shortcuts remain unavailable until a platform adapter is added."
                 .to_owned(),
         },
         StorageManifestEntry {

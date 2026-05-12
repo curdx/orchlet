@@ -6,6 +6,15 @@ use super::workspace::{AppLanguage, AppTheme};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "settings.ts")]
+pub enum ShortcutKeymapProfile {
+    Default,
+    Vscode,
+    Slack,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
 pub struct AppPreferencesSettingsSnapshot {
     pub schema_version: u32,
     pub theme: AppTheme,
@@ -69,6 +78,77 @@ pub struct ProfileSettingsSnapshot {
     pub created_at_ms: u64,
     #[ts(type = "number")]
     pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ShortcutBindingSnapshot {
+    pub action_id: String,
+    pub label: String,
+    pub keys: Vec<String>,
+    pub enabled: bool,
+    pub available: bool,
+    pub unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ShortcutPreferencesSnapshot {
+    pub schema_version: u32,
+    pub profile: ShortcutKeymapProfile,
+    pub shortcuts_enabled: bool,
+    pub shortcut_hints_enabled: bool,
+    pub disabled_action_ids: Vec<String>,
+    pub bindings: Vec<ShortcutBindingSnapshot>,
+    #[ts(type = "number")]
+    pub created_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct GetShortcutPreferencesRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct GetShortcutPreferencesResult {
+    pub preferences: ShortcutPreferencesSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct UpdateShortcutPreferencesRequest {
+    pub profile: Option<ShortcutKeymapProfile>,
+    pub shortcuts_enabled: Option<bool>,
+    pub shortcut_hints_enabled: Option<bool>,
+    pub disabled_action_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct UpdateShortcutPreferencesResult {
+    pub preferences: ShortcutPreferencesSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ResetShortcutPreferencesRequest {
+    pub profile: Option<ShortcutKeymapProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ResetShortcutPreferencesResult {
+    pub preferences: ShortcutPreferencesSnapshot,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

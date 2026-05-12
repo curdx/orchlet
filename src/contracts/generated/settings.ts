@@ -11,6 +11,10 @@ export type GetProfileSettingsRequest = Record<symbol, never>;
 
 export type GetProfileSettingsResult = { profile: ProfileSettingsSnapshot, };
 
+export type GetShortcutPreferencesRequest = Record<symbol, never>;
+
+export type GetShortcutPreferencesResult = { preferences: ShortcutPreferencesSnapshot, };
+
 export type ProfileAvatarKind = "placeholder" | "preset" | "uploaded";
 
 export type ProfileAvatarSnapshot = { kind: ProfileAvatarKind, presetId: string | null, uploadId: string | null, sourceFileName: string | null, contentType: string | null, sizeBytes: number | null, libraryRelativePath: string | null, previewDataUrl?: string, updatedAtMs: number, };
@@ -23,13 +27,27 @@ export type ResetProfileAvatarRequest = Record<symbol, never>;
 
 export type ResetProfileAvatarResult = { profile: ProfileSettingsSnapshot, };
 
+export type ResetShortcutPreferencesRequest = { profile: ShortcutKeymapProfile | null, };
+
+export type ResetShortcutPreferencesResult = { preferences: ShortcutPreferencesSnapshot, };
+
 export type SelectProfileAvatarPresetRequest = { presetId: string, };
 
 export type SelectProfileAvatarPresetResult = { profile: ProfileSettingsSnapshot, };
 
+export type ShortcutBindingSnapshot = { actionId: string, label: string, keys: Array<string>, enabled: boolean, available: boolean, unavailableReason: string | null, };
+
+export type ShortcutKeymapProfile = "default" | "vscode" | "slack";
+
+export type ShortcutPreferencesSnapshot = { schemaVersion: number, profile: ShortcutKeymapProfile, shortcutsEnabled: boolean, shortcutHintsEnabled: boolean, disabledActionIds: Array<string>, bindings: Array<ShortcutBindingSnapshot>, createdAtMs: number, updatedAtMs: number, };
+
 export type UpdateProfileSettingsRequest = { displayName: string | null, timezone: string | null, status: string | null, statusMessage: string | null, };
 
 export type UpdateProfileSettingsResult = { profile: ProfileSettingsSnapshot, };
+
+export type UpdateShortcutPreferencesRequest = { profile: ShortcutKeymapProfile | null, shortcutsEnabled: boolean | null, shortcutHintsEnabled: boolean | null, disabledActionIds: Array<string> | null, };
+
+export type UpdateShortcutPreferencesResult = { preferences: ShortcutPreferencesSnapshot, };
 
 export type UploadProfileAvatarRequest = { sourcePath: string, };
 

@@ -3,6 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
+  ShortcutKeymapProfile,
+  ShortcutPreferencesSnapshot,
+} from "../../contracts/generated/settings";
+import type {
   TerminalOutputEventPayload,
   TerminalSessionProfile,
   TerminalStatusEventPayload,
@@ -93,7 +97,66 @@ function terminalTab(overrides: Partial<TerminalTabProfile> = {}): TerminalTabPr
   };
 }
 
-function terminalPageHarness(initialTabs = [terminalTab()]) {
+function shortcutPreferencesSnapshot(
+  overrides: Partial<ShortcutPreferencesSnapshot> = {},
+): ShortcutPreferencesSnapshot {
+  const profile = overrides.profile ?? "default";
+  const disabledActionIds = overrides.disabledActionIds ?? [];
+
+  return {
+    schemaVersion: 1,
+    profile,
+    shortcutsEnabled: true,
+    shortcutHintsEnabled: true,
+    disabledActionIds,
+    bindings: shortcutBindingsForProfile(profile, disabledActionIds),
+    createdAtMs: 1760000070000,
+    updatedAtMs: 1760000070000,
+    ...overrides,
+  };
+}
+
+function shortcutBindingsForProfile(
+  profile: ShortcutKeymapProfile,
+  disabledActionIds: string[] = [],
+): ShortcutPreferencesSnapshot["bindings"] {
+  const chatSendKeys = profile === "vscode" ? ["Ctrl+Enter", "Meta+Enter"] : ["Enter"];
+  const specs = [
+    ["chat.send", "发送聊天消息", chatSendKeys, true, null],
+    ["chat.newline", "聊天输入换行", ["Shift+Enter"], true, null],
+    ["chat.emoji.close", "关闭 Emoji 面板", ["Esc"], true, null],
+    ["mention.insert", "插入提及建议", ["Enter", "Tab"], true, null],
+    ["conversation.focus", "聚焦会话列表", ["Tab"], true, null],
+    ["terminal.find.next", "终端查找下一个", ["Enter"], true, null],
+    ["terminal.find.previous", "终端查找上一个", ["Shift+Enter"], true, null],
+    ["terminal.find.close", "关闭终端查找", ["Esc"], true, null],
+    ["settings.save", "保存设置", ["Enter"], true, null],
+    ["notification.viewAll", "通知查看全部", ["Tab", "Enter"], true, null],
+    ["notification.ignoreAll", "通知忽略全部", ["Tab", "Enter"], true, null],
+    ["notification.openTerminal", "通知打开终端", ["Tab", "Enter"], true, null],
+    [
+      "app.globalOpenSettings",
+      "全局打开设置",
+      ["Ctrl+,"],
+      false,
+      "当前版本尚未注册 OS 全局快捷键。",
+    ],
+  ] as const;
+
+  return specs.map(([actionId, label, keys, available, unavailableReason]) => ({
+    actionId,
+    label,
+    keys: [...keys],
+    enabled: available && !disabledActionIds.includes(actionId),
+    available,
+    unavailableReason,
+  }));
+}
+
+function terminalPageHarness(
+  initialTabs = [terminalTab()],
+  shortcutPreferences = shortcutPreferencesSnapshot(),
+) {
   const outputHandlers: Array<(event: TerminalOutputEventPayload) => void> = [];
   const statusHandlers: Array<(event: TerminalStatusEventPayload) => void> = [];
   let currentTabs = initialTabs;
@@ -307,6 +370,9 @@ function terminalPageHarness(initialTabs = [terminalTab()]) {
     <TerminalPage
       snapshot={snapshot()}
       api={api}
+      settingsApi={{
+        getShortcutPreferences: () => Promise.resolve({ preferences: shortcutPreferences }),
+      }}
       createRendererAdapter={(options) => {
         const rendererIndex = inputHandlers.length;
         inputHandlers.push(options.onInput);
@@ -969,6 +1035,49 @@ describe("TerminalPage", () => {
 
     await user.keyboard("{Escape}");
     expect(renderer.clearSelection).toHaveBeenCalled();
+    expect(screen.queryByRole("textbox", { name: "查找终端文本" })).not.toBeInTheDocument();
+  });
+
+  it("respects disabled terminal find shortcut preferences", async () => {
+    const user = userEvent.setup();
+    const { renderer } = terminalPageHarness(
+      [terminalTab()],
+      shortcutPreferencesSnapshot({ disabledActionIds: ["terminal.find.next"] }),
+    );
+
+    await screen.findAllByText("orchlet-demo");
+    await user.click(screen.getByRole("button", { name: "打开终端查找" }));
+
+    const findInput = await screen.findByRole("textbox", { name: "查找终端文本" });
+    await user.type(findInput, "error");
+    await waitFor(() => {
+      expect(renderer.find).toHaveBeenLastCalledWith(
+        "error",
+        {
+          caseSensitive: false,
+          wholeWord: false,
+          regex: false,
+        },
+        "current",
+      );
+    });
+
+    renderer.find.mockClear();
+    await user.keyboard("{Enter}");
+    expect(renderer.find).not.toHaveBeenCalled();
+
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    expect(renderer.find).toHaveBeenLastCalledWith(
+      "error",
+      {
+        caseSensitive: false,
+        wholeWord: false,
+        regex: false,
+      },
+      "previous",
+    );
+
+    await user.keyboard("{Escape}");
     expect(screen.queryByRole("textbox", { name: "查找终端文本" })).not.toBeInTheDocument();
   });
 });

@@ -66,9 +66,12 @@ pub use roadmap::{
 pub use settings::{
     AppPreferencesSettingsSnapshot, DeleteUploadedProfileAvatarRequest,
     DeleteUploadedProfileAvatarResult, GetProfileSettingsRequest, GetProfileSettingsResult,
-    ProfileAvatarKind, ProfileAvatarSnapshot, ProfileSettingsSnapshot, ProfileStatus,
-    ResetProfileAvatarRequest, ResetProfileAvatarResult, SelectProfileAvatarPresetRequest,
-    SelectProfileAvatarPresetResult, UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
+    GetShortcutPreferencesRequest, GetShortcutPreferencesResult, ProfileAvatarKind,
+    ProfileAvatarSnapshot, ProfileSettingsSnapshot, ProfileStatus, ResetProfileAvatarRequest,
+    ResetProfileAvatarResult, ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
+    SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult, ShortcutBindingSnapshot,
+    ShortcutKeymapProfile, ShortcutPreferencesSnapshot, UpdateProfileSettingsRequest,
+    UpdateProfileSettingsResult, UpdateShortcutPreferencesRequest, UpdateShortcutPreferencesResult,
     UploadProfileAvatarRequest, UploadProfileAvatarResult,
 };
 pub use skill::{

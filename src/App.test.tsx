@@ -92,10 +92,16 @@ import type {
   UploadProfileAvatarResult,
   SelectProfileAvatarPresetResult,
   ResetProfileAvatarResult,
+  ResetShortcutPreferencesRequest,
+  ResetShortcutPreferencesResult,
   DeleteUploadedProfileAvatarResult,
+  ShortcutKeymapProfile,
+  ShortcutPreferencesSnapshot,
   UpdateGroupConversationMembersResult,
   UpdateReadPositionRequest,
   UpdateReadPositionResult,
+  UpdateShortcutPreferencesRequest,
+  UpdateShortcutPreferencesResult,
   WindowContextSnapshot,
   WorkspaceSelectionStatus,
   UnlinkWorkspaceSkillResult,
@@ -224,6 +230,13 @@ function renderWorkspaceSelection(api: {
     selectProfileAvatarPreset: (presetId: string) => Promise<SelectProfileAvatarPresetResult>;
     resetProfileAvatar: () => Promise<ResetProfileAvatarResult>;
     deleteUploadedProfileAvatar: () => Promise<DeleteUploadedProfileAvatarResult>;
+    getShortcutPreferences: () => Promise<{ preferences: ShortcutPreferencesSnapshot }>;
+    updateShortcutPreferences: (
+      input: UpdateShortcutPreferencesRequest,
+    ) => Promise<UpdateShortcutPreferencesResult>;
+    resetShortcutPreferences: (
+      input: ResetShortcutPreferencesRequest,
+    ) => Promise<ResetShortcutPreferencesResult>;
   }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
@@ -360,6 +373,23 @@ function renderWorkspaceSelection(api: {
             Promise.reject(new Error("resetProfileAvatar mock missing")),
           deleteUploadedProfileAvatar: () =>
             Promise.reject(new Error("deleteUploadedProfileAvatar mock missing")),
+          getShortcutPreferences: () =>
+            Promise.resolve({ preferences: shortcutPreferencesSnapshot() }),
+          updateShortcutPreferences: (input) =>
+            Promise.resolve({
+              preferences: shortcutPreferencesSnapshot({
+                profile: input.profile ?? undefined,
+                shortcutsEnabled: input.shortcutsEnabled ?? undefined,
+                shortcutHintsEnabled: input.shortcutHintsEnabled ?? undefined,
+                disabledActionIds: input.disabledActionIds ?? undefined,
+              }),
+            }),
+          resetShortcutPreferences: (input) =>
+            Promise.resolve({
+              preferences: shortcutPreferencesSnapshot({
+                profile: input.profile ?? undefined,
+              }),
+            }),
           ...settingsApi,
         }}
         terminalDispatchApi={{
@@ -693,6 +723,62 @@ function notificationPreferencesSnapshot(
     updatedAtMs: 1760000060000,
     ...overrides,
   };
+}
+
+function shortcutPreferencesSnapshot(
+  overrides: Partial<ShortcutPreferencesSnapshot> = {},
+): ShortcutPreferencesSnapshot {
+  const profile = overrides.profile ?? "default";
+  const disabledActionIds = overrides.disabledActionIds ?? [];
+
+  return {
+    schemaVersion: 1,
+    profile,
+    shortcutsEnabled: true,
+    shortcutHintsEnabled: true,
+    disabledActionIds,
+    bindings: shortcutBindingsForProfile(profile, disabledActionIds),
+    createdAtMs: 1760000070000,
+    updatedAtMs: 1760000070000,
+    ...overrides,
+  };
+}
+
+function shortcutBindingsForProfile(
+  profile: ShortcutKeymapProfile,
+  disabledActionIds: string[] = [],
+): ShortcutPreferencesSnapshot["bindings"] {
+  const chatSendKeys = profile === "vscode" ? ["Ctrl+Enter", "Meta+Enter"] : ["Enter"];
+  const specs = [
+    ["chat.send", "发送聊天消息", chatSendKeys, true, null],
+    ["chat.newline", "聊天输入换行", ["Shift+Enter"], true, null],
+    ["chat.emoji.close", "关闭 Emoji 面板", ["Esc"], true, null],
+    ["mention.insert", "插入提及建议", ["Enter", "Tab"], true, null],
+    ["conversation.focus", "聚焦会话列表", ["Tab"], true, null],
+    ["terminal.find.next", "终端查找下一个", ["Enter"], true, null],
+    ["terminal.find.previous", "终端查找上一个", ["Shift+Enter"], true, null],
+    ["terminal.find.close", "关闭终端查找", ["Esc"], true, null],
+    ["settings.save", "保存设置", ["Enter"], true, null],
+    ["notification.viewAll", "通知查看全部", ["Tab", "Enter"], true, null],
+    ["notification.ignoreAll", "通知忽略全部", ["Tab", "Enter"], true, null],
+    ["notification.openTerminal", "通知打开终端", ["Tab", "Enter"], true, null],
+    [
+      "app.globalOpenSettings",
+      "全局打开设置",
+      ["Ctrl+,"],
+      false,
+      "当前版本尚未注册 OS 全局快捷键。",
+    ],
+  ] as const;
+
+  return specs.map(([actionId, label, keys, available, unavailableReason]) => ({
+    actionId,
+    label,
+    keys: [...keys],
+    enabled: available && !disabledActionIds.includes(actionId),
+    available,
+    unavailableReason,
+  }));
 }
 
 function profileAvatarSnapshot(
@@ -1078,6 +1164,83 @@ describe("App workspace entry", () => {
     expect(
       within(form).getByText("当前版本仍会保存本地通知偏好；启用系统通知需要后续平台适配。"),
     ).toBeInTheDocument();
+  });
+
+  it("saves shortcut preferences and shows enabled disabled and unavailable states", async () => {
+    const user = userEvent.setup();
+    const updateShortcutPreferences = vi.fn((request: UpdateShortcutPreferencesRequest) =>
+      Promise.resolve({
+        preferences: shortcutPreferencesSnapshot({
+          profile: request.profile ?? "default",
+          shortcutsEnabled: request.shortcutsEnabled ?? true,
+          shortcutHintsEnabled: request.shortcutHintsEnabled ?? true,
+          disabledActionIds: request.disabledActionIds ?? [],
+          updatedAtMs: 1760000071000,
+        }),
+      } satisfies UpdateShortcutPreferencesResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      settingsApi: { updateShortcutPreferences },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.selectOptions(within(form).getByLabelText("键位方案"), "vscode");
+    await user.click(within(form).getByLabelText("显示快捷键提示"));
+    await user.click(within(form).getByLabelText("发送聊天消息 快捷键"));
+    const saveShortcutsButton = within(form).getByRole("button", { name: "保存快捷键" });
+    saveShortcutsButton.focus();
+    await user.keyboard("{Enter}");
+
+    expect(updateShortcutPreferences).toHaveBeenCalledWith({
+      profile: "vscode",
+      shortcutsEnabled: true,
+      shortcutHintsEnabled: false,
+      disabledActionIds: ["chat.send"],
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("快捷键设置已保存");
+
+    const shortcutList = within(form).getByLabelText("快捷键列表");
+    expect(within(shortcutList).getAllByText("已启用").length).toBeGreaterThan(0);
+    expect(within(shortcutList).getByText("已停用")).toBeInTheDocument();
+    expect(within(shortcutList).getByText("不可用")).toBeInTheDocument();
+    expect(within(shortcutList).getByText("Ctrl+Enter / Meta+Enter")).toBeInTheDocument();
+    expect(
+      within(shortcutList).getByText("当前版本尚未注册 OS 全局快捷键。"),
+    ).toBeInTheDocument();
+  });
+
+  it("restores shortcut defaults for the selected profile", async () => {
+    const user = userEvent.setup();
+    const resetShortcutPreferences = vi.fn((request: ResetShortcutPreferencesRequest) =>
+      Promise.resolve({
+        preferences: shortcutPreferencesSnapshot({
+          profile: request.profile ?? "default",
+          updatedAtMs: 1760000072000,
+        }),
+      } satisfies ResetShortcutPreferencesResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      settingsApi: { resetShortcutPreferences },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.selectOptions(within(form).getByLabelText("键位方案"), "slack");
+    await user.click(within(form).getByRole("button", { name: "恢复默认快捷键" }));
+
+    expect(resetShortcutPreferences).toHaveBeenCalledWith({ profile: "slack" });
+    expect(await screen.findByRole("status")).toHaveTextContent("快捷键已恢复默认");
   });
 
   it("restores saved profile values into settings and member surfaces", async () => {
@@ -1962,6 +2125,56 @@ describe("App workspace entry", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("会话已更新");
   });
 
+  it("selects a conversation from the list by keyboard", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel();
+    const projectRoom = conversationProfile({
+      conversationId: "01K00000000000000000000066",
+      kind: "group",
+      title: "Project Room",
+      participantKind: null,
+      participantId: null,
+      members: [],
+    });
+    const listMessages = vi.fn((request: ListMessagesRequest) =>
+      Promise.resolve({
+        messages: [],
+        hasMore: false,
+        nextBeforeMessageId: null,
+        readPosition: null,
+        conversation:
+          request.conversationId === projectRoom.conversationId ? projectRoom : channel,
+      } satisfies ListMessagesResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel, projectRoom] }),
+        listMessages,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const projectRoomButton = await within(conversationPanel).findByRole("button", {
+      name: /Project Room/,
+    });
+    projectRoomButton.focus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(listMessages).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: projectRoom.conversationId,
+        beforeMessageId: null,
+        limit: 30,
+      });
+    });
+  });
+
   it("clears messages, deletes non-default conversations and keeps default delete disabled", async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -2202,6 +2415,72 @@ describe("App workspace entry", () => {
     expect(within(messageLog).getByText("Ship it")).toBeInTheDocument();
   });
 
+  it("updates chat send keyboard behavior from shortcut preferences", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel();
+    const sendMessage = vi.fn(() =>
+      Promise.resolve({
+        message: chatMessage({ body: "Ship it" }),
+        conversation: channel,
+        readPosition: readPosition(),
+      } satisfies SendMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      settingsApi: {
+        getShortcutPreferences: () =>
+          Promise.resolve({
+            preferences: shortcutPreferencesSnapshot({ profile: "vscode" }),
+          }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        sendMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const composer = within(conversationPanel).getByLabelText("输入消息");
+    await user.type(composer, "Ship it");
+
+    fireEvent.keyDown(composer, { key: "Enter" });
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: channel.conversationId,
+        body: "Ship it",
+        mentionedMemberIds: [],
+      });
+    });
+  });
+
+  it("hides quick prompts when shortcut hints are disabled", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      settingsApi: {
+        getShortcutPreferences: () =>
+          Promise.resolve({
+            preferences: shortcutPreferencesSnapshot({ shortcutHintsEnabled: false }),
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    expect(within(conversationPanel).queryByLabelText("快捷提示")).not.toBeInTheDocument();
+  });
+
   it("publishes aggregated workspace unread state and shows the main unread total", async () => {
     const user = userEvent.setup();
     const channel = defaultChannel({
@@ -2437,7 +2716,9 @@ describe("App workspace entry", () => {
       />,
     );
 
-    await user.click(await screen.findByRole("button", { name: "查看全部未读" }));
+    const viewAllButton = await screen.findByRole("button", { name: "查看全部未读" });
+    viewAllButton.focus();
+    await user.keyboard("{Enter}");
 
     expect(onOpenWindowMode).toHaveBeenCalledWith("main");
     expect(dispatchNavigation).toHaveBeenCalledWith({
@@ -2531,7 +2812,9 @@ describe("App workspace entry", () => {
       />,
     );
 
-    await user.click(await screen.findByRole("button", { name: "打开终端" }));
+    const openTerminalButton = await screen.findByRole("button", { name: "打开终端" });
+    openTerminalButton.focus();
+    await user.keyboard("{Enter}");
 
     expect(openTerminal).toHaveBeenCalledWith({
       memberId: "01K00000000000000000000021",
@@ -2585,7 +2868,9 @@ describe("App workspace entry", () => {
       />,
     );
 
-    await user.click(await screen.findByRole("button", { name: "忽略全部" }));
+    const ignoreAllButton = await screen.findByRole("button", { name: "忽略全部" });
+    ignoreAllButton.focus();
+    await user.keyboard("{Enter}");
 
     expect(ignoreAllUnread).toHaveBeenCalledWith({
       workspaceId: "01K00000000000000000000000",
@@ -3942,6 +4227,35 @@ describe("App workspace entry", () => {
     fireEvent.keyDown(composer, { key: "Escape" });
     expect(within(conversationPanel).queryByRole("dialog", { name: "Emoji 面板" }))
       .not.toBeInTheDocument();
+  });
+
+  it("keeps the emoji panel open when the close shortcut is disabled", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      settingsApi: {
+        getShortcutPreferences: () =>
+          Promise.resolve({
+            preferences: shortcutPreferencesSnapshot({
+              disabledActionIds: ["chat.emoji.close"],
+            }),
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(within(conversationPanel).getByRole("button", { name: "Emoji" }));
+    expect(
+      await within(conversationPanel).findByRole("dialog", { name: "Emoji 面板" }),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(within(conversationPanel).getByLabelText("输入消息"), { key: "Escape" });
+    expect(within(conversationPanel).getByRole("dialog", { name: "Emoji 面板" }))
+      .toBeInTheDocument();
   });
 
   it("appends quick prompts and exposes removable attachment composition state", async () => {

@@ -1,0 +1,9 @@
+{
+  "code": "settings.shortcuts.invalidRecordVersion",
+  "message": "快捷键设置版本暂不支持。",
+  "userAction": "请使用兼容版本的 orchlet，或先备份 shortcuts.json。",
+  "details": "schemaVersion=99 expected=1",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "error"
+}

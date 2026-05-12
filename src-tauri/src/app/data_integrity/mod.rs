@@ -11,6 +11,7 @@ use crate::{
         roadmap::{validate_workspace_roadmap_goal_store, validate_workspace_roadmap_task_store},
         settings::{
             validate_app_preferences, validate_profile_avatar_library, validate_profile_settings,
+            validate_shortcut_preferences,
         },
         skills::{validate_skill_library_store, validate_workspace_skill_link_store},
     },
@@ -26,6 +27,7 @@ use crate::{
             notification_preferences_store::notification_preferences_path,
             profile_settings_store::avatar_library_dir,
             profile_settings_store::profile_settings_path,
+            shortcut_preferences_store::shortcut_preferences_path,
             skill_library_store::skill_library_path,
             workspace_fallback_store::{load_workspace_fallbacks, workspace_fallback_path},
             workspace_metadata_store::read_workspace_metadata,
@@ -110,6 +112,7 @@ pub fn validate_data_integrity(
             .map(|_| "workspace-fallbacks.json is readable and matches schema version.".to_owned()),
     ));
     checks.push(validate_app_preferences_store(app_data_dir));
+    checks.push(validate_shortcut_preferences_store(app_data_dir));
     checks.push(validate_notification_preferences_store(app_data_dir));
     checks.push(validate_profile_settings_store(app_data_dir));
     checks.push(validate_profile_avatar_library_store(app_data_dir));
@@ -175,6 +178,7 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::WorkspaceRegistry,
         StorageCategory::WorkspaceFallbacks,
         StorageCategory::AppPreferences,
+        StorageCategory::ShortcutPreferences,
         StorageCategory::NotificationPreferences,
         StorageCategory::ProfileSettings,
         StorageCategory::AvatarLibrary,
@@ -245,6 +249,16 @@ fn validate_app_preferences_store(app_data_dir: &Path) -> DataIntegrityCheckResu
         vec![app_preferences_path(app_data_dir)],
         validate_app_preferences(app_data_dir)
             .map(|_| "App preferences are readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_shortcut_preferences_store(app_data_dir: &Path) -> DataIntegrityCheckResult {
+    check_result(
+        "settings.shortcuts.load_validate",
+        StorageCategory::ShortcutPreferences,
+        vec![shortcut_preferences_path(app_data_dir)],
+        validate_shortcut_preferences(app_data_dir)
+            .map(|_| "Shortcut preferences are readable when initialized.".to_owned()),
     )
 }
 
@@ -751,11 +765,12 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 19);
+        assert_eq!(manifest.len(), 20);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
         assert!(categories.contains(&StorageCategory::AppPreferences));
+        assert!(categories.contains(&StorageCategory::ShortcutPreferences));
         assert!(categories.contains(&StorageCategory::NotificationPreferences));
         assert!(categories.contains(&StorageCategory::ProfileSettings));
         assert!(categories.contains(&StorageCategory::AvatarLibrary));
@@ -781,7 +796,7 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 20);
+        assert_eq!(report.total_checks, 21);
         assert_eq!(report.failed_checks, 0);
         assert_eq!(report.skipped_checks, 11);
         assert!(report.checks.iter().any(|check| {

@@ -4,14 +4,18 @@ use crate::{
     contracts::{
         AppError, AppPreferencesSettingsSnapshot, DeleteUploadedProfileAvatarRequest,
         DeleteUploadedProfileAvatarResult, GetProfileSettingsRequest, GetProfileSettingsResult,
-        ProfileSettingsSnapshot, ResetProfileAvatarRequest, ResetProfileAvatarResult,
-        SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
-        UpdateAppPreferencesRequest, UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
+        GetShortcutPreferencesRequest, GetShortcutPreferencesResult, ProfileSettingsSnapshot,
+        ResetProfileAvatarRequest, ResetProfileAvatarResult, ResetShortcutPreferencesRequest,
+        ResetShortcutPreferencesResult, SelectProfileAvatarPresetRequest,
+        SelectProfileAvatarPresetResult, ShortcutPreferencesSnapshot, UpdateAppPreferencesRequest,
+        UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
+        UpdateShortcutPreferencesRequest, UpdateShortcutPreferencesResult,
         UploadProfileAvatarRequest, UploadProfileAvatarResult,
     },
     domain::settings::{
-        normalize_profile_display_name, normalize_profile_status, normalize_profile_status_message,
-        normalize_profile_timezone, placeholder_avatar_snapshot, preset_avatar_snapshot,
+        default_shortcut_bindings, normalize_profile_display_name, normalize_profile_status,
+        normalize_profile_status_message, normalize_profile_timezone,
+        normalize_shortcut_preferences, placeholder_avatar_snapshot, preset_avatar_snapshot,
         uploaded_avatar_snapshot,
     },
     infrastructure::persistence::json_store::{
@@ -22,6 +26,10 @@ use crate::{
             copy_uploaded_profile_avatar, delete_current_uploaded_profile_avatar,
             load_profile_settings, save_profile_settings, validate_avatar_library_store,
             validate_profile_settings_store,
+        },
+        shortcut_preferences_store::{
+            default_shortcut_preferences_for_profile, load_shortcut_preferences,
+            save_shortcut_preferences, validate_shortcut_preferences_store,
         },
         workspace_registry_store::now_ms,
     },
@@ -66,6 +74,47 @@ pub fn update_app_preferences(
 
 pub fn validate_app_preferences(app_data_dir: impl AsRef<Path>) -> Result<(), AppError> {
     validate_app_preferences_store(app_data_dir.as_ref())
+}
+
+pub fn get_shortcut_preferences(
+    app_data_dir: impl AsRef<Path>,
+    _request: GetShortcutPreferencesRequest,
+) -> Result<GetShortcutPreferencesResult, AppError> {
+    Ok(GetShortcutPreferencesResult {
+        preferences: load_shortcut_preferences(app_data_dir.as_ref())?,
+    })
+}
+
+pub fn update_shortcut_preferences(
+    app_data_dir: impl AsRef<Path>,
+    request: UpdateShortcutPreferencesRequest,
+) -> Result<UpdateShortcutPreferencesResult, AppError> {
+    let app_data_dir = app_data_dir.as_ref();
+    let mut preferences = load_shortcut_preferences(app_data_dir)?;
+
+    apply_shortcut_update(&mut preferences, request)?;
+    save_shortcut_preferences(app_data_dir, &preferences)?;
+
+    Ok(UpdateShortcutPreferencesResult { preferences })
+}
+
+pub fn reset_shortcut_preferences(
+    app_data_dir: impl AsRef<Path>,
+    request: ResetShortcutPreferencesRequest,
+) -> Result<ResetShortcutPreferencesResult, AppError> {
+    let app_data_dir = app_data_dir.as_ref();
+    let current = load_shortcut_preferences(app_data_dir)?;
+    let profile = request.profile.unwrap_or_else(|| current.profile.clone());
+    let mut preferences = default_shortcut_preferences_for_profile(profile);
+    preferences.created_at_ms = current.created_at_ms;
+    preferences.updated_at_ms = next_shortcut_timestamp(&current);
+    save_shortcut_preferences(app_data_dir, &preferences)?;
+
+    Ok(ResetShortcutPreferencesResult { preferences })
+}
+
+pub fn validate_shortcut_preferences(app_data_dir: impl AsRef<Path>) -> Result<(), AppError> {
+    validate_shortcut_preferences_store(app_data_dir.as_ref())
 }
 
 pub fn get_profile_settings(
@@ -196,8 +245,42 @@ fn apply_profile_update(
     Ok(())
 }
 
+fn apply_shortcut_update(
+    preferences: &mut ShortcutPreferencesSnapshot,
+    request: UpdateShortcutPreferencesRequest,
+) -> Result<(), AppError> {
+    if let Some(profile) = request.profile {
+        preferences.profile = profile;
+    }
+
+    if let Some(shortcuts_enabled) = request.shortcuts_enabled {
+        preferences.shortcuts_enabled = shortcuts_enabled;
+    }
+
+    if let Some(shortcut_hints_enabled) = request.shortcut_hints_enabled {
+        preferences.shortcut_hints_enabled = shortcut_hints_enabled;
+    }
+
+    if let Some(disabled_action_ids) = request.disabled_action_ids {
+        preferences.disabled_action_ids = disabled_action_ids;
+    }
+
+    preferences.disabled_action_ids.sort();
+    preferences.disabled_action_ids.dedup();
+    preferences.bindings =
+        default_shortcut_bindings(&preferences.profile, &preferences.disabled_action_ids);
+    preferences.updated_at_ms = next_shortcut_timestamp(preferences);
+    normalize_shortcut_preferences(preferences)?;
+
+    Ok(())
+}
+
 fn next_profile_timestamp(profile: &ProfileSettingsSnapshot) -> u64 {
     now_ms().max(profile.updated_at_ms + 1)
+}
+
+fn next_shortcut_timestamp(preferences: &ShortcutPreferencesSnapshot) -> u64 {
+    now_ms().max(preferences.updated_at_ms + 1)
 }
 
 fn next_preferences_timestamp(preferences: &AppPreferencesSettingsSnapshot) -> u64 {
@@ -212,14 +295,16 @@ mod tests {
 
     use super::{
         delete_uploaded_profile_avatar, get_app_preferences, get_profile_settings,
-        reset_profile_avatar, select_profile_avatar_preset, update_app_preferences,
-        update_profile_settings, upload_profile_avatar,
+        get_shortcut_preferences, reset_profile_avatar, reset_shortcut_preferences,
+        select_profile_avatar_preset, update_app_preferences, update_profile_settings,
+        update_shortcut_preferences, upload_profile_avatar,
     };
     use crate::contracts::{
         AppLanguage, AppTheme, DeleteUploadedProfileAvatarRequest, GetProfileSettingsRequest,
-        ProfileAvatarKind, ProfileStatus, ResetProfileAvatarRequest,
-        SelectProfileAvatarPresetRequest, UpdateAppPreferencesRequest,
-        UpdateProfileSettingsRequest, UploadProfileAvatarRequest,
+        GetShortcutPreferencesRequest, ProfileAvatarKind, ProfileStatus, ResetProfileAvatarRequest,
+        ResetShortcutPreferencesRequest, SelectProfileAvatarPresetRequest, ShortcutKeymapProfile,
+        UpdateAppPreferencesRequest, UpdateProfileSettingsRequest,
+        UpdateShortcutPreferencesRequest, UploadProfileAvatarRequest,
     };
 
     #[test]
@@ -255,6 +340,87 @@ mod tests {
         let error = get_app_preferences(app_data.path()).expect_err("invalid json rejected");
 
         assert_eq!(error.code, "settings.preferences.invalidJson");
+        assert!(error.recoverable);
+    }
+
+    #[test]
+    fn shortcut_preferences_update_persists_and_restores_from_disk() {
+        let app_data = tempdir().expect("app data dir");
+
+        let updated = update_shortcut_preferences(
+            app_data.path(),
+            UpdateShortcutPreferencesRequest {
+                profile: Some(ShortcutKeymapProfile::Vscode),
+                shortcuts_enabled: Some(false),
+                shortcut_hints_enabled: Some(false),
+                disabled_action_ids: Some(vec!["chat.send".to_owned()]),
+            },
+        )
+        .expect("shortcut preferences updated");
+
+        assert_eq!(updated.preferences.profile, ShortcutKeymapProfile::Vscode);
+        assert!(!updated.preferences.shortcuts_enabled);
+        assert!(!updated.preferences.shortcut_hints_enabled);
+        assert_eq!(updated.preferences.disabled_action_ids, vec!["chat.send"]);
+        assert!(updated.preferences.bindings.iter().any(|binding| {
+            binding.action_id == "chat.send"
+                && !binding.enabled
+                && binding.keys.contains(&"Ctrl+Enter".to_owned())
+        }));
+
+        let restored = get_shortcut_preferences(app_data.path(), GetShortcutPreferencesRequest {})
+            .expect("restored");
+
+        assert_eq!(restored.preferences, updated.preferences);
+    }
+
+    #[test]
+    fn shortcut_preferences_reset_restores_profile_defaults() {
+        let app_data = tempdir().expect("app data dir");
+        update_shortcut_preferences(
+            app_data.path(),
+            UpdateShortcutPreferencesRequest {
+                profile: Some(ShortcutKeymapProfile::Slack),
+                shortcuts_enabled: Some(false),
+                shortcut_hints_enabled: Some(false),
+                disabled_action_ids: Some(vec!["chat.send".to_owned()]),
+            },
+        )
+        .expect("shortcut preferences seeded");
+
+        let reset = reset_shortcut_preferences(
+            app_data.path(),
+            ResetShortcutPreferencesRequest {
+                profile: Some(ShortcutKeymapProfile::Vscode),
+            },
+        )
+        .expect("shortcut preferences reset");
+
+        assert_eq!(reset.preferences.profile, ShortcutKeymapProfile::Vscode);
+        assert!(reset.preferences.shortcuts_enabled);
+        assert!(reset.preferences.shortcut_hints_enabled);
+        assert!(reset.preferences.disabled_action_ids.is_empty());
+        assert!(reset.preferences.bindings.iter().any(|binding| {
+            binding.action_id == "chat.send" && binding.keys.contains(&"Ctrl+Enter".to_owned())
+        }));
+    }
+
+    #[test]
+    fn shortcut_preferences_reject_unknown_disabled_action() {
+        let app_data = tempdir().expect("app data dir");
+
+        let error = update_shortcut_preferences(
+            app_data.path(),
+            UpdateShortcutPreferencesRequest {
+                profile: None,
+                shortcuts_enabled: None,
+                shortcut_hints_enabled: None,
+                disabled_action_ids: Some(vec!["unknown.action".to_owned()]),
+            },
+        )
+        .expect_err("unknown shortcut action rejected");
+
+        assert_eq!(error.code, "settings.shortcuts.unknownAction");
         assert!(error.recoverable);
     }
 

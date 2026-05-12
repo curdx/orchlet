@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=19"
+      "details": "entries=20"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -41,6 +41,16 @@
       "severity": "info",
       "message": "App preferences are readable when initialized.",
       "affectedPaths": ["/fixtures/app-data/settings/preferences.json"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "settings.shortcuts.load_validate",
+      "category": "shortcutPreferences",
+      "status": "passed",
+      "severity": "info",
+      "message": "Shortcut preferences are readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/settings/shortcuts.json"],
       "userAction": null,
       "details": null
     },
@@ -205,8 +215,8 @@
       "details": null
     }
   ],
-  "totalChecks": 20,
-  "passedChecks": 20,
+  "totalChecks": 21,
+  "passedChecks": 21,
   "failedChecks": 0,
   "skippedChecks": 0,
   "hasFailures": false,

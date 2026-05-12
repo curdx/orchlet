@@ -1,0 +1,9 @@
+{
+  "code": "settings.shortcuts.unknownAction",
+  "message": "快捷键动作暂不支持。",
+  "userAction": "请选择设置中提供的快捷键动作后重试。",
+  "details": "field=disabledActionIds",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "error"
+}

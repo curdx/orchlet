@@ -1,0 +1,117 @@
+{
+  "preferences": {
+    "schemaVersion": 1,
+    "profile": "slack",
+    "shortcutsEnabled": true,
+    "shortcutHintsEnabled": true,
+    "disabledActionIds": [],
+    "bindings": [
+      {
+        "actionId": "chat.send",
+        "label": "发送聊天消息",
+        "keys": ["Enter"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "chat.newline",
+        "label": "聊天输入换行",
+        "keys": ["Shift+Enter"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "chat.emoji.close",
+        "label": "关闭 Emoji 面板",
+        "keys": ["Esc"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "mention.insert",
+        "label": "插入提及建议",
+        "keys": ["Enter", "Tab"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "conversation.focus",
+        "label": "聚焦会话列表",
+        "keys": ["Tab"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "terminal.find.next",
+        "label": "终端查找下一个",
+        "keys": ["Enter"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "terminal.find.previous",
+        "label": "终端查找上一个",
+        "keys": ["Shift+Enter"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "terminal.find.close",
+        "label": "关闭终端查找",
+        "keys": ["Esc"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "settings.save",
+        "label": "保存设置",
+        "keys": ["Enter"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "notification.viewAll",
+        "label": "通知查看全部",
+        "keys": ["Tab", "Enter"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "notification.ignoreAll",
+        "label": "通知忽略全部",
+        "keys": ["Tab", "Enter"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "notification.openTerminal",
+        "label": "通知打开终端",
+        "keys": ["Tab", "Enter"],
+        "enabled": true,
+        "available": true,
+        "unavailableReason": null
+      },
+      {
+        "actionId": "app.globalOpenSettings",
+        "label": "全局打开设置",
+        "keys": ["Ctrl+,"],
+        "enabled": false,
+        "available": false,
+        "unavailableReason": "当前版本尚未注册 OS 全局快捷键。"
+      }
+    ],
+    "createdAtMs": 1760000069000,
+    "updatedAtMs": 1760000072000
+  }
+}

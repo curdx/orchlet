@@ -123,16 +123,24 @@ import type {
   DeleteUploadedProfileAvatarResult,
   GetProfileSettingsRequest,
   GetProfileSettingsResult,
+  GetShortcutPreferencesRequest,
+  GetShortcutPreferencesResult,
   ProfileAvatarKind,
   ProfileAvatarSnapshot,
   ProfileSettingsSnapshot,
   ProfileStatus,
   ResetProfileAvatarRequest,
   ResetProfileAvatarResult,
+  ResetShortcutPreferencesRequest,
+  ResetShortcutPreferencesResult,
   SelectProfileAvatarPresetRequest,
   SelectProfileAvatarPresetResult,
+  ShortcutKeymapProfile,
+  ShortcutPreferencesSnapshot,
   UpdateProfileSettingsRequest,
   UpdateProfileSettingsResult,
+  UpdateShortcutPreferencesRequest,
+  UpdateShortcutPreferencesResult,
   UploadProfileAvatarRequest,
   UploadProfileAvatarResult,
 } from "../../src/contracts/generated/settings";
@@ -353,6 +361,15 @@ import profileAvatarResetResult from "../../fixtures/contracts/settings/profile-
 import profileAvatarDeleteUploadedError from "../../fixtures/contracts/settings/profile-avatar-delete-uploaded.error.json";
 import profileAvatarDeleteUploadedRequest from "../../fixtures/contracts/settings/profile-avatar-delete-uploaded.request.json";
 import profileAvatarDeleteUploadedResult from "../../fixtures/contracts/settings/profile-avatar-delete-uploaded.result.json";
+import shortcutPreferencesGetError from "../../fixtures/contracts/settings/shortcut-preferences-get.error.json";
+import shortcutPreferencesGetRequest from "../../fixtures/contracts/settings/shortcut-preferences-get.request.json";
+import shortcutPreferencesGetResult from "../../fixtures/contracts/settings/shortcut-preferences-get.result.json";
+import shortcutPreferencesUpdateError from "../../fixtures/contracts/settings/shortcut-preferences-update.error.json";
+import shortcutPreferencesUpdateRequest from "../../fixtures/contracts/settings/shortcut-preferences-update.request.json";
+import shortcutPreferencesUpdateResult from "../../fixtures/contracts/settings/shortcut-preferences-update.result.json";
+import shortcutPreferencesResetError from "../../fixtures/contracts/settings/shortcut-preferences-reset.error.json";
+import shortcutPreferencesResetRequest from "../../fixtures/contracts/settings/shortcut-preferences-reset.request.json";
+import shortcutPreferencesResetResult from "../../fixtures/contracts/settings/shortcut-preferences-reset.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -773,6 +790,32 @@ export const profileAvatarDeleteUploadedResultFixture: DeleteUploadedProfileAvat
 export const profileAvatarDeleteUploadedErrorFixture: AppError = appError(
   profileAvatarDeleteUploadedError,
 );
+export const shortcutPreferencesGetRequestFixture: GetShortcutPreferencesRequest =
+  shortcutPreferencesGetRequest;
+export const shortcutPreferencesGetResultFixture: GetShortcutPreferencesResult = {
+  preferences: shortcutPreferencesSnapshot(shortcutPreferencesGetResult.preferences),
+};
+export const shortcutPreferencesGetErrorFixture: AppError = appError(shortcutPreferencesGetError);
+export const shortcutPreferencesUpdateRequestFixture: UpdateShortcutPreferencesRequest = {
+  ...shortcutPreferencesUpdateRequest,
+  profile: shortcutKeymapProfile(shortcutPreferencesUpdateRequest.profile),
+};
+export const shortcutPreferencesUpdateResultFixture: UpdateShortcutPreferencesResult = {
+  preferences: shortcutPreferencesSnapshot(shortcutPreferencesUpdateResult.preferences),
+};
+export const shortcutPreferencesUpdateErrorFixture: AppError = appError(
+  shortcutPreferencesUpdateError,
+);
+export const shortcutPreferencesResetRequestFixture: ResetShortcutPreferencesRequest = {
+  ...shortcutPreferencesResetRequest,
+  profile: shortcutKeymapProfile(shortcutPreferencesResetRequest.profile),
+};
+export const shortcutPreferencesResetResultFixture: ResetShortcutPreferencesResult = {
+  preferences: shortcutPreferencesSnapshot(shortcutPreferencesResetResult.preferences),
+};
+export const shortcutPreferencesResetErrorFixture: AppError = appError(
+  shortcutPreferencesResetError,
+);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -949,6 +992,9 @@ type ErrorJson =
   | typeof profileAvatarPresetSelectError
   | typeof profileAvatarResetError
   | typeof profileAvatarDeleteUploadedError
+  | typeof shortcutPreferencesGetError
+  | typeof shortcutPreferencesUpdateError
+  | typeof shortcutPreferencesResetError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -1070,6 +1116,11 @@ type ProfileSettingsSnapshotJson =
   | typeof profileAvatarResetResult.profile
   | typeof profileAvatarDeleteUploadedResult.profile;
 
+type ShortcutPreferencesSnapshotJson =
+  | typeof shortcutPreferencesGetResult.preferences
+  | typeof shortcutPreferencesUpdateResult.preferences
+  | typeof shortcutPreferencesResetResult.preferences;
+
 function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {
   return {
     ...skill,
@@ -1163,6 +1214,27 @@ function profileAvatarKind(value: string): ProfileAvatarKind {
       return value;
     default:
       throw new Error(`Unknown profile avatar kind: ${value}`);
+  }
+}
+
+function shortcutPreferencesSnapshot(
+  preferences: ShortcutPreferencesSnapshotJson,
+): ShortcutPreferencesSnapshot {
+  return {
+    ...preferences,
+    profile: shortcutKeymapProfile(preferences.profile),
+    bindings: preferences.bindings.map((binding) => ({ ...binding })),
+  };
+}
+
+function shortcutKeymapProfile(value: string): ShortcutKeymapProfile {
+  switch (value) {
+    case "default":
+    case "vscode":
+    case "slack":
+      return value;
+    default:
+      throw new Error(`Unknown shortcut profile: ${value}`);
   }
 }
 
@@ -1298,6 +1370,8 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceRegistry":
     case "workspaceFallbacks":
     case "appPreferences":
+    case "shortcutPreferences":
+    case "notificationPreferences":
     case "profileSettings":
     case "avatarLibrary":
     case "memberProfiles":

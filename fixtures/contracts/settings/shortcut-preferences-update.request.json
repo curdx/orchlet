@@ -1,0 +1,6 @@
+{
+  "profile": "vscode",
+  "shortcutsEnabled": true,
+  "shortcutHintsEnabled": false,
+  "disabledActionIds": ["chat.send"]
+}

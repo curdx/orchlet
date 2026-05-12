@@ -12,25 +12,27 @@ use orchlet_lib::contracts::{
     DeleteUploadedProfileAvatarRequest, DeleteUploadedProfileAvatarResult,
     DispatchChatMessageRequest, DispatchChatMessageResult, DispatchQueueResumeRequest,
     DispatchQueueResumeResult, DispatchRequestStatus, DispatchTargetResolutionSource,
-    GetProfileSettingsRequest, GetProfileSettingsResult, ImportLocalSkillFolderRequest,
-    ImportLocalSkillFolderResult, InviteMemberRequest, InviteMemberResult, InvitedMemberType,
-    LinkWorkspaceSkillRequest, LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult,
-    ListConversationsRequest, ListConversationsResult, ListMembersRequest, ListMembersResult,
-    ListMessagesRequest, ListMessagesResult, ListRoadmapGoalsRequest, ListRoadmapGoalsResult,
-    ListRoadmapTasksRequest, ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest,
-    ListWorkspaceSkillLinksResult, MemberRole, MemberRuntimeKind, MemberStatus,
-    NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
-    NotificationNavigationKind, NotificationNavigationPendingRequest,
-    NotificationNavigationPendingResult, NotificationNavigationRequest,
-    NotificationNavigationResult, NotificationPermissionState, NotificationPreferencesGetRequest,
-    NotificationPreferencesGetResult, NotificationPreferencesSnapshot,
-    NotificationPreferencesUpdateRequest, NotificationPreferencesUpdateResult,
-    NotificationUnreadSummary, NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
+    GetProfileSettingsRequest, GetProfileSettingsResult, GetShortcutPreferencesRequest,
+    GetShortcutPreferencesResult, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
+    InviteMemberRequest, InviteMemberResult, InvitedMemberType, LinkWorkspaceSkillRequest,
+    LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult, ListConversationsRequest,
+    ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
+    ListMessagesResult, ListRoadmapGoalsRequest, ListRoadmapGoalsResult, ListRoadmapTasksRequest,
+    ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult,
+    MemberRole, MemberRuntimeKind, MemberStatus, NotificationIgnoreAllRequest,
+    NotificationIgnoreAllResult, NotificationNavigationAction, NotificationNavigationKind,
+    NotificationNavigationPendingRequest, NotificationNavigationPendingResult,
+    NotificationNavigationRequest, NotificationNavigationResult, NotificationPermissionState,
+    NotificationPreferencesGetRequest, NotificationPreferencesGetResult,
+    NotificationPreferencesSnapshot, NotificationPreferencesUpdateRequest,
+    NotificationPreferencesUpdateResult, NotificationUnreadSummary,
+    NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
     NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenSkillFolderRequest,
     OpenSkillFolderResult, OpenWorkspaceRequest, OpenWorkspaceResult, ProfileAvatarKind,
     ProfileStatus, RemoveMemberRequest, RemoveMemberResult, ResetProfileAvatarRequest,
-    ResetProfileAvatarResult, RoadmapTaskStatus, SelectProfileAvatarPresetRequest,
-    SelectProfileAvatarPresetResult, SendMessageRequest, SendMessageResult, SkillImportStatus,
+    ResetProfileAvatarResult, ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
+    RoadmapTaskStatus, SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
+    SendMessageRequest, SendMessageResult, ShortcutKeymapProfile, SkillImportStatus,
     SkillLibraryListRequest, SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
     StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
     TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
@@ -46,9 +48,9 @@ use orchlet_lib::contracts::{
     UpdateGroupConversationMembersResult, UpdateMemberStatusRequest, UpdateMemberStatusResult,
     UpdateProfileSettingsRequest, UpdateProfileSettingsResult, UpdateReadPositionRequest,
     UpdateReadPositionResult, UpdateRoadmapGoalRequest, UpdateRoadmapGoalResult,
-    UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult, UploadProfileAvatarRequest,
-    UploadProfileAvatarResult, WindowMode, WorkspaceOpenStatus, WorkspaceSkillLinkMode,
-    WorkspaceSkillLinkStatus,
+    UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult, UpdateShortcutPreferencesRequest,
+    UpdateShortcutPreferencesResult, UploadProfileAvatarRequest, UploadProfileAvatarResult,
+    WindowMode, WorkspaceOpenStatus, WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -134,6 +136,24 @@ fn profile_settings_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/settings/profile-avatar-delete-uploaded.result.json");
     let delete_error: AppError =
         read_fixture("../fixtures/contracts/settings/profile-avatar-delete-uploaded.error.json");
+    let shortcut_get_request: GetShortcutPreferencesRequest =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-get.request.json");
+    let shortcut_get_result: GetShortcutPreferencesResult =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-get.result.json");
+    let shortcut_get_error: AppError =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-get.error.json");
+    let shortcut_update_request: UpdateShortcutPreferencesRequest =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-update.request.json");
+    let shortcut_update_result: UpdateShortcutPreferencesResult =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-update.result.json");
+    let shortcut_update_error: AppError =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-update.error.json");
+    let shortcut_reset_request: ResetShortcutPreferencesRequest =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-reset.request.json");
+    let shortcut_reset_result: ResetShortcutPreferencesResult =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-reset.result.json");
+    let shortcut_reset_error: AppError =
+        read_fixture("../fixtures/contracts/settings/shortcut-preferences-reset.error.json");
 
     let _ = get_request;
     assert_eq!(get_result.profile.display_name, "Dana");
@@ -180,6 +200,47 @@ fn profile_settings_contract_fixtures_deserialize_into_rust_dtos() {
         ProfileAvatarKind::Placeholder
     );
     assert_eq!(delete_error.code, "settings.avatar.deleteFailed");
+    let _ = shortcut_get_request;
+    assert_eq!(
+        shortcut_get_result.preferences.profile,
+        ShortcutKeymapProfile::Default
+    );
+    assert!(shortcut_get_result
+        .preferences
+        .bindings
+        .iter()
+        .any(|binding| binding.action_id == "app.globalOpenSettings" && !binding.available));
+    assert_eq!(shortcut_get_error.code, "settings.shortcuts.invalidJson");
+    assert_eq!(
+        shortcut_update_request.profile,
+        Some(ShortcutKeymapProfile::Vscode)
+    );
+    assert!(!shortcut_update_request
+        .shortcut_hints_enabled
+        .unwrap_or(true));
+    assert!(shortcut_update_result
+        .preferences
+        .bindings
+        .iter()
+        .any(|binding| {
+            binding.action_id == "chat.send" && binding.keys.contains(&"Ctrl+Enter".to_owned())
+        }));
+    assert_eq!(
+        shortcut_update_error.code,
+        "settings.shortcuts.unknownAction"
+    );
+    assert_eq!(
+        shortcut_reset_request.profile,
+        Some(ShortcutKeymapProfile::Slack)
+    );
+    assert!(shortcut_reset_result
+        .preferences
+        .disabled_action_ids
+        .is_empty());
+    assert_eq!(
+        shortcut_reset_error.code,
+        "settings.shortcuts.invalidRecordVersion"
+    );
 }
 
 #[test]

@@ -38,14 +38,17 @@ import type {
   TerminalTabUpdateRequest,
 } from "../../contracts/generated/terminal";
 import type { AppError } from "../../contracts/generated/common";
+import type { ShortcutPreferencesSnapshot } from "../../contracts/generated/settings";
 import type {
   AppLanguage,
   AppTheme,
   WindowContextSnapshot,
   WindowMode,
 } from "../../contracts/generated";
-import { normalizeAppError, terminalApi } from "../../shared/api";
+import { normalizeAppError, settingsApi, terminalApi } from "../../shared/api";
+import type { SettingsApi } from "../../shared/api/settings-api";
 import type { TerminalApi } from "../../shared/api/terminal-api";
+import { SHORTCUT_ACTION, shortcutEventMatches } from "../../shared/shortcuts";
 import {
   measureTerminalSize,
   type TerminalFindDirection,
@@ -84,6 +87,7 @@ type TerminalPageApi = Pick<
   | "subscribeStatus"
   | "listEnvironments"
 >;
+type TerminalPageSettingsApi = Pick<SettingsApi, "getShortcutPreferences">;
 
 type PaneLayout = "single" | "splitVertical" | "splitHorizontal" | "grid2x2";
 type PaneId = "pane-1" | "pane-2" | "pane-3" | "pane-4";
@@ -140,6 +144,41 @@ const TERMINAL_TEXT = {
     searchPlaceholder: "Search labels, shell, session",
   },
 } as const satisfies Record<AppLanguage, Record<string, string>>;
+const DEFAULT_TERMINAL_SHORTCUT_PREFERENCES: ShortcutPreferencesSnapshot = {
+  schemaVersion: 1,
+  profile: "default",
+  shortcutsEnabled: true,
+  shortcutHintsEnabled: true,
+  disabledActionIds: [],
+  bindings: [
+    {
+      actionId: "terminal.find.next",
+      label: "终端查找下一个",
+      keys: ["Enter"],
+      enabled: true,
+      available: true,
+      unavailableReason: null,
+    },
+    {
+      actionId: "terminal.find.previous",
+      label: "终端查找上一个",
+      keys: ["Shift+Enter"],
+      enabled: true,
+      available: true,
+      unavailableReason: null,
+    },
+    {
+      actionId: "terminal.find.close",
+      label: "关闭终端查找",
+      keys: ["Esc"],
+      enabled: true,
+      available: true,
+      unavailableReason: null,
+    },
+  ],
+  createdAtMs: 1,
+  updatedAtMs: 1,
+};
 
 function defaultCreateRendererAdapter(options: RendererAdapterOptions) {
   return new XtermRendererAdapter(options);
@@ -148,12 +187,14 @@ function defaultCreateRendererAdapter(options: RendererAdapterOptions) {
 export function TerminalPage({
   snapshot,
   api = terminalApi,
+  settingsApi: localSettingsApi = settingsApi,
   createRendererAdapter = defaultCreateRendererAdapter,
   onPreferencesChange,
   onOpenWindowMode,
 }: {
   snapshot: WindowContextSnapshot | null;
   api?: TerminalPageApi;
+  settingsApi?: TerminalPageSettingsApi;
   createRendererAdapter?: (options: RendererAdapterOptions) => RendererAdapter;
   onPreferencesChange?: (update: {
     theme?: AppTheme | null;
@@ -191,6 +232,9 @@ export function TerminalPage({
   const [findResult, setFindResult] = useState<TerminalFindResult>(
     createEmptyFindResult,
   );
+  const [shortcutPreferences, setShortcutPreferences] = useState<ShortcutPreferencesSnapshot>(
+    DEFAULT_TERMINAL_SHORTCUT_PREFERENCES,
+  );
   const [environmentDiagnostics, setEnvironmentDiagnostics] = useState<
     TerminalEnvironmentProfile[]
   >([]);
@@ -199,6 +243,27 @@ export function TerminalPage({
   const workspace = snapshot?.activeWorkspace ?? null;
   const language = snapshot?.preferences.language ?? "zh-CN";
   const text = TERMINAL_TEXT[language];
+
+  useEffect(() => {
+    let disposed = false;
+
+    void localSettingsApi
+      .getShortcutPreferences()
+      .then((result) => {
+        if (!disposed) {
+          setShortcutPreferences(result.preferences);
+        }
+      })
+      .catch((error) => {
+        if (!disposed) {
+          setErrorNotice(normalizeAppError(error));
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [localSettingsApi]);
 
   const visiblePaneIds = useMemo(
     () => VISIBLE_PANES_BY_LAYOUT[paneLayout],
@@ -459,20 +524,44 @@ export function TerminalPage({
 
   const handleFindKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Escape") {
+      if (
+        shortcutEventMatches(
+          shortcutPreferences,
+          SHORTCUT_ACTION.terminalFindClose,
+          event,
+        )
+      ) {
         event.preventDefault();
         closeFind();
         return;
       }
 
-      if (event.key !== "Enter") {
+      if (
+        shortcutEventMatches(
+          shortcutPreferences,
+          SHORTCUT_ACTION.terminalFindPrevious,
+          event,
+        )
+      ) {
+        event.preventDefault();
+        runFind("previous");
+        return;
+      }
+
+      if (
+        !shortcutEventMatches(
+          shortcutPreferences,
+          SHORTCUT_ACTION.terminalFindNext,
+          event,
+        )
+      ) {
         return;
       }
 
       event.preventDefault();
-      runFind(event.shiftKey ? "previous" : "next");
+      runFind("next");
     },
-    [closeFind, runFind],
+    [closeFind, runFind, shortcutPreferences],
   );
 
   const handleTerminalInput = useCallback(

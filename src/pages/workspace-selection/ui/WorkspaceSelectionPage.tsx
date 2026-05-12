@@ -16,6 +16,7 @@ import {
   History,
   Image as ImageIcon,
   Info,
+  Keyboard,
   Link2,
   ListTodo,
   MessageSquare,
@@ -112,7 +113,10 @@ import type {
   ProfileAvatarSnapshot,
   ProfileSettingsSnapshot,
   ProfileStatus,
+  ShortcutKeymapProfile,
+  ShortcutPreferencesSnapshot,
 } from "../../../contracts/generated/settings";
+import { SHORTCUT_ACTION, shortcutEventMatches } from "../../../shared/shortcuts";
 import { IconButton, Toast, useToastStore } from "../../../shared/ui";
 import type { WorkspaceApi } from "../../../shared/api/workspace-api";
 
@@ -171,6 +175,9 @@ type WorkspaceSelectionPageProps = {
     | "selectProfileAvatarPreset"
     | "resetProfileAvatar"
     | "deleteUploadedProfileAvatar"
+    | "getShortcutPreferences"
+    | "updateShortcutPreferences"
+    | "resetShortcutPreferences"
   >;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
@@ -255,6 +262,12 @@ type NotificationPreferencesDraft = {
   dndStartTime: string;
   dndEndTime: string;
 };
+type ShortcutPreferencesDraft = {
+  profile: ShortcutKeymapProfile;
+  shortcutsEnabled: boolean;
+  shortcutHintsEnabled: boolean;
+  disabledActionIds: string[];
+};
 
 const MESSAGE_PAGE_LIMIT = 30;
 const RECENT_EMOJI_STORAGE_KEY = "orchlet.chat.recentEmojis";
@@ -311,6 +324,36 @@ const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferencesSnapshot = {
     message: "系统通知权限适配器当前不可用。",
     userAction: "当前版本仍会保存本地通知偏好；启用系统通知需要后续平台适配。",
   },
+  createdAtMs: 1,
+  updatedAtMs: 1,
+};
+const DEFAULT_SHORTCUT_PREFERENCES: ShortcutPreferencesSnapshot = {
+  schemaVersion: 1,
+  profile: "default",
+  shortcutsEnabled: true,
+  shortcutHintsEnabled: true,
+  disabledActionIds: [],
+  bindings: [
+    shortcutBinding("chat.send", "发送聊天消息", ["Enter"], true),
+    shortcutBinding("chat.newline", "聊天输入换行", ["Shift+Enter"], true),
+    shortcutBinding("chat.emoji.close", "关闭 Emoji 面板", ["Esc"], true),
+    shortcutBinding("mention.insert", "插入提及建议", ["Enter", "Tab"], true),
+    shortcutBinding("conversation.focus", "聚焦会话列表", ["Tab"], true),
+    shortcutBinding("terminal.find.next", "终端查找下一个", ["Enter"], true),
+    shortcutBinding("terminal.find.previous", "终端查找上一个", ["Shift+Enter"], true),
+    shortcutBinding("terminal.find.close", "关闭终端查找", ["Esc"], true),
+    shortcutBinding("settings.save", "保存设置", ["Enter"], true),
+    shortcutBinding("notification.viewAll", "通知查看全部", ["Tab", "Enter"], true),
+    shortcutBinding("notification.ignoreAll", "通知忽略全部", ["Tab", "Enter"], true),
+    shortcutBinding("notification.openTerminal", "通知打开终端", ["Tab", "Enter"], true),
+    shortcutBinding(
+      "app.globalOpenSettings",
+      "全局打开设置",
+      ["Ctrl+,"],
+      false,
+      "当前版本尚未注册 OS 全局快捷键。",
+    ),
+  ],
   createdAtMs: 1,
   updatedAtMs: 1,
 };
@@ -431,6 +474,12 @@ export function WorkspaceSelectionPage({
     null,
   );
   const [isSavingNotificationPreferences, setIsSavingNotificationPreferences] = useState(false);
+  const [shortcutPreferencesDraft, setShortcutPreferencesDraft] =
+    useState<ShortcutPreferencesDraft>(
+      shortcutPreferencesToDraft(DEFAULT_SHORTCUT_PREFERENCES),
+    );
+  const [shortcutPreferencesError, setShortcutPreferencesError] = useState<string | null>(null);
+  const [isSavingShortcutPreferences, setIsSavingShortcutPreferences] = useState(false);
   const [isInvitingMember, setIsInvitingMember] = useState(false);
   const [openedWorkspace, setOpenedWorkspace] = useState<OpenedWorkspace | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
@@ -583,6 +632,13 @@ export function WorkspaceSelectionPage({
   });
   const notificationPreferences =
     notificationPreferencesQuery.data?.preferences ?? DEFAULT_NOTIFICATION_PREFERENCES;
+  const shortcutPreferencesQuery = useQuery({
+    queryKey: ["shortcut-preferences"],
+    queryFn: profileSettingsApi.getShortcutPreferences,
+    retry: false,
+  });
+  const shortcutPreferences =
+    shortcutPreferencesQuery.data?.preferences ?? DEFAULT_SHORTCUT_PREFERENCES;
   const profiledMembers = useMemo(
     () => applyProfileSettingsToOwnerMembers(members, profileSettings),
     [members, profileSettings],
@@ -808,6 +864,21 @@ export function WorkspaceSelectionPage({
   }, [notificationPreferencesQuery.error, showToast]);
 
   useEffect(() => {
+    if (!shortcutPreferencesQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(shortcutPreferencesQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载快捷键设置",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [shortcutPreferencesQuery.error, showToast]);
+
+  useEffect(() => {
     if (isProfileSettingsOpen) {
       return;
     }
@@ -816,7 +887,9 @@ export function WorkspaceSelectionPage({
     setProfileSettingsFieldError(null);
     setNotificationPreferencesDraft(notificationPreferencesToDraft(notificationPreferences));
     setNotificationPreferencesError(null);
-  }, [isProfileSettingsOpen, notificationPreferences, profileSettings]);
+    setShortcutPreferencesDraft(shortcutPreferencesToDraft(shortcutPreferences));
+    setShortcutPreferencesError(null);
+  }, [isProfileSettingsOpen, notificationPreferences, profileSettings, shortcutPreferences]);
 
   useEffect(() => {
     membersRef.current = profiledMembers;
@@ -2763,6 +2836,8 @@ export function WorkspaceSelectionPage({
     setProfileSettingsFieldError(null);
     setNotificationPreferencesDraft(notificationPreferencesToDraft(notificationPreferences));
     setNotificationPreferencesError(null);
+    setShortcutPreferencesDraft(shortcutPreferencesToDraft(shortcutPreferences));
+    setShortcutPreferencesError(null);
     setIsProfileSettingsOpen(true);
   }
 
@@ -2845,6 +2920,75 @@ export function WorkspaceSelectionPage({
       });
     } finally {
       setIsSavingNotificationPreferences(false);
+    }
+  }
+
+  async function handleSaveShortcutPreferences() {
+    setIsSavingShortcutPreferences(true);
+    setShortcutPreferencesError(null);
+
+    try {
+      const result = await profileSettingsApi.updateShortcutPreferences({
+        profile: shortcutPreferencesDraft.profile,
+        shortcutsEnabled: shortcutPreferencesDraft.shortcutsEnabled,
+        shortcutHintsEnabled: shortcutPreferencesDraft.shortcutHintsEnabled,
+        disabledActionIds: shortcutPreferencesDraft.disabledActionIds,
+      });
+
+      queryClient.setQueryData(["shortcut-preferences"], {
+        preferences: result.preferences,
+      });
+      setShortcutPreferencesDraft(shortcutPreferencesToDraft(result.preferences));
+      showToast({
+        tone: "info",
+        title: "快捷键设置已保存",
+        message: result.preferences.shortcutsEnabled ? "快捷键偏好已生效。" : "快捷键已停用。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setShortcutPreferencesError(appError.message);
+      showToast({
+        tone: appError.severity,
+        title: "快捷键设置保存失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSavingShortcutPreferences(false);
+    }
+  }
+
+  async function handleResetShortcutPreferences() {
+    setIsSavingShortcutPreferences(true);
+    setShortcutPreferencesError(null);
+
+    try {
+      const result = await profileSettingsApi.resetShortcutPreferences({
+        profile: shortcutPreferencesDraft.profile,
+      });
+
+      queryClient.setQueryData(["shortcut-preferences"], {
+        preferences: result.preferences,
+      });
+      setShortcutPreferencesDraft(shortcutPreferencesToDraft(result.preferences));
+      showToast({
+        tone: "info",
+        title: "快捷键已恢复默认",
+        message: "当前键位方案的默认绑定已恢复。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setShortcutPreferencesError(appError.message);
+      showToast({
+        tone: appError.severity,
+        title: "快捷键恢复失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSavingShortcutPreferences(false);
     }
   }
 
@@ -3175,6 +3319,7 @@ export function WorkspaceSelectionPage({
                 messageDraft={messageDraft}
                 mentionedMemberIds={mentionedMemberIds}
                 attachmentEntries={attachmentEntries}
+                shortcutPreferences={shortcutPreferences}
                 roadmapTasks={roadmapTasks}
                 isRoadmapAttachmentPickerOpen={isRoadmapAttachmentPickerOpen}
                 groupTitle={groupTitle}
@@ -3310,15 +3455,21 @@ export function WorkspaceSelectionPage({
                 savedProfile={profileSettings}
                 notificationDraft={notificationPreferencesDraft}
                 savedNotificationPreferences={notificationPreferences}
+                shortcutDraft={shortcutPreferencesDraft}
+                savedShortcutPreferences={shortcutPreferences}
                 fieldError={profileSettingsFieldError}
                 notificationError={notificationPreferencesError}
+                shortcutError={shortcutPreferencesError}
                 isLoading={profileSettingsQuery.isLoading}
                 isSaving={isSavingProfileSettings}
                 isNotificationLoading={notificationPreferencesQuery.isLoading}
                 isNotificationSaving={isSavingNotificationPreferences}
+                isShortcutLoading={shortcutPreferencesQuery.isLoading}
+                isShortcutSaving={isSavingShortcutPreferences}
                 pendingAvatarAction={pendingProfileAvatarAction}
                 onDraftChange={setProfileSettingsDraft}
                 onNotificationDraftChange={setNotificationPreferencesDraft}
+                onShortcutDraftChange={setShortcutPreferencesDraft}
                 onUploadAvatar={() => void handleUploadProfileAvatar()}
                 onSelectAvatarPreset={(presetId) => void handleSelectProfileAvatarPreset(presetId)}
                 onResetAvatar={() => void handleResetProfileAvatar()}
@@ -3326,6 +3477,8 @@ export function WorkspaceSelectionPage({
                 onClose={() => setIsProfileSettingsOpen(false)}
                 onSave={() => void handleSaveProfileSettings()}
                 onSaveNotifications={() => void handleSaveNotificationPreferences()}
+                onSaveShortcuts={() => void handleSaveShortcutPreferences()}
+                onResetShortcuts={() => void handleResetShortcutPreferences()}
               />
             ) : null}
 
@@ -3677,15 +3830,21 @@ function ProfileSettingsModal({
   savedProfile,
   notificationDraft,
   savedNotificationPreferences,
+  shortcutDraft,
+  savedShortcutPreferences,
   fieldError,
   notificationError,
+  shortcutError,
   isLoading,
   isSaving,
   isNotificationLoading,
   isNotificationSaving,
+  isShortcutLoading,
+  isShortcutSaving,
   pendingAvatarAction,
   onDraftChange,
   onNotificationDraftChange,
+  onShortcutDraftChange,
   onUploadAvatar,
   onSelectAvatarPreset,
   onResetAvatar,
@@ -3693,20 +3852,28 @@ function ProfileSettingsModal({
   onClose,
   onSave,
   onSaveNotifications,
+  onSaveShortcuts,
+  onResetShortcuts,
 }: {
   draft: ProfileSettingsDraft;
   savedProfile: ProfileSettingsSnapshot;
   notificationDraft: NotificationPreferencesDraft;
   savedNotificationPreferences: NotificationPreferencesSnapshot;
+  shortcutDraft: ShortcutPreferencesDraft;
+  savedShortcutPreferences: ShortcutPreferencesSnapshot;
   fieldError: { field: ProfileSettingsField; message: string } | null;
   notificationError: string | null;
+  shortcutError: string | null;
   isLoading: boolean;
   isSaving: boolean;
   isNotificationLoading: boolean;
   isNotificationSaving: boolean;
+  isShortcutLoading: boolean;
+  isShortcutSaving: boolean;
   pendingAvatarAction: ProfileAvatarAction | null;
   onDraftChange: (draft: ProfileSettingsDraft) => void;
   onNotificationDraftChange: (draft: NotificationPreferencesDraft) => void;
+  onShortcutDraftChange: (draft: ShortcutPreferencesDraft) => void;
   onUploadAvatar: () => void;
   onSelectAvatarPreset: (presetId: string) => void;
   onResetAvatar: () => void;
@@ -3714,6 +3881,8 @@ function ProfileSettingsModal({
   onClose: () => void;
   onSave: () => void;
   onSaveNotifications: () => void;
+  onSaveShortcuts: () => void;
+  onResetShortcuts: () => void;
 }) {
   const canSave = draft.displayName.trim().length > 0 && draft.timezone.trim().length > 0;
   const selectedPresetId = savedProfile.avatar?.kind === "preset" ? savedProfile.avatar.presetId : null;
@@ -3722,7 +3891,19 @@ function ProfileSettingsModal({
     !isNotificationSaving &&
     notificationDraft.dndStartTime.length === 5 &&
     notificationDraft.dndEndTime.length === 5;
+  const canSaveShortcuts = !isShortcutSaving;
   const permissionUnavailable = savedNotificationPreferences.permission.state === "unavailable";
+  const disabledShortcutIds = new Set(shortcutDraft.disabledActionIds);
+  const updateShortcutActionEnabled = (actionId: string, enabled: boolean) => {
+    const nextDisabledActionIds = enabled
+      ? shortcutDraft.disabledActionIds.filter((item) => item !== actionId)
+      : Array.from(new Set([...shortcutDraft.disabledActionIds, actionId])).sort();
+
+    onShortcutDraftChange({
+      ...shortcutDraft,
+      disabledActionIds: nextDisabledActionIds,
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-[#17211b]/35 px-4">
@@ -4059,6 +4240,157 @@ function ProfileSettingsModal({
               >
                 <CheckCircle2 aria-hidden="true" size={14} strokeWidth={2} />
                 {isNotificationSaving ? "保存中" : "保存通知"}
+              </button>
+            </div>
+          </section>
+
+          <section
+            aria-labelledby="shortcut-settings-title"
+            className="grid gap-4 rounded-md border border-[#e3eadf] bg-[#fbfcfa] p-3"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-xs font-medium text-[#6a786c]">
+                  <Keyboard aria-hidden="true" size={14} strokeWidth={2} />
+                  快捷键
+                </p>
+                <h3
+                  id="shortcut-settings-title"
+                  className="mt-1 text-sm font-semibold text-[#263229]"
+                >
+                  快捷键配置
+                </h3>
+              </div>
+              <span className="text-[11px] text-[#7a8678]">
+                {isShortcutLoading
+                  ? "正在读取快捷键设置"
+                  : `更新时间：${new Date(savedShortcutPreferences.updatedAtMs).toLocaleString()}`}
+              </span>
+            </div>
+
+            <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+              键位方案
+              <select
+                value={shortcutDraft.profile}
+                aria-label="键位方案"
+                onChange={(event) =>
+                  onShortcutDraftChange({
+                    ...shortcutDraft,
+                    profile: event.target.value as ShortcutKeymapProfile,
+                  })
+                }
+                className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87]"
+              >
+                <option value="default">默认</option>
+                <option value="vscode">VS Code</option>
+                <option value="slack">Slack</option>
+              </select>
+            </label>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <NotificationToggle
+                icon={<Keyboard aria-hidden="true" size={15} strokeWidth={2} />}
+                label="启用快捷键"
+                checked={shortcutDraft.shortcutsEnabled}
+                onChange={(checked) =>
+                  onShortcutDraftChange({ ...shortcutDraft, shortcutsEnabled: checked })
+                }
+              />
+              <NotificationToggle
+                icon={<Info aria-hidden="true" size={15} strokeWidth={2} />}
+                label="显示快捷键提示"
+                checked={shortcutDraft.shortcutHintsEnabled}
+                onChange={(checked) =>
+                  onShortcutDraftChange({ ...shortcutDraft, shortcutHintsEnabled: checked })
+                }
+              />
+            </div>
+
+            <div className="grid gap-2" aria-label="快捷键列表">
+              {savedShortcutPreferences.bindings.map((binding) => {
+                const actionDisabled = disabledShortcutIds.has(binding.actionId);
+                const effectiveEnabled =
+                  shortcutDraft.shortcutsEnabled && binding.available && !actionDisabled;
+                const stateLabel = !binding.available
+                  ? "不可用"
+                  : effectiveEnabled
+                    ? "已启用"
+                    : "已停用";
+
+                return (
+                  <div
+                    key={binding.actionId}
+                    className="grid gap-2 rounded-md border border-[#edf1eb] bg-white p-3 sm:grid-cols-[1fr_auto] sm:items-center"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-semibold text-[#263229]">
+                          {binding.label}
+                        </span>
+                        <span
+                          className={
+                            !binding.available
+                              ? "rounded-full border border-[#e0c37b] bg-[#fff8e6] px-2 py-0.5 text-[11px] font-semibold text-[#765400]"
+                              : effectiveEnabled
+                                ? "rounded-full border border-[#b9d0b2] bg-[#eef6ea] px-2 py-0.5 text-[11px] font-semibold text-[#2f5038]"
+                                : "rounded-full border border-[#d8e2d4] bg-[#f7f9f5] px-2 py-0.5 text-[11px] font-semibold text-[#637064]"
+                          }
+                        >
+                          {stateLabel}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-[#6a786c]">
+                        {binding.keys.join(" / ")}
+                      </p>
+                      {!binding.available && binding.unavailableReason ? (
+                        <p className="mt-1 text-[11px] text-[#765400]">
+                          {binding.unavailableReason}
+                        </p>
+                      ) : null}
+                    </div>
+                    <label className="inline-flex items-center justify-end gap-2 text-xs font-semibold text-[#425044]">
+                      <span>{actionDisabled ? "停用" : "启用"}</span>
+                      <input
+                        type="checkbox"
+                        checked={!actionDisabled}
+                        disabled={!binding.available}
+                        aria-label={`${binding.label} 快捷键`}
+                        onChange={(event) =>
+                          updateShortcutActionEnabled(binding.actionId, event.target.checked)
+                        }
+                        className="h-4 w-4 accent-[#2f6f55]"
+                      />
+                    </label>
+                  </div>
+                );
+              })}
+            </div>
+
+            {shortcutError ? (
+              <p className="rounded-md border border-[#e2c7c0] bg-[#fff5f2] p-2 text-xs font-medium text-[#7a2f2f]">
+                {shortcutError}
+              </p>
+            ) : null}
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={isShortcutSaving}
+                aria-label="恢复默认快捷键"
+                onClick={onResetShortcuts}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-xs font-semibold text-[#425044] transition hover:bg-[#f7f9f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <RefreshCw aria-hidden="true" size={14} strokeWidth={2} />
+                恢复默认
+              </button>
+              <button
+                type="button"
+                disabled={!canSaveShortcuts}
+                onClick={onSaveShortcuts}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+              >
+                <CheckCircle2 aria-hidden="true" size={14} strokeWidth={2} />
+                {isShortcutSaving ? "保存中" : "保存快捷键"}
               </button>
             </div>
           </section>
@@ -4593,6 +4925,7 @@ function ConversationPanel({
   messageDraft,
   mentionedMemberIds,
   attachmentEntries,
+  shortcutPreferences,
   roadmapTasks,
   isRoadmapAttachmentPickerOpen,
   groupTitle,
@@ -4645,6 +4978,7 @@ function ConversationPanel({
   messageDraft: string;
   mentionedMemberIds: string[];
   attachmentEntries: AttachmentEntry[];
+  shortcutPreferences: ShortcutPreferencesSnapshot;
   roadmapTasks: RoadmapTaskEntry[];
   isRoadmapAttachmentPickerOpen: boolean;
   groupTitle: string;
@@ -5163,19 +5497,21 @@ function ConversationPanel({
                 </div>
               ) : null}
 
-              <div className="flex flex-wrap gap-1.5" aria-label="快捷提示">
-                {quickPrompts.map((prompt) => (
-                  <button
-                    key={prompt.label}
-                    type="button"
-                    disabled={!selectedConversation}
-                    onClick={() => onMessageDraftChange(appendDraftBlock(messageDraft, prompt.text))}
-                    className="inline-flex min-h-8 items-center rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {prompt.label}
-                  </button>
-                ))}
-              </div>
+              {shortcutPreferences.shortcutHintsEnabled ? (
+                <div className="flex flex-wrap gap-1.5" aria-label="快捷提示">
+                  {quickPrompts.map((prompt) => (
+                    <button
+                      key={prompt.label}
+                      type="button"
+                      disabled={!selectedConversation}
+                      onClick={() => onMessageDraftChange(appendDraftBlock(messageDraft, prompt.text))}
+                      className="inline-flex min-h-8 items-center rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {prompt.label}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
 
               {selectedMentionMembers.length > 0 || attachmentEntries.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5" aria-label="组合状态">
@@ -5243,13 +5579,26 @@ function ConversationPanel({
                   disabled={!selectedConversation}
                   onChange={(event) => onMessageDraftChange(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Escape" && isEmojiPanelOpen) {
+                    if (
+                      isEmojiPanelOpen &&
+                      shortcutEventMatches(
+                        shortcutPreferences,
+                        SHORTCUT_ACTION.chatEmojiClose,
+                        event,
+                      )
+                    ) {
                       event.preventDefault();
                       setIsEmojiPanelOpen(false);
                       return;
                     }
 
-                    if (event.key === "Enter" && !event.shiftKey) {
+                    if (
+                      shortcutEventMatches(
+                        shortcutPreferences,
+                        SHORTCUT_ACTION.chatSend,
+                        event,
+                      )
+                    ) {
                       if (event.nativeEvent.isComposing) {
                         return;
                       }
@@ -6770,6 +7119,34 @@ function notificationPreferencesToDraft(
     dndEnabled: preferences.dndEnabled,
     dndStartTime: minutesToTimeInput(preferences.dndStartMinutes),
     dndEndTime: minutesToTimeInput(preferences.dndEndMinutes),
+  };
+}
+
+function shortcutPreferencesToDraft(
+  preferences: ShortcutPreferencesSnapshot,
+): ShortcutPreferencesDraft {
+  return {
+    profile: preferences.profile,
+    shortcutsEnabled: preferences.shortcutsEnabled,
+    shortcutHintsEnabled: preferences.shortcutHintsEnabled,
+    disabledActionIds: [...preferences.disabledActionIds],
+  };
+}
+
+function shortcutBinding(
+  actionId: string,
+  label: string,
+  keys: string[],
+  available: boolean,
+  unavailableReason: string | null = null,
+) {
+  return {
+    actionId,
+    label,
+    keys,
+    enabled: available,
+    available,
+    unavailableReason,
   };
 }
 

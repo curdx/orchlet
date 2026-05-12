@@ -1,0 +1,9 @@
+{
+  "code": "settings.shortcuts.invalidJson",
+  "message": "快捷键设置不是有效 JSON。",
+  "userAction": "请先备份或修复 settings/shortcuts.json 后重试。",
+  "details": "/fixtures/app-data/settings/shortcuts.json: expected value",
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "error"
+}

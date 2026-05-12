@@ -9,6 +9,8 @@ validateWorkspaceRegistry("fixtures/data-integrity/valid-json-stores/app-data/wo
 validateWorkspaceFallbacks("fixtures/data-integrity/valid-json-stores/app-data/workspace-fallbacks.json");
 validateAppPreferences("fixtures/schema/settings-v1/app-preferences.json");
 validateAppPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/preferences.json");
+validateShortcutPreferences("fixtures/schema/settings-v1/shortcut-preferences.json");
+validateShortcutPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/shortcuts.json");
 validateNotificationPreferences("fixtures/schema/settings-v1/notification-preferences.json");
 validateNotificationPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/notifications.json");
 validateProfileSettings("fixtures/schema/settings-v1/profile-settings.json");
@@ -159,6 +161,53 @@ function validateNotificationPreferences(path) {
     preferences.updatedAtMs >= preferences.createdAtMs,
     `${path}.updatedAtMs must be >= createdAtMs`,
   );
+}
+
+function validateShortcutPreferences(path) {
+  const preferences = readJson(path);
+  const supportedActions = [
+    "chat.send",
+    "chat.newline",
+    "chat.emoji.close",
+    "mention.insert",
+    "conversation.focus",
+    "terminal.find.next",
+    "terminal.find.previous",
+    "terminal.find.close",
+    "settings.save",
+    "notification.viewAll",
+    "notification.ignoreAll",
+    "notification.openTerminal",
+    "app.globalOpenSettings",
+  ];
+
+  assert(preferences.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(["default", "vscode", "slack"].includes(preferences.profile), `${path}.profile invalid`);
+  assert(typeof preferences.shortcutsEnabled === "boolean", `${path}.shortcutsEnabled must be boolean`);
+  assert(typeof preferences.shortcutHintsEnabled === "boolean", `${path}.shortcutHintsEnabled must be boolean`);
+  assert(Array.isArray(preferences.disabledActionIds), `${path}.disabledActionIds must be an array`);
+  for (const actionId of preferences.disabledActionIds) {
+    assert(supportedActions.includes(actionId), `${path}.disabledActionIds contains unknown action`);
+  }
+  assert(Array.isArray(preferences.bindings), `${path}.bindings must be an array`);
+  assert(preferences.bindings.length === supportedActions.length, `${path}.bindings length invalid`);
+  const seen = new Set();
+  for (const binding of preferences.bindings) {
+    assert(supportedActions.includes(binding.actionId), `${path}.bindings[].actionId invalid`);
+    assert(!seen.has(binding.actionId), `${path}.bindings duplicate actionId`);
+    seen.add(binding.actionId);
+    assertNonEmptyString(binding.label, `${path}.bindings[].label`);
+    assert(Array.isArray(binding.keys) && binding.keys.length > 0, `${path}.bindings[].keys invalid`);
+    binding.keys.forEach((key) => assertNonEmptyString(key, `${path}.bindings[].keys[]`));
+    assert(typeof binding.enabled === "boolean", `${path}.bindings[].enabled must be boolean`);
+    assert(typeof binding.available === "boolean", `${path}.bindings[].available must be boolean`);
+    if (!binding.available) {
+      assertNonEmptyString(binding.unavailableReason, `${path}.bindings[].unavailableReason`);
+      assert(binding.enabled === false, `${path}.bindings unavailable entries must not be enabled`);
+    }
+  }
+  assertPositiveTimestamp(preferences.createdAtMs, `${path}.createdAtMs`);
+  assert(preferences.updatedAtMs >= preferences.createdAtMs, `${path}.updatedAtMs must be >= createdAtMs`);
 }
 
 function validateProfileAvatar(avatar, context) {

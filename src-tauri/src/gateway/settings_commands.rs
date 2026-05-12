@@ -1,13 +1,17 @@
 use crate::{
     app::settings::{
-        delete_uploaded_profile_avatar, get_profile_settings, reset_profile_avatar,
-        select_profile_avatar_preset, update_profile_settings, upload_profile_avatar,
+        delete_uploaded_profile_avatar, get_profile_settings, get_shortcut_preferences,
+        reset_profile_avatar, reset_shortcut_preferences, select_profile_avatar_preset,
+        update_profile_settings, update_shortcut_preferences, upload_profile_avatar,
     },
     contracts::{
         AppError, DeleteUploadedProfileAvatarRequest, DeleteUploadedProfileAvatarResult,
-        GetProfileSettingsRequest, GetProfileSettingsResult, ResetProfileAvatarRequest,
-        ResetProfileAvatarResult, SelectProfileAvatarPresetRequest,
-        SelectProfileAvatarPresetResult, UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
+        GetProfileSettingsRequest, GetProfileSettingsResult, GetShortcutPreferencesRequest,
+        GetShortcutPreferencesResult, ResetProfileAvatarRequest, ResetProfileAvatarResult,
+        ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
+        SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
+        UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
+        UpdateShortcutPreferencesRequest, UpdateShortcutPreferencesResult,
         UploadProfileAvatarRequest, UploadProfileAvatarResult,
     },
 };
@@ -59,6 +63,30 @@ pub fn profile_avatar_delete_uploaded(
     request: DeleteUploadedProfileAvatarRequest,
 ) -> Result<DeleteUploadedProfileAvatarResult, AppError> {
     delete_uploaded_profile_avatar(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn shortcut_preferences_get(
+    app: AppHandle,
+    request: GetShortcutPreferencesRequest,
+) -> Result<GetShortcutPreferencesResult, AppError> {
+    get_shortcut_preferences(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn shortcut_preferences_update(
+    app: AppHandle,
+    request: UpdateShortcutPreferencesRequest,
+) -> Result<UpdateShortcutPreferencesResult, AppError> {
+    update_shortcut_preferences(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn shortcut_preferences_reset(
+    app: AppHandle,
+    request: ResetShortcutPreferencesRequest,
+) -> Result<ResetShortcutPreferencesResult, AppError> {
+    reset_shortcut_preferences(app_data_dir(&app)?, request)
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, AppError> {

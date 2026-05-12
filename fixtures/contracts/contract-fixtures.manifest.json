@@ -531,6 +531,39 @@
       "requirements": ["FR64", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
     },
     {
+      "domain": "settings",
+      "command": "shortcut_preferences_get",
+      "requestFixture": "fixtures/contracts/settings/shortcut-preferences-get.request.json",
+      "successResultFixture": "fixtures/contracts/settings/shortcut-preferences-get.result.json",
+      "errorFixture": "fixtures/contracts/settings/shortcut-preferences-get.error.json",
+      "rustRequestDto": "GetShortcutPreferencesRequest",
+      "rustSuccessDto": "GetShortcutPreferencesResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR67", "UX-DR2", "NFR8", "NFR14", "NFR17", "NFR29", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "shortcut_preferences_update",
+      "requestFixture": "fixtures/contracts/settings/shortcut-preferences-update.request.json",
+      "successResultFixture": "fixtures/contracts/settings/shortcut-preferences-update.result.json",
+      "errorFixture": "fixtures/contracts/settings/shortcut-preferences-update.error.json",
+      "rustRequestDto": "UpdateShortcutPreferencesRequest",
+      "rustSuccessDto": "UpdateShortcutPreferencesResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR67", "UX-DR2", "NFR8", "NFR14", "NFR17", "NFR29", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "shortcut_preferences_reset",
+      "requestFixture": "fixtures/contracts/settings/shortcut-preferences-reset.request.json",
+      "successResultFixture": "fixtures/contracts/settings/shortcut-preferences-reset.result.json",
+      "errorFixture": "fixtures/contracts/settings/shortcut-preferences-reset.error.json",
+      "rustRequestDto": "ResetShortcutPreferencesRequest",
+      "rustSuccessDto": "ResetShortcutPreferencesResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR67", "UX-DR2", "NFR8", "NFR14", "NFR17", "NFR29", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",
