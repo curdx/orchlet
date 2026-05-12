@@ -3,6 +3,7 @@ pub mod common;
 pub mod contact;
 pub mod data_integrity;
 pub mod member;
+pub mod terminal;
 pub mod workspace;
 
 pub use chat::{
@@ -31,6 +32,10 @@ pub use member::{
     InviteMemberRequest, InviteMemberResult, InvitedMemberType, ListMembersRequest,
     ListMembersResult, MemberIsolation, MemberPermissions, MemberProfile, MemberRole,
     MemberRuntimeKind, MemberRuntimeProfile, MemberStatus, RemoveMemberRequest, RemoveMemberResult,
+};
+pub use terminal::{
+    TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload, TerminalSessionProfile,
+    TerminalSessionStatus, TerminalStreamKind,
 };
 pub use workspace::{
     AppLanguage, AppPreferencesSnapshot, AppTheme, OpenWindowModeRequest, OpenWindowModeResult,

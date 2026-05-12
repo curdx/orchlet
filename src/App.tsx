@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { TerminalPage } from "./pages/terminal";
 import { WorkspaceSelectionPage } from "./pages/workspace-selection";
-import { windowContextApi } from "./shared/api";
+import { terminalApi, windowContextApi } from "./shared/api";
 import type {
   AppLanguage,
   AppTheme,
@@ -71,6 +72,11 @@ function App() {
   }
 
   async function handleOpenWindowMode(mode: WindowMode) {
+    if (mode === "terminal") {
+      await terminalApi.openTerminal();
+      return;
+    }
+
     await windowContextApi.openWindowMode(mode);
   }
 
@@ -78,7 +84,13 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {mode === "terminal" || mode === "notificationPreview" ? (
+      {mode === "terminal" ? (
+        <TerminalPage
+          snapshot={windowContext}
+          onPreferencesChange={handlePreferencesChange}
+          onOpenWindowMode={handleOpenWindowMode}
+        />
+      ) : mode === "notificationPreview" ? (
         <ModePlaceholder
           snapshot={windowContext}
           mode={mode}

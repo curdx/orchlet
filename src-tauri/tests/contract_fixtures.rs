@@ -11,10 +11,11 @@ use orchlet_lib::contracts::{
     ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest,
     OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
     SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
-    UpdateContactRequest, UpdateContactResult, UpdateConversationSettingsRequest,
-    UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
-    UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
-    WorkspaceOpenStatus,
+    TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload, TerminalSessionStatus,
+    TerminalStreamKind, UpdateContactRequest, UpdateContactResult,
+    UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
+    UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
+    UpdateReadPositionRequest, UpdateReadPositionResult, WindowMode, WorkspaceOpenStatus,
 };
 use serde::de::DeserializeOwned;
 
@@ -98,6 +99,38 @@ fn member_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(remove_result.removed_member_id, remove_request.member_id);
     assert_eq!(remove_result.members.len(), 1);
     assert_eq!(remove_error.code, "member.remove.forbidden");
+}
+
+#[test]
+fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
+    let request: TerminalOpenRequest =
+        read_fixture("../fixtures/contracts/terminal/terminal-open.request.json");
+    let result: TerminalOpenResult =
+        read_fixture("../fixtures/contracts/terminal/terminal-open.result.json");
+    let error: AppError = read_fixture("../fixtures/contracts/terminal/terminal-open.error.json");
+    let event: TerminalOutputEventPayload =
+        read_fixture("../fixtures/contracts/terminal/terminal-output.event.json");
+
+    assert_eq!(
+        request.member_id.as_deref(),
+        Some("01K00000000000000000000031")
+    );
+    assert!(!request.attach_current);
+    assert_eq!(result.window.label, "terminal");
+    assert_eq!(result.window.mode, WindowMode::Terminal);
+    assert!(result.window_opened);
+    assert!(result.session_created);
+    assert_eq!(result.session.status, TerminalSessionStatus::Running);
+    assert_eq!(
+        result.session.member_id.as_deref(),
+        Some("01K00000000000000000000031")
+    );
+    assert_eq!(error.code, "terminal.workspace.required");
+    assert!(error.recoverable);
+    assert_eq!(event.schema_version, 1);
+    assert_eq!(event.seq, 1);
+    assert_eq!(event.kind, TerminalStreamKind::Stdout);
+    assert_eq!(event.chunk, "ready\n");
 }
 
 #[test]

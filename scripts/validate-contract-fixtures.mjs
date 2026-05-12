@@ -9,6 +9,7 @@ const requiredCommands = new Set([
   "members_list",
   "member_invite",
   "member_remove",
+  "terminal_open",
   "contacts_list",
   "contact_create",
   "contact_update",
@@ -40,6 +41,12 @@ for (const contract of manifest.contracts) {
     assert(typeof contract[field] === "string", `${contract.command}.${field} must be a path`);
     const fixture = readJson(contract[field]);
     assertCamelCaseKeys(fixture, contract[field]);
+  }
+
+  if (contract.eventFixture) {
+    assert(typeof contract.eventFixture === "string", `${contract.command}.eventFixture must be a path`);
+    const fixture = readJson(contract.eventFixture);
+    assertCamelCaseKeys(fixture, contract.eventFixture);
   }
 
   assert(

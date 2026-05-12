@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "terminalSessionId": "01K00000000000000000000090",
+  "workspaceId": "01K00000000000000000000000",
+  "memberId": "01K00000000000000000000031",
+  "seq": 1,
+  "chunk": "ready\n",
+  "kind": "stdout",
+  "emittedAtMs": 1760000000002
+}

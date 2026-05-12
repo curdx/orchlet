@@ -129,14 +129,22 @@ pub async fn window_open_mode(
     window_context_state: State<'_, WindowContextRuntimeState>,
     request: OpenWindowModeRequest,
 ) -> Result<OpenWindowModeResult, AppError> {
-    let window = registered_window_for_mode(request.mode);
+    open_or_focus_window_mode(&app, &window_context_state, request.mode).await
+}
+
+pub async fn open_or_focus_window_mode(
+    app: &AppHandle,
+    window_context_state: &WindowContextRuntimeState,
+    mode: WindowMode,
+) -> Result<OpenWindowModeResult, AppError> {
+    let window = registered_window_for_mode(mode);
     let opened = if let Some(existing_window) = app.get_webview_window(&window.label) {
         let show_result = existing_window.show();
         let focus_result = existing_window.set_focus();
 
         show_result.is_ok() && focus_result.is_ok()
     } else {
-        WebviewWindowBuilder::new(&app, &window.label, WebviewUrl::App("index.html".into()))
+        WebviewWindowBuilder::new(app, &window.label, WebviewUrl::App("index.html".into()))
             .title(window_title(&window.mode))
             .inner_size(900.0, 640.0)
             .build()
@@ -152,7 +160,7 @@ pub async fn window_open_mode(
     };
 
     let snapshot = window_context_state.register_window(window.clone());
-    emit_context_snapshot(&app, &snapshot)?;
+    emit_context_snapshot(app, &snapshot)?;
 
     Ok(OpenWindowModeResult { window, opened })
 }

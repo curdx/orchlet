@@ -3,5 +3,6 @@ export { contactApi } from "./contact-api";
 export { dataIntegrityApi } from "./data-integrity-api";
 export { memberApi } from "./member-api";
 export { normalizeAppError } from "./errors";
+export { terminalApi } from "./terminal-api";
 export { workspaceApi } from "./workspace-api";
 export { windowContextApi } from "./window-context-api";

@@ -57,6 +57,19 @@
       "requirements": ["FR17", "NFR35", "NFR36"]
     },
     {
+      "domain": "terminal",
+      "command": "terminal_open",
+      "requestFixture": "fixtures/contracts/terminal/terminal-open.request.json",
+      "successResultFixture": "fixtures/contracts/terminal/terminal-open.result.json",
+      "errorFixture": "fixtures/contracts/terminal/terminal-open.error.json",
+      "rustRequestDto": "TerminalOpenRequest",
+      "rustSuccessDto": "TerminalOpenResult",
+      "rustErrorDto": "AppError",
+      "eventFixture": "fixtures/contracts/terminal/terminal-output.event.json",
+      "rustEventDto": "TerminalOutputEventPayload",
+      "requirements": ["FR17", "FR33", "FR40", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

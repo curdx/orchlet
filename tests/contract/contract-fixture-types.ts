@@ -66,10 +66,18 @@ import type {
   RemoveMemberResult,
 } from "../../src/contracts/generated/member";
 import type {
+  TerminalOpenRequest,
+  TerminalOpenResult,
+  TerminalOutputEventPayload,
+  TerminalSessionStatus,
+  TerminalStreamKind,
+} from "../../src/contracts/generated/terminal";
+import type {
   WorkspaceAccessMode,
   WorkspaceRegistryAction,
   OpenWorkspaceRequest,
   OpenWorkspaceResult,
+  WindowMode,
   WorkspaceOpenStatus,
 } from "../../src/contracts/generated/workspace";
 
@@ -127,6 +135,10 @@ import listMembersResult from "../../fixtures/contracts/member/members-list.resu
 import removeMemberError from "../../fixtures/contracts/member/member-remove.error.json";
 import removeMemberRequest from "../../fixtures/contracts/member/member-remove.request.json";
 import removeMemberResult from "../../fixtures/contracts/member/member-remove.result.json";
+import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
+import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
+import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
+import terminalOutputEvent from "../../fixtures/contracts/terminal/terminal-output.event.json";
 import workspaceError from "../../fixtures/contracts/workspace/workspace-open.error.json";
 import workspaceRequest from "../../fixtures/contracts/workspace/workspace-open.request.json";
 import workspaceResult from "../../fixtures/contracts/workspace/workspace-open.result.json";
@@ -183,6 +195,24 @@ export const removeMemberResultFixture: RemoveMemberResult = {
   members: removeMemberResult.members.map(memberProfile),
 };
 export const removeMemberErrorFixture: AppError = appError(removeMemberError);
+
+export const terminalOpenRequestFixture: TerminalOpenRequest = terminalOpenRequest;
+export const terminalOpenResultFixture: TerminalOpenResult = {
+  ...terminalOpenResult,
+  window: {
+    ...terminalOpenResult.window,
+    mode: windowMode(terminalOpenResult.window.mode),
+  },
+  session: {
+    ...terminalOpenResult.session,
+    status: terminalSessionStatus(terminalOpenResult.session.status),
+  },
+};
+export const terminalOpenErrorFixture: AppError = appError(terminalOpenError);
+export const terminalOutputEventFixture: TerminalOutputEventPayload = {
+  ...terminalOutputEvent,
+  kind: terminalStreamKind(terminalOutputEvent.kind),
+};
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -317,6 +347,7 @@ type ErrorJson =
   | typeof listMembersError
   | typeof inviteMemberError
   | typeof removeMemberError
+  | typeof terminalOpenError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -403,6 +434,18 @@ function workspaceRegistryAction(value: string): WorkspaceRegistryAction {
       return value;
     default:
       throw new Error(`Unknown workspace registry action: ${value}`);
+  }
+}
+
+function windowMode(value: string): WindowMode {
+  switch (value) {
+    case "main":
+    case "workspaceSelection":
+    case "terminal":
+    case "notificationPreview":
+      return value;
+    default:
+      throw new Error(`Unknown window mode: ${value}`);
   }
 }
 
@@ -627,6 +670,28 @@ function memberRuntimeKind(value: string): MemberRuntimeKind {
       return value;
     default:
       throw new Error(`Unknown member runtime kind: ${value}`);
+  }
+}
+
+function terminalSessionStatus(value: string): TerminalSessionStatus {
+  switch (value) {
+    case "starting":
+    case "running":
+    case "exited":
+      return value;
+    default:
+      throw new Error(`Unknown terminal session status: ${value}`);
+  }
+}
+
+function terminalStreamKind(value: string): TerminalStreamKind {
+  switch (value) {
+    case "stdout":
+    case "stderr":
+    case "system":
+      return value;
+    default:
+      throw new Error(`Unknown terminal stream kind: ${value}`);
   }
 }
 

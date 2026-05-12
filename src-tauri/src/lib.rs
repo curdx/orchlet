@@ -15,6 +15,7 @@ pub fn run() {
         )
         .manage(app::workspace::WorkspaceRuntimeState::default())
         .manage(app::window_context::WindowContextRuntimeState::default())
+        .manage(app::terminal::TerminalRuntimeState::default())
         .invoke_handler(tauri::generate_handler![
             gateway::workspace_commands::workspace_selection_status,
             gateway::workspace_commands::workspace_recent_list,
@@ -28,6 +29,7 @@ pub fn run() {
             gateway::member_commands::members_list,
             gateway::member_commands::member_invite,
             gateway::member_commands::member_remove,
+            gateway::terminal_commands::terminal_open,
             gateway::contact_commands::contacts_list,
             gateway::contact_commands::contact_create,
             gateway::contact_commands::contact_update,

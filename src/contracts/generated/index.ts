@@ -72,6 +72,14 @@ export type {
   RemoveMemberResult,
 } from "./member";
 export type {
+  TerminalOpenRequest,
+  TerminalOpenResult,
+  TerminalOutputEventPayload,
+  TerminalSessionProfile,
+  TerminalSessionStatus,
+  TerminalStreamKind,
+} from "./terminal";
+export type {
   AppLanguage,
   AppPreferencesSnapshot,
   AppTheme,

@@ -41,6 +41,7 @@ import type {
   SendMessageResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
+  TerminalOpenResult,
   UpdateContactRequest,
   UpdateContactResult,
   UpdateConversationSettingsRequest,
@@ -80,6 +81,12 @@ function renderWorkspaceSelection(api: {
     inviteMember: (request: InviteMemberRequest) => Promise<InviteMemberResult>;
     removeMember: (request: RemoveMemberRequest) => Promise<RemoveMemberResult>;
   }>;
+  terminalApi?: Partial<{
+    openTerminal: (request?: {
+      memberId?: string | null;
+      attachCurrent?: boolean;
+    }) => Promise<TerminalOpenResult>;
+  }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
     createContact: (request: CreateContactRequest) => Promise<CreateContactResult>;
@@ -109,7 +116,7 @@ function renderWorkspaceSelection(api: {
     ) => Promise<StartPrivateConversationResult>;
   }>;
 }) {
-  const { memberApi, contactApi, chatApi, ...workspaceApi } = api;
+  const { memberApi, terminalApi, contactApi, chatApi, ...workspaceApi } = api;
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -131,6 +138,10 @@ function renderWorkspaceSelection(api: {
           inviteMember: () => Promise.reject(new Error("inviteMember mock missing")),
           removeMember: () => Promise.reject(new Error("removeMember mock missing")),
           ...memberApi,
+        }}
+        terminalApi={{
+          openTerminal: () => Promise.reject(new Error("openTerminal mock missing")),
+          ...terminalApi,
         }}
         contactApi={{
           listContacts: () => Promise.resolve({ contacts: [] }),
@@ -214,6 +225,28 @@ function windowContextSnapshot(
     },
     updatedAtMs: 1760000000000,
     sourceWindowLabel: null,
+    ...overrides,
+  };
+}
+
+function terminalOpenResult(overrides: Partial<TerminalOpenResult> = {}): TerminalOpenResult {
+  return {
+    window: {
+      label: "terminal",
+      mode: "terminal",
+    },
+    windowOpened: true,
+    sessionCreated: true,
+    session: {
+      schemaVersion: 1,
+      terminalSessionId: "01KTERMINAL00000000000001",
+      workspaceId: "01K00000000000000000000000",
+      memberId: null,
+      title: "orchlet-demo",
+      status: "running",
+      createdAtMs: 1760000000000,
+      updatedAtMs: 1760000000001,
+    },
     ...overrides,
   };
 }
@@ -1176,6 +1209,9 @@ describe("App workspace entry", () => {
         members: [owner],
       }),
     );
+    const openTerminal = vi.fn(() =>
+      Promise.resolve(terminalOpenResult()),
+    );
     const startPrivateConversation = vi.fn(() =>
       Promise.resolve({
         conversation: conversationProfile({
@@ -1193,6 +1229,7 @@ describe("App workspace entry", () => {
         getWorkspaceSelectionStatus: () => Promise.resolve(status),
         pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
         memberApi: { listMembers, removeMember },
+        terminalApi: { openTerminal },
         chatApi: { startPrivateConversation },
       });
 
@@ -1202,6 +1239,11 @@ describe("App workspace entry", () => {
       expect(within(membersPanel).getByText("Agent 1")).toBeInTheDocument();
       expect(within(membersPanel).getByText((content) => content.includes("@可用"))).toBeInTheDocument();
       expect(within(membersPanel).getAllByText((content) => content.includes("沙盒 · 受限"))).toHaveLength(1);
+
+      await user.click(screen.getByRole("button", { name: "打开终端" }));
+
+      expect(openTerminal).toHaveBeenCalledWith();
+      expect(await screen.findByRole("status")).toHaveTextContent("终端已打开");
 
       await user.click(screen.getByRole("button", { name: "Agent 1 操作" }));
       await user.click(screen.getByRole("menuitem", { name: "发送消息" }));
@@ -1217,6 +1259,12 @@ describe("App workspace entry", () => {
       await user.click(screen.getByRole("menuitem", { name: "@成员" }));
 
       expect(await screen.findByRole("status")).toHaveTextContent("@Agent 1");
+
+      await user.click(screen.getByRole("button", { name: "Agent 1 操作" }));
+      await user.click(screen.getByRole("menuitem", { name: "打开终端" }));
+
+      expect(openTerminal).toHaveBeenCalledWith({ memberId: assistant.memberId });
+      expect(await screen.findByRole("status")).toHaveTextContent("成员终端已打开");
 
       await user.click(screen.getByRole("button", { name: "Agent 1 操作" }));
       await user.click(screen.getByRole("menuitem", { name: "移除成员" }));
@@ -1406,6 +1454,7 @@ describe("App workspace entry", () => {
     const user = userEvent.setup();
     const onPreferencesChange = vi.fn(() => Promise.resolve());
     const onOpenWindowMode = vi.fn(() => Promise.resolve());
+    const openTerminal = vi.fn(() => Promise.resolve(terminalOpenResult()));
 
     renderWorkspaceSelection({
       getWorkspaceSelectionStatus: () => Promise.resolve(status),
@@ -1427,6 +1476,7 @@ describe("App workspace entry", () => {
           windowContext={windowContextSnapshot()}
           onPreferencesChange={onPreferencesChange}
           onOpenWindowMode={onOpenWindowMode}
+          terminalApi={{ openTerminal }}
         />
       </QueryClientProvider>,
     );
@@ -1435,7 +1485,8 @@ describe("App workspace entry", () => {
     await user.click(screen.getByRole("button", { name: "打开终端窗口" }));
 
     expect(onPreferencesChange).toHaveBeenCalledWith({ theme: "light" });
-    expect(onOpenWindowMode).toHaveBeenCalledWith("terminal");
+    expect(openTerminal).toHaveBeenCalledWith();
+    expect(onOpenWindowMode).not.toHaveBeenCalledWith("terminal");
   });
 
   it("runs data integrity validation and renders failed affected paths", async () => {

@@ -24,6 +24,7 @@ import {
   Settings,
   ShieldCheck,
   Smile,
+  SquareTerminal,
   Trash2,
   User,
   UserPlus,
@@ -37,6 +38,7 @@ import {
   dataIntegrityApi,
   memberApi,
   normalizeAppError,
+  terminalApi,
   workspaceApi,
 } from "../../../shared/api";
 import type { ChatApi } from "../../../shared/api/chat-api";
@@ -44,6 +46,7 @@ import type { ContactApi } from "../../../shared/api/contact-api";
 import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
 import type { MemberApi } from "../../../shared/api/member-api";
+import type { TerminalApi } from "../../../shared/api/terminal-api";
 import type {
   ChatMessageProfile,
   ConversationProfile,
@@ -87,6 +90,7 @@ type WorkspaceSelectionPageProps = {
   onOpenWindowMode?: (mode: WindowMode) => Promise<void>;
   integrityApi?: Pick<DataIntegrityApi, "validate">;
   memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember">;
+  terminalApi?: Pick<TerminalApi, "openTerminal">;
   contactApi?: Pick<ContactApi, "listContacts" | "createContact" | "updateContact" | "deleteContact">;
   chatApi?: Pick<
     ChatApi,
@@ -119,6 +123,7 @@ export function WorkspaceSelectionPage({
   onOpenWindowMode,
   integrityApi = dataIntegrityApi,
   memberApi: membersApi = memberApi,
+  terminalApi: terminalsApi = terminalApi,
   contactApi: contactsApi = contactApi,
   chatApi: conversationsApi = chatApi,
 }: WorkspaceSelectionPageProps) {
@@ -436,13 +441,76 @@ export function WorkspaceSelectionPage({
     setIsSyncActionPending(true);
 
     try {
-      await onOpenWindowMode(mode);
+      if (mode === "terminal") {
+        await terminalsApi.openTerminal();
+      } else {
+        await onOpenWindowMode(mode);
+      }
     } catch (error) {
       const appError = normalizeAppError(error);
 
       showToast({
         tone: appError.severity,
         title: "无法打开窗口",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSyncActionPending(false);
+    }
+  }
+
+  async function handleOpenWorkspaceTerminal() {
+    if (!activeWorkspace) {
+      return;
+    }
+
+    setIsSyncActionPending(true);
+
+    try {
+      const result = await terminalsApi.openTerminal();
+      showToast({
+        tone: "info",
+        title: result.sessionCreated ? "终端已打开" : "终端已复用",
+        message: `${activeWorkspace.metadata.name} 的终端窗口已准备好。`,
+        action: result.session.terminalSessionId,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法打开终端",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSyncActionPending(false);
+    }
+  }
+
+  async function handleOpenMemberTerminal(member: MemberProfile) {
+    if (!activeWorkspace || !isTerminalCapableMember(member)) {
+      return;
+    }
+
+    setIsSyncActionPending(true);
+
+    try {
+      const result = await terminalsApi.openTerminal({ memberId: member.memberId });
+      setMemberActionMenuId(null);
+      showToast({
+        tone: "info",
+        title: result.sessionCreated ? "成员终端已打开" : "成员终端已复用",
+        message: `${member.instanceLabel} 的终端会话已准备好。`,
+        action: result.session.terminalSessionId,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法打开成员终端",
         message: appError.message,
         action: appError.userAction ?? undefined,
       });
@@ -1336,6 +1404,15 @@ export function WorkspaceSelectionPage({
                     </span>
                     <button
                       type="button"
+                      disabled={isSyncActionPending}
+                      onClick={() => void handleOpenWorkspaceTerminal()}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
+                    >
+                      <SquareTerminal aria-hidden="true" size={14} strokeWidth={2} />
+                      打开终端
+                    </button>
+                    <button
+                      type="button"
                       disabled={isOpeningFileManager}
                       onClick={handleOpenInFileManager}
                       className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
@@ -1467,6 +1544,7 @@ export function WorkspaceSelectionPage({
                 onStartPrivateConversation={(member) =>
                   void handleStartPrivateConversation("member", member.memberId)
                 }
+                onOpenMemberTerminal={(member) => void handleOpenMemberTerminal(member)}
                 onMentionMember={handleMentionMember}
                 onRemoveMember={(member) => void handleRemoveMember(member)}
                 onInvite={() => void handleInviteMember()}
@@ -2504,6 +2582,7 @@ function MembersPanel({
   onUnlimitedAccessChange,
   onToggleActionMenu,
   onStartPrivateConversation,
+  onOpenMemberTerminal,
   onMentionMember,
   onRemoveMember,
   onInvite,
@@ -2534,6 +2613,7 @@ function MembersPanel({
   onUnlimitedAccessChange: (value: boolean) => void;
   onToggleActionMenu: (memberId: string) => void;
   onStartPrivateConversation: (member: MemberProfile) => void;
+  onOpenMemberTerminal: (member: MemberProfile) => void;
   onMentionMember: (member: MemberProfile) => void;
   onRemoveMember: (member: MemberProfile) => void;
   onInvite: () => void;
@@ -2573,6 +2653,7 @@ function MembersPanel({
           openActionMenuId={openActionMenuId}
           onToggleActionMenu={onToggleActionMenu}
           onStartPrivateConversation={onStartPrivateConversation}
+          onOpenMemberTerminal={onOpenMemberTerminal}
           onMentionMember={onMentionMember}
           onRemoveMember={onRemoveMember}
         />
@@ -2583,6 +2664,7 @@ function MembersPanel({
           openActionMenuId={openActionMenuId}
           onToggleActionMenu={onToggleActionMenu}
           onStartPrivateConversation={onStartPrivateConversation}
+          onOpenMemberTerminal={onOpenMemberTerminal}
           onMentionMember={onMentionMember}
           onRemoveMember={onRemoveMember}
         />
@@ -2593,6 +2675,7 @@ function MembersPanel({
           openActionMenuId={openActionMenuId}
           onToggleActionMenu={onToggleActionMenu}
           onStartPrivateConversation={onStartPrivateConversation}
+          onOpenMemberTerminal={onOpenMemberTerminal}
           onMentionMember={onMentionMember}
           onRemoveMember={onRemoveMember}
         />
@@ -2603,6 +2686,7 @@ function MembersPanel({
           openActionMenuId={openActionMenuId}
           onToggleActionMenu={onToggleActionMenu}
           onStartPrivateConversation={onStartPrivateConversation}
+          onOpenMemberTerminal={onOpenMemberTerminal}
           onMentionMember={onMentionMember}
           onRemoveMember={onRemoveMember}
         />
@@ -2753,6 +2837,7 @@ function MemberGroup({
   openActionMenuId,
   onToggleActionMenu,
   onStartPrivateConversation,
+  onOpenMemberTerminal,
   onMentionMember,
   onRemoveMember,
 }: {
@@ -2762,6 +2847,7 @@ function MemberGroup({
   openActionMenuId: string | null;
   onToggleActionMenu: (memberId: string) => void;
   onStartPrivateConversation: (member: MemberProfile) => void;
+  onOpenMemberTerminal: (member: MemberProfile) => void;
   onMentionMember: (member: MemberProfile) => void;
   onRemoveMember: (member: MemberProfile) => void;
 }) {
@@ -2801,7 +2887,8 @@ function MemberGroup({
                   disabled={
                     member.role === "owner" &&
                     !member.permissions.canMention &&
-                    !member.permissions.canRemove
+                    !member.permissions.canRemove &&
+                    !isTerminalCapableMember(member)
                   }
                   onClick={() => onToggleActionMenu(member.memberId)}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d8e2d4] bg-[#fbfcfa] text-[#526054] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-45"
@@ -2834,6 +2921,17 @@ function MemberGroup({
                       >
                         <AtSign aria-hidden="true" size={14} strokeWidth={2} />
                         @成员
+                      </button>
+                    ) : null}
+                    {isTerminalCapableMember(member) ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => onOpenMemberTerminal(member)}
+                        className="inline-flex items-center gap-2 rounded px-2 py-2 text-left text-[#263229] hover:bg-[#eef6ea]"
+                      >
+                        <SquareTerminal aria-hidden="true" size={14} strokeWidth={2} />
+                        打开终端
                       </button>
                     ) : null}
                     {member.permissions.canRemove ? (
@@ -3189,6 +3287,13 @@ function runtimeLabel(runtime: MemberRuntimeProfile) {
     case "shell":
       return runtime.label ?? runtime.command ?? "Shell";
   }
+}
+
+function isTerminalCapableMember(member: MemberProfile) {
+  return (
+    member.runtime.kind !== "none" &&
+    Boolean(member.runtime.command?.trim())
+  );
 }
 
 function permissionLabel(member: MemberProfile) {

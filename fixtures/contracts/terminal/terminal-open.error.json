@@ -1,0 +1,9 @@
+{
+  "code": "terminal.workspace.required",
+  "message": "打开终端前需要先打开工作区。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请先选择并打开一个工作区，然后再打开终端。",
+  "details": null,
+  "correlationId": null
+}
