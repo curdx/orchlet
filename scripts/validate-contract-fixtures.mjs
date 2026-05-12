@@ -20,6 +20,7 @@ const requiredCommands = new Set([
   "terminal_tab_close",
   "terminal_tab_restore",
   "terminal_tab_update",
+  "orchestration_dispatch_chat_message",
   "contacts_list",
   "contact_create",
   "contact_update",

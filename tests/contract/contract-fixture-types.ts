@@ -66,6 +66,12 @@ import type {
   RemoveMemberResult,
 } from "../../src/contracts/generated/member";
 import type {
+  DispatchChatMessageRequest,
+  DispatchChatMessageResult,
+  DispatchRequestProfile,
+  DispatchRequestStatus,
+} from "../../src/contracts/generated/orchestration";
+import type {
   TerminalAttachRequest,
   TerminalAttachResult,
   TerminalCloseRequest,
@@ -163,6 +169,9 @@ import listMembersResult from "../../fixtures/contracts/member/members-list.resu
 import removeMemberError from "../../fixtures/contracts/member/member-remove.error.json";
 import removeMemberRequest from "../../fixtures/contracts/member/member-remove.request.json";
 import removeMemberResult from "../../fixtures/contracts/member/member-remove.result.json";
+import dispatchChatMessageError from "../../fixtures/contracts/orchestration/dispatch-chat-message.error.json";
+import dispatchChatMessageRequest from "../../fixtures/contracts/orchestration/dispatch-chat-message.request.json";
+import dispatchChatMessageResult from "../../fixtures/contracts/orchestration/dispatch-chat-message.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -340,6 +349,17 @@ export const terminalTabUpdateResultFixture: TerminalTabUpdateResult = {
 };
 export const terminalTabUpdateErrorFixture: AppError = appError(terminalTabUpdateError);
 
+export const dispatchChatMessageRequestFixture: DispatchChatMessageRequest =
+  dispatchChatMessageRequest;
+export const dispatchChatMessageResultFixture: DispatchChatMessageResult = {
+  dispatch: dispatchRequestProfile(dispatchChatMessageResult.dispatch),
+  terminalSession: dispatchChatMessageResult.terminalSession
+    ? terminalSessionProfile(dispatchChatMessageResult.terminalSession)
+    : null,
+  sessionCreated: dispatchChatMessageResult.sessionCreated,
+};
+export const dispatchChatMessageErrorFixture: AppError = appError(dispatchChatMessageError);
+
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
   contacts: listContactsResult.contacts.map(contactProfile),
@@ -484,6 +504,7 @@ type ErrorJson =
   | typeof terminalTabCloseError
   | typeof terminalTabRestoreError
   | typeof terminalTabUpdateError
+  | typeof dispatchChatMessageError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -851,6 +872,28 @@ function terminalEnvironmentStatus(value: string): TerminalEnvironmentStatus {
       return value;
     default:
       throw new Error(`Unknown terminal environment status: ${value}`);
+  }
+}
+
+function dispatchRequestProfile(
+  dispatch: typeof dispatchChatMessageResult.dispatch,
+): DispatchRequestProfile {
+  return {
+    ...dispatch,
+    status: dispatchRequestStatus(dispatch.status),
+    terminalSessionId: dispatch.terminalSessionId,
+    failure: dispatch.failure,
+  };
+}
+
+function dispatchRequestStatus(value: string): DispatchRequestStatus {
+  switch (value) {
+    case "pending":
+    case "dispatched":
+    case "failed":
+      return value;
+    default:
+      throw new Error(`Unknown dispatch request status: ${value}`);
   }
 }
 

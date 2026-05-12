@@ -71,8 +71,8 @@ development_status:
   3-6-cli-environment-resolution-error-recovery-session-snapshot: done
   epic-3-retrospective: optional
 
-  epic-4: backlog
-  4-1-dispatch-chat-message-to-member-terminal: backlog
+  epic-4: in-progress
+  4-1-dispatch-chat-message-to-member-terminal: done
   4-2-dispatch-target-resolution-context-selection: backlog
   4-3-dnd-busy-queue-visible-status: backlog
   4-4-deduplicate-dispatches-merge-consecutive-dispatches: backlog

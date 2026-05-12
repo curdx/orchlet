@@ -1,0 +1,9 @@
+{
+  "code": "dispatch.target.required",
+  "message": "需要明确的派发成员。",
+  "userAction": "请选择一名成员或只提及一个成员后再派发。",
+  "details": "mentionedMemberCount=0",
+  "severity": "error",
+  "recoverable": true,
+  "correlationId": null
+}

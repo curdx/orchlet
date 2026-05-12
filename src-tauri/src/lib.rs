@@ -29,6 +29,7 @@ pub fn run() {
             gateway::member_commands::members_list,
             gateway::member_commands::member_invite,
             gateway::member_commands::member_remove,
+            gateway::orchestration_commands::orchestration_dispatch_chat_message,
             gateway::terminal_commands::terminal_open,
             gateway::terminal_commands::terminal_attach,
             gateway::terminal_commands::terminal_input,

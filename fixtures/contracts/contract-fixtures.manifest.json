@@ -182,6 +182,17 @@
       "requirements": ["FR33", "FR40", "NFR35", "NFR36"]
     },
     {
+      "domain": "orchestration",
+      "command": "orchestration_dispatch_chat_message",
+      "requestFixture": "fixtures/contracts/orchestration/dispatch-chat-message.request.json",
+      "successResultFixture": "fixtures/contracts/orchestration/dispatch-chat-message.result.json",
+      "errorFixture": "fixtures/contracts/orchestration/dispatch-chat-message.error.json",
+      "rustRequestDto": "DispatchChatMessageRequest",
+      "rustSuccessDto": "DispatchChatMessageResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR45", "FR51", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",

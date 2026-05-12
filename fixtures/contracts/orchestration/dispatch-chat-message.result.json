@@ -1,0 +1,35 @@
+{
+  "dispatch": {
+    "schemaVersion": 1,
+    "dispatchRequestId": "01K00000000000000000000090",
+    "workspaceId": "01K00000000000000000000000",
+    "conversationId": "01K00000000000000000000050",
+    "messageId": "01K00000000000000000000070",
+    "memberId": "01K00000000000000000000031",
+    "status": "dispatched",
+    "terminalSessionId": "01K00000000000000000000080",
+    "failure": null,
+    "createdAtMs": 1760000012000,
+    "updatedAtMs": 1760000012001
+  },
+  "terminalSession": {
+    "schemaVersion": 1,
+    "terminalSessionId": "01K00000000000000000000080",
+    "workspaceId": "01K00000000000000000000000",
+    "memberId": "01K00000000000000000000031",
+    "title": "Codex Reviewer",
+    "status": "running",
+    "cols": 120,
+    "rows": 30,
+    "snapshot": {
+      "lastSeq": 1,
+      "text": "ready\n",
+      "truncated": false,
+      "updatedAtMs": 1760000012000
+    },
+    "exitReason": null,
+    "createdAtMs": 1760000012000,
+    "updatedAtMs": 1760000012001
+  },
+  "sessionCreated": true
+}

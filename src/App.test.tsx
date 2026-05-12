@@ -22,6 +22,8 @@ import type {
   DeleteConversationResult,
   DeleteContactRequest,
   DeleteContactResult,
+  DispatchChatMessageRequest,
+  DispatchChatMessageResult,
   InviteMemberRequest,
   InviteMemberResult,
   ListConversationsRequest,
@@ -87,6 +89,11 @@ function renderWorkspaceSelection(api: {
       attachCurrent?: boolean;
     }) => Promise<TerminalOpenResult>;
   }>;
+  terminalDispatchApi?: Partial<{
+    dispatchChatMessage: (
+      request: DispatchChatMessageRequest,
+    ) => Promise<DispatchChatMessageResult>;
+  }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
     createContact: (request: CreateContactRequest) => Promise<CreateContactResult>;
@@ -116,7 +123,8 @@ function renderWorkspaceSelection(api: {
     ) => Promise<StartPrivateConversationResult>;
   }>;
 }) {
-  const { memberApi, terminalApi, contactApi, chatApi, ...workspaceApi } = api;
+  const { memberApi, terminalApi, terminalDispatchApi, contactApi, chatApi, ...workspaceApi } =
+    api;
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -142,6 +150,11 @@ function renderWorkspaceSelection(api: {
         terminalApi={{
           openTerminal: () => Promise.reject(new Error("openTerminal mock missing")),
           ...terminalApi,
+        }}
+        terminalDispatchApi={{
+          dispatchChatMessage: () =>
+            Promise.reject(new Error("dispatchChatMessage mock missing")),
+          ...terminalDispatchApi,
         }}
         contactApi={{
           listContacts: () => Promise.resolve({ contacts: [] }),
@@ -884,6 +897,197 @@ describe("App workspace entry", () => {
 
     expect((await within(messageLog).findAllByText("sent")).length).toBeGreaterThan(0);
     expect(within(messageLog).getByText("Ship it")).toBeInTheDocument();
+  });
+
+  it("dispatches a mentioned chat message to the member terminal", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel();
+    const message = chatMessage({
+      body: "@Reviewer please review",
+      mentionedMemberIds: [reviewer.memberId],
+    });
+    const dispatchChatMessage = vi.fn(() =>
+      Promise.resolve({
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: "01KDISPATCH00000000000001",
+          workspaceId: channel.workspaceId,
+          conversationId: channel.conversationId,
+          messageId: message.messageId,
+          memberId: reviewer.memberId,
+          status: "dispatched",
+          terminalSessionId: "01KTERMINAL00000000000010",
+          failure: null,
+          createdAtMs: 1760000002000,
+          updatedAtMs: 1760000002001,
+        },
+        terminalSession: terminalOpenResult({
+          session: {
+            ...terminalOpenResult().session,
+            terminalSessionId: "01KTERMINAL00000000000010",
+            memberId: reviewer.memberId,
+            title: "Reviewer",
+          },
+        }).session,
+        sessionCreated: true,
+      } satisfies DispatchChatMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [message],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+        updateReadPosition: () =>
+          Promise.resolve({
+            readPosition: readPosition({
+              lastReadMessageId: message.messageId,
+            }),
+            conversation: channel,
+          }),
+      },
+      terminalDispatchApi: {
+        dispatchChatMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(await within(conversationPanel).findByRole("button", {
+      name: "派发到 Reviewer",
+    }));
+
+    expect(dispatchChatMessage).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: channel.conversationId,
+      messageId: message.messageId,
+      memberId: reviewer.memberId,
+    });
+    expect(await within(conversationPanel).findByText(/已派发到 Reviewer/))
+      .toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("消息已派发");
+  });
+
+  it("keeps recoverable dispatch failure visible on the message", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      runtime: {
+        kind: "customCli",
+        runtimeId: "missing",
+        label: "Missing CLI",
+        command: "missing-cli",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel();
+    const message = chatMessage({
+      body: "@Reviewer run checks",
+      mentionedMemberIds: [reviewer.memberId],
+    });
+    const dispatchChatMessage = vi.fn(() =>
+      Promise.resolve({
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: "01KDISPATCH00000000000002",
+          workspaceId: channel.workspaceId,
+          conversationId: channel.conversationId,
+          messageId: message.messageId,
+          memberId: reviewer.memberId,
+          status: "failed",
+          terminalSessionId: null,
+          failure: {
+            code: "terminal.command.missing",
+            message: "终端启动失败：未在 PATH 中找到配置的终端命令。",
+            userAction: "请安装该 CLI，或把成员运行时命令更新为有效命令后重试。",
+            details: "command=missing-cli",
+          },
+          createdAtMs: 1760000002000,
+          updatedAtMs: 1760000002001,
+        },
+        terminalSession: null,
+        sessionCreated: false,
+      } satisfies DispatchChatMessageResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [message],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+        updateReadPosition: () =>
+          Promise.resolve({
+            readPosition: readPosition({
+              lastReadMessageId: message.messageId,
+            }),
+            conversation: channel,
+          }),
+      },
+      terminalDispatchApi: {
+        dispatchChatMessage,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(await within(conversationPanel).findByRole("button", {
+      name: "派发到 Reviewer",
+    }));
+
+    expect(await within(conversationPanel).findByText(/派发失败/)).toBeInTheDocument();
+    expect(
+      within(conversationPanel).getByText(
+        "请安装该 CLI，或把成员运行时命令更新为有效命令后重试。",
+      ),
+    ).toBeInTheDocument();
+    expect(within(conversationPanel).getByText("@Reviewer run checks")).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("派发失败");
   });
 
   it("inserts member mention suggestions as chips and sends structured mention ids", async () => {

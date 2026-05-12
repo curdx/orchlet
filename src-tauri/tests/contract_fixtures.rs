@@ -5,7 +5,8 @@ use orchlet_lib::contracts::{
     ConversationKind, ConversationParticipantKind, CreateContactRequest, CreateContactResult,
     CreateGroupConversationRequest, CreateGroupConversationResult, DataIntegrityValidateRequest,
     DataIntegrityValidateResult, DeleteContactRequest, DeleteContactResult,
-    DeleteConversationRequest, DeleteConversationResult, InviteMemberRequest, InviteMemberResult,
+    DeleteConversationRequest, DeleteConversationResult, DispatchChatMessageRequest,
+    DispatchChatMessageResult, DispatchRequestStatus, InviteMemberRequest, InviteMemberResult,
     InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
     ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
     ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest,
@@ -296,6 +297,39 @@ fn terminal_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(tab_update_result.tab.status, TerminalTabStatus::Open);
     assert!(tab_update_result.tab.is_pinned);
     assert_eq!(tab_update_error.code, "terminal.tab.order.invalid");
+}
+
+#[test]
+fn orchestration_contract_fixtures_deserialize_into_rust_dtos() {
+    let request: DispatchChatMessageRequest =
+        read_fixture("../fixtures/contracts/orchestration/dispatch-chat-message.request.json");
+    let result: DispatchChatMessageResult =
+        read_fixture("../fixtures/contracts/orchestration/dispatch-chat-message.result.json");
+    let error: AppError =
+        read_fixture("../fixtures/contracts/orchestration/dispatch-chat-message.error.json");
+
+    assert_eq!(request.workspace_id, "01K00000000000000000000000");
+    assert_eq!(
+        request.member_id.as_deref(),
+        Some("01K00000000000000000000031")
+    );
+    assert_eq!(result.dispatch.status, DispatchRequestStatus::Dispatched);
+    assert_eq!(
+        result.dispatch.terminal_session_id.as_deref(),
+        Some("01K00000000000000000000080")
+    );
+    assert!(result.dispatch.failure.is_none());
+    assert!(result.session_created);
+    assert_eq!(
+        result
+            .terminal_session
+            .as_ref()
+            .expect("terminal session")
+            .status,
+        TerminalSessionStatus::Running
+    );
+    assert_eq!(error.code, "dispatch.target.required");
+    assert!(error.recoverable);
 }
 
 #[test]

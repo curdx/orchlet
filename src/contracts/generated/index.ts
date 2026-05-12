@@ -72,6 +72,13 @@ export type {
   RemoveMemberResult,
 } from "./member";
 export type {
+  DispatchChatMessageRequest,
+  DispatchChatMessageResult,
+  DispatchFailureProfile,
+  DispatchRequestProfile,
+  DispatchRequestStatus,
+} from "./orchestration";
+export type {
   TerminalAttachRequest,
   TerminalAttachResult,
   TerminalCloseRequest,

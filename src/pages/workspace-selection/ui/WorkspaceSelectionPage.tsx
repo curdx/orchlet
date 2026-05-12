@@ -38,6 +38,7 @@ import {
   dataIntegrityApi,
   memberApi,
   normalizeAppError,
+  terminalDispatchApi,
   terminalApi,
   workspaceApi,
 } from "../../../shared/api";
@@ -46,6 +47,7 @@ import type { ContactApi } from "../../../shared/api/contact-api";
 import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
 import type { MemberApi } from "../../../shared/api/member-api";
+import type { TerminalDispatchApi } from "../../../shared/api/terminal-dispatch-api";
 import type { TerminalApi } from "../../../shared/api/terminal-api";
 import type {
   ChatMessageProfile,
@@ -91,6 +93,7 @@ type WorkspaceSelectionPageProps = {
   integrityApi?: Pick<DataIntegrityApi, "validate">;
   memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember">;
   terminalApi?: Pick<TerminalApi, "openTerminal">;
+  terminalDispatchApi?: Pick<TerminalDispatchApi, "dispatchChatMessage">;
   contactApi?: Pick<ContactApi, "listContacts" | "createContact" | "updateContact" | "deleteContact">;
   chatApi?: Pick<
     ChatApi,
@@ -112,6 +115,15 @@ type PendingConflict = {
 };
 
 type AttachmentEntry = "image" | "roadmap";
+type MessageDispatchState = {
+  status: "dispatching" | "dispatched" | "failed";
+  dispatchRequestId?: string;
+  memberId?: string;
+  memberLabel?: string;
+  terminalSessionId?: string | null;
+  message?: string;
+  userAction?: string;
+};
 
 const MESSAGE_PAGE_LIMIT = 30;
 const RECENT_EMOJI_STORAGE_KEY = "orchlet.chat.recentEmojis";
@@ -124,6 +136,7 @@ export function WorkspaceSelectionPage({
   integrityApi = dataIntegrityApi,
   memberApi: membersApi = memberApi,
   terminalApi: terminalsApi = terminalApi,
+  terminalDispatchApi: dispatchApi = terminalDispatchApi,
   contactApi: contactsApi = contactApi,
   chatApi: conversationsApi = chatApi,
 }: WorkspaceSelectionPageProps) {
@@ -165,6 +178,9 @@ export function WorkspaceSelectionPage({
   const [mentionedMemberIds, setMentionedMemberIds] = useState<string[]>([]);
   const [attachmentEntries, setAttachmentEntries] = useState<AttachmentEntry[]>([]);
   const [messages, setMessages] = useState<ChatMessageProfile[]>([]);
+  const [messageDispatchStates, setMessageDispatchStates] = useState<
+    Record<string, MessageDispatchState>
+  >({});
   const [nextBeforeMessageId, setNextBeforeMessageId] = useState<string | null>(null);
   const [hasOlderMessages, setHasOlderMessages] = useState(false);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
@@ -1095,6 +1111,97 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  async function handleDispatchMessage(message: ChatMessageProfile) {
+    if (!activeWorkspaceId || !selectedConversation) {
+      return;
+    }
+
+    const target = dispatchTargetForMessage(message, members);
+    if (!target) {
+      showToast({
+        tone: "warning",
+        title: "无法派发消息",
+        message: "请选择只提及一名可运行终端的成员消息后再派发。",
+      });
+      return;
+    }
+
+    setMessageDispatchStates((current) => ({
+      ...current,
+      [message.messageId]: {
+        status: "dispatching",
+        memberId: target.memberId,
+        memberLabel: target.instanceLabel,
+      },
+    }));
+
+    try {
+      const result = await dispatchApi.dispatchChatMessage({
+        workspaceId: activeWorkspaceId,
+        conversationId: selectedConversation.conversationId,
+        messageId: message.messageId,
+        memberId: target.memberId,
+      });
+
+      if (result.dispatch.status === "failed") {
+        setMessageDispatchStates((current) => ({
+          ...current,
+          [message.messageId]: {
+            status: "failed",
+            dispatchRequestId: result.dispatch.dispatchRequestId,
+            memberId: target.memberId,
+            memberLabel: target.instanceLabel,
+            message: result.dispatch.failure?.message ?? "派发未能启动。",
+            userAction: result.dispatch.failure?.userAction ?? "请修复问题后重试派发。",
+          },
+        }));
+        showToast({
+          tone: "error",
+          title: "派发失败",
+          message: result.dispatch.failure?.message ?? "派发未能启动。",
+          action: result.dispatch.failure?.userAction ?? undefined,
+        });
+        return;
+      }
+
+      setMessageDispatchStates((current) => ({
+        ...current,
+        [message.messageId]: {
+          status: "dispatched",
+          dispatchRequestId: result.dispatch.dispatchRequestId,
+          memberId: target.memberId,
+          memberLabel: target.instanceLabel,
+          terminalSessionId: result.dispatch.terminalSessionId,
+        },
+      }));
+      showToast({
+        tone: "info",
+        title: "消息已派发",
+        message: `${target.instanceLabel} 的终端已收到任务。`,
+        action: result.dispatch.terminalSessionId ?? undefined,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setMessageDispatchStates((current) => ({
+        ...current,
+        [message.messageId]: {
+          status: "failed",
+          memberId: target.memberId,
+          memberLabel: target.instanceLabel,
+          message: appError.message,
+          userAction: appError.userAction ?? undefined,
+        },
+      }));
+      showToast({
+        tone: appError.severity,
+        title: "派发失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    }
+  }
+
   async function handleStartPrivateConversation(
     participantKind: "member" | "contact",
     participantId: string,
@@ -1468,6 +1575,7 @@ export function WorkspaceSelectionPage({
                 conversations={conversations}
                 selectedConversation={selectedConversation}
                 messages={messages}
+                dispatchStates={messageDispatchStates}
                 members={members}
                 isLoading={conversationQuery.isLoading}
                 isLoadingMessages={messageQuery.isLoading}
@@ -1503,6 +1611,7 @@ export function WorkspaceSelectionPage({
                 onAddAttachmentEntry={addAttachmentEntry}
                 onRemoveAttachmentEntry={removeAttachmentEntry}
                 onSendMessage={() => void handleSendMessage()}
+                onDispatchMessage={(message) => void handleDispatchMessage(message)}
                 onLoadOlderMessages={() => void handleLoadOlderMessages()}
                 onGroupTitleChange={setGroupTitle}
                 onToggleCreateGroupMember={handleToggleCreateGroupMember}
@@ -1688,6 +1797,7 @@ function ConversationPanel({
   conversations,
   selectedConversation,
   messages,
+  dispatchStates,
   members,
   isLoading,
   isLoadingMessages,
@@ -1719,6 +1829,7 @@ function ConversationPanel({
   onAddAttachmentEntry,
   onRemoveAttachmentEntry,
   onSendMessage,
+  onDispatchMessage,
   onLoadOlderMessages,
   onGroupTitleChange,
   onToggleCreateGroupMember,
@@ -1729,6 +1840,7 @@ function ConversationPanel({
   conversations: ConversationProfile[];
   selectedConversation: ConversationProfile | null;
   messages: ChatMessageProfile[];
+  dispatchStates: Record<string, MessageDispatchState>;
   members: MemberProfile[];
   isLoading: boolean;
   isLoadingMessages: boolean;
@@ -1760,6 +1872,7 @@ function ConversationPanel({
   onAddAttachmentEntry: (entry: AttachmentEntry) => void;
   onRemoveAttachmentEntry: (entry: AttachmentEntry) => void;
   onSendMessage: () => void;
+  onDispatchMessage: (message: ChatMessageProfile) => void;
   onLoadOlderMessages: () => void;
   onGroupTitleChange: (value: string) => void;
   onToggleCreateGroupMember: (memberId: string) => void;
@@ -2027,27 +2140,55 @@ function ConversationPanel({
                   正在加载消息
                 </p>
               ) : messages.length > 0 ? (
-                messages.map((message) => (
-                  <article
-                    key={message.messageId}
-                    className={
-                      message.status === "failed"
-                        ? "rounded-md border border-[#e2b8a7] bg-[#fff7f3] p-3"
-                        : "rounded-md border border-[#dfe8db] bg-white p-3"
-                    }
-                  >
-                    <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[#263229]">
-                      {message.body}
-                    </p>
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#6a786c]">
-                      <span>{formatRecentTime(message.createdAtMs)}</span>
-                      <span className="inline-flex items-center gap-1 rounded border border-[#dfe8db] bg-[#f8fbf6] px-1.5 py-0.5 font-medium">
-                        <MessageStatusIcon status={message.status} />
-                        {messageStatusLabel(message.status)}
-                      </span>
-                    </div>
-                  </article>
-                ))
+                messages.map((message) => {
+                  const dispatchTarget = dispatchTargetForMessage(message, members);
+                  const dispatchState = dispatchStates[message.messageId];
+
+                  return (
+                    <article
+                      key={message.messageId}
+                      className={
+                        message.status === "failed"
+                          ? "rounded-md border border-[#e2b8a7] bg-[#fff7f3] p-3"
+                          : "rounded-md border border-[#dfe8db] bg-white p-3"
+                      }
+                    >
+                      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[#263229]">
+                        {message.body}
+                      </p>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#6a786c]">
+                        <span>{formatRecentTime(message.createdAtMs)}</span>
+                        <span className="inline-flex items-center gap-1 rounded border border-[#dfe8db] bg-[#f8fbf6] px-1.5 py-0.5 font-medium">
+                          <MessageStatusIcon status={message.status} />
+                          {messageStatusLabel(message.status)}
+                        </span>
+                      </div>
+                      {dispatchTarget || dispatchState ? (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-[#edf1ea] pt-2 text-[11px]">
+                          {dispatchTarget ? (
+                            <button
+                              type="button"
+                              disabled={
+                                message.messageId.startsWith("pending-") ||
+                                dispatchState?.status === "dispatching"
+                              }
+                              onClick={() => onDispatchMessage(message)}
+                              className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-[#f8fbf6] px-2 font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-60"
+                            >
+                              <SquareTerminal aria-hidden="true" size={12} strokeWidth={2} />
+                              {dispatchState?.status === "dispatching"
+                                ? "派发中"
+                                : `派发到 ${dispatchTarget.instanceLabel}`}
+                            </button>
+                          ) : null}
+                          {dispatchState ? (
+                            <DispatchStateBadge state={dispatchState} />
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-sm text-[#6a786c]">
                   暂无消息
@@ -2503,6 +2644,75 @@ function messageStatusLabel(status: ChatMessageProfile["status"]) {
   }
 
   return "sent";
+}
+
+function DispatchStateBadge({ state }: { state: MessageDispatchState }) {
+  if (state.status === "dispatching") {
+    return (
+      <span
+        aria-label="派发状态"
+        className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[#dfe8db] bg-white px-2 font-semibold text-[#526054]"
+      >
+        <RefreshCw aria-hidden="true" size={12} strokeWidth={2} />
+        正在派发到 {state.memberLabel}
+      </span>
+    );
+  }
+
+  if (state.status === "failed") {
+    return (
+      <span
+        aria-label="派发状态"
+        className="grid gap-1 rounded-md border border-[#e2b8a7] bg-[#fff7f3] px-2 py-1 text-[#8b3e25]"
+      >
+        <span className="inline-flex items-center gap-1 font-semibold">
+          <AlertTriangle aria-hidden="true" size={12} strokeWidth={2} />
+          派发失败
+          {state.memberLabel ? ` · ${state.memberLabel}` : ""}
+        </span>
+        {state.message ? <span>{state.message}</span> : null}
+        {state.userAction ? <span>{state.userAction}</span> : null}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      aria-label="派发状态"
+      className="inline-flex min-h-7 items-center gap-1.5 rounded-md border border-[#b9d0b2] bg-[#eef6ea] px-2 font-semibold text-[#2f5038]"
+    >
+      <CheckCircle2 aria-hidden="true" size={12} strokeWidth={2} />
+      已派发到 {state.memberLabel}
+      {state.terminalSessionId ? ` · ${shortId(state.terminalSessionId)}` : ""}
+    </span>
+  );
+}
+
+function dispatchTargetForMessage(
+  message: ChatMessageProfile,
+  members: MemberProfile[],
+): MemberProfile | null {
+  if (message.messageId.startsWith("pending-")) {
+    return null;
+  }
+
+  const memberIds = [...new Set(message.mentionedMemberIds)];
+
+  if (memberIds.length !== 1) {
+    return null;
+  }
+
+  const member = members.find((item) => item.memberId === memberIds[0]);
+
+  if (!member || !isTerminalCapableMember(member)) {
+    return null;
+  }
+
+  return member;
+}
+
+function shortId(value: string) {
+  return value.slice(-6);
 }
 
 function mergeMessagePages(

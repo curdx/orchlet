@@ -3,6 +3,7 @@ pub mod common;
 pub mod contact;
 pub mod data_integrity;
 pub mod member;
+pub mod orchestration;
 pub mod terminal;
 pub mod workspace;
 
@@ -32,6 +33,10 @@ pub use member::{
     InviteMemberRequest, InviteMemberResult, InvitedMemberType, ListMembersRequest,
     ListMembersResult, MemberIsolation, MemberPermissions, MemberProfile, MemberRole,
     MemberRuntimeKind, MemberRuntimeProfile, MemberStatus, RemoveMemberRequest, RemoveMemberResult,
+};
+pub use orchestration::{
+    DispatchChatMessageRequest, DispatchChatMessageResult, DispatchFailureProfile,
+    DispatchRequestProfile, DispatchRequestStatus,
 };
 pub use terminal::{
     TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult,

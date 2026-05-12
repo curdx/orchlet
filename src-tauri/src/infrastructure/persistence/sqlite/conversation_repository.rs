@@ -183,6 +183,31 @@ pub fn list_messages(
     })
 }
 
+pub fn message_by_id(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+) -> Result<ChatMessageProfile, AppError> {
+    validate_workspace_id(workspace_id)?;
+    validate_conversation_id(conversation_id)?;
+    validate_message_id(message_id)?;
+
+    let connection = open_conversation_connection(app_data_dir, workspace_id)?;
+    ensure_default_channel(&connection, workspace_id)?;
+    conversation_by_id_from_connection(&connection, workspace_id, conversation_id)?;
+    let mut message = message_by_id_from_connection(
+        &connection,
+        workspace_id,
+        conversation_id,
+        message_id,
+        "message.dispatch.notFound",
+    )?;
+    hydrate_message_mentions(&connection, std::slice::from_mut(&mut message))?;
+
+    Ok(message)
+}
+
 pub fn update_read_position(
     app_data_dir: &Path,
     request: UpdateReadPositionRequest,
