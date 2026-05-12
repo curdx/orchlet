@@ -101,6 +101,10 @@ function validateSqliteScaffold(path) {
     `${path} must include the messages and read positions migration file`,
   );
   assert(
+    schema.migrationFiles.includes("202605121600__conversation_management.sql"),
+    `${path} must include the conversation management migration file`,
+  );
+  assert(
     Array.isArray(schema.ownedByFutureStories) && schema.ownedByFutureStories.includes("notification"),
     `${path} must identify future story ownership`,
   );
@@ -178,6 +182,7 @@ function validateConversationList(path) {
     assertNonEmptyString(conversation.title, `${path}.conversations[].title`);
     assert(typeof conversation.isDefault === "boolean", `${path}.conversations[].isDefault must be boolean`);
     assert(typeof conversation.isPinned === "boolean", `${path}.conversations[].isPinned must be boolean`);
+    assert(typeof conversation.isMuted === "boolean", `${path}.conversations[].isMuted must be boolean`);
     assert(Number.isInteger(conversation.unreadCount) && conversation.unreadCount >= 0, `${path}.conversations[].unreadCount must be non-negative`);
     if (conversation.lastMessagePreview !== null) assertNonEmptyString(conversation.lastMessagePreview, `${path}.conversations[].lastMessagePreview`);
     if (conversation.kind === "private") {

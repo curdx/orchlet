@@ -4,19 +4,27 @@ export type ChatMessageProfile = { messageId: string, workspaceId: string, conve
 
 export type ChatMessageStatus = "sending" | "sent" | "failed";
 
+export type ClearConversationRequest = { workspaceId: string, conversationId: string, };
+
+export type ClearConversationResult = { conversation: ConversationProfile, clearedMessageCount: number, conversations: Array<ConversationProfile>, };
+
 export type ConversationKind = "channel" | "group" | "private";
 
 export type ConversationMemberSummary = { memberId: string, displayName: string, instanceLabel: string, };
 
 export type ConversationParticipantKind = "member" | "contact";
 
-export type ConversationProfile = { conversationId: string, workspaceId: string, kind: ConversationKind, title: string, isDefault: boolean, isPinned: boolean, unreadCount: number, lastMessagePreview: string | null, participantKind: ConversationParticipantKind | null, participantId: string | null, members: Array<ConversationMemberSummary>, createdAtMs: number, updatedAtMs: number, lastActivityAtMs: number, };
+export type ConversationProfile = { conversationId: string, workspaceId: string, kind: ConversationKind, title: string, isDefault: boolean, isPinned: boolean, isMuted: boolean, unreadCount: number, lastMessagePreview: string | null, participantKind: ConversationParticipantKind | null, participantId: string | null, members: Array<ConversationMemberSummary>, createdAtMs: number, updatedAtMs: number, lastActivityAtMs: number, };
 
 export type ConversationReadPositionProfile = { workspaceId: string, conversationId: string, lastReadMessageId: string, lastReadAtMs: number, updatedAtMs: number, };
 
 export type CreateGroupConversationRequest = { workspaceId: string, title: string, memberIds: Array<string>, };
 
 export type CreateGroupConversationResult = { conversation: ConversationProfile, conversations: Array<ConversationProfile>, };
+
+export type DeleteConversationRequest = { workspaceId: string, conversationId: string, };
+
+export type DeleteConversationResult = { deletedConversationId: string, conversations: Array<ConversationProfile>, };
 
 export type ListConversationsRequest = { workspaceId: string, };
 
@@ -33,6 +41,10 @@ export type SendMessageResult = { message: ChatMessageProfile, conversation: Con
 export type StartPrivateConversationRequest = { workspaceId: string, participantKind: ConversationParticipantKind, participantId: string, };
 
 export type StartPrivateConversationResult = { conversation: ConversationProfile, created: boolean, };
+
+export type UpdateConversationSettingsRequest = { workspaceId: string, conversationId: string, title: string | null, isPinned: boolean | null, isMuted: boolean | null, };
+
+export type UpdateConversationSettingsResult = { conversation: ConversationProfile, conversations: Array<ConversationProfile>, };
 
 export type UpdateGroupConversationMembersRequest = { workspaceId: string, conversationId: string, memberIds: Array<string>, };
 

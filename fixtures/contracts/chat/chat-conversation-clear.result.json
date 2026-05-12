@@ -16,17 +16,13 @@
         "memberId": "01K00000000000000000000031",
         "displayName": "Codex Reviewer",
         "instanceLabel": "Codex Reviewer 1"
-      },
-      {
-        "memberId": "01K00000000000000000000032",
-        "displayName": "Codex Reviewer",
-        "instanceLabel": "Codex Reviewer 2"
       }
     ],
     "createdAtMs": 1760000009000,
-    "updatedAtMs": 1760000009000,
-    "lastActivityAtMs": 1760000009000
+    "updatedAtMs": 1760000012000,
+    "lastActivityAtMs": 1760000012000
   },
+  "clearedMessageCount": 3,
   "conversations": [
     {
       "conversationId": "01K00000000000000000000050",
@@ -62,16 +58,11 @@
           "memberId": "01K00000000000000000000031",
           "displayName": "Codex Reviewer",
           "instanceLabel": "Codex Reviewer 1"
-        },
-        {
-          "memberId": "01K00000000000000000000032",
-          "displayName": "Codex Reviewer",
-          "instanceLabel": "Codex Reviewer 2"
         }
       ],
       "createdAtMs": 1760000009000,
-      "updatedAtMs": 1760000009000,
-      "lastActivityAtMs": 1760000009000
+      "updatedAtMs": 1760000012000,
+      "lastActivityAtMs": 1760000012000
     }
   ]
 }

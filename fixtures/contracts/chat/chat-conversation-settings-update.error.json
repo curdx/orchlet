@@ -1,0 +1,9 @@
+{
+  "code": "conversation.getById.notFound",
+  "message": "未找到会话。",
+  "severity": "warning",
+  "recoverable": true,
+  "userAction": "请刷新会话列表后重试。",
+  "details": "workspaceId=01K00000000000000000000000 conversationId=01K00000000000000000009999",
+  "correlationId": null
+}

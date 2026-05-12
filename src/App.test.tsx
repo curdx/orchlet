@@ -8,6 +8,8 @@ import { WorkspaceSelectionPage } from "./pages/workspace-selection";
 import { useToastStore } from "./shared/ui";
 import type {
   ChatMessageProfile,
+  ClearConversationRequest,
+  ClearConversationResult,
   ConversationReadPositionProfile,
   DataIntegrityReport,
   ContactProfile,
@@ -16,6 +18,8 @@ import type {
   CreateGroupConversationRequest,
   CreateGroupConversationResult,
   ConversationProfile,
+  DeleteConversationRequest,
+  DeleteConversationResult,
   DeleteContactRequest,
   DeleteContactResult,
   InviteMemberRequest,
@@ -39,6 +43,8 @@ import type {
   StartPrivateConversationResult,
   UpdateContactRequest,
   UpdateContactResult,
+  UpdateConversationSettingsRequest,
+  UpdateConversationSettingsResult,
   UpdateGroupConversationMembersRequest,
   UpdateGroupConversationMembersResult,
   UpdateReadPositionRequest,
@@ -84,6 +90,11 @@ function renderWorkspaceSelection(api: {
     createGroupConversation: (
       request: CreateGroupConversationRequest,
     ) => Promise<CreateGroupConversationResult>;
+    updateConversationSettings: (
+      request: UpdateConversationSettingsRequest,
+    ) => Promise<UpdateConversationSettingsResult>;
+    clearConversation: (request: ClearConversationRequest) => Promise<ClearConversationResult>;
+    deleteConversation: (request: DeleteConversationRequest) => Promise<DeleteConversationResult>;
     sendMessage: (request: SendMessageRequest) => Promise<SendMessageResult>;
     listMessages: (request: ListMessagesRequest) => Promise<ListMessagesResult>;
     updateReadPosition: (
@@ -131,6 +142,10 @@ function renderWorkspaceSelection(api: {
           listConversations: () => Promise.resolve({ conversations: [defaultChannel()] }),
           createGroupConversation: () =>
             Promise.reject(new Error("createGroupConversation mock missing")),
+          updateConversationSettings: () =>
+            Promise.reject(new Error("updateConversationSettings mock missing")),
+          clearConversation: () => Promise.reject(new Error("clearConversation mock missing")),
+          deleteConversation: () => Promise.reject(new Error("deleteConversation mock missing")),
           sendMessage: () => Promise.reject(new Error("sendMessage mock missing")),
           listMessages: () =>
             Promise.resolve({
@@ -280,6 +295,7 @@ function conversationProfile(overrides: Partial<ConversationProfile> = {}): Conv
     title: "External Admin",
     isDefault: false,
     isPinned: false,
+    isMuted: false,
     unreadCount: 0,
     lastMessagePreview: null,
     participantKind: "contact",
@@ -502,6 +518,199 @@ describe("App workspace entry", () => {
       memberIds: [builder.memberId],
     });
     expect((await within(conversationPanel).findAllByText(/Builder/)).length).toBeGreaterThan(0);
+  });
+
+  it("updates pin mute and rename state in the conversation list and header", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel();
+    let managedConversation = conversationProfile({
+      conversationId: "01K00000000000000000000064",
+      kind: "group",
+      title: "Project Room",
+      participantKind: null,
+      participantId: null,
+      members: [],
+      lastActivityAtMs: 1760000002000,
+      updatedAtMs: 1760000002000,
+    });
+    const updateConversationSettings = vi.fn((request: UpdateConversationSettingsRequest) => {
+      managedConversation = {
+        ...managedConversation,
+        title: request.title ?? managedConversation.title,
+        isPinned: request.isPinned ?? managedConversation.isPinned,
+        isMuted: request.isMuted ?? managedConversation.isMuted,
+        updatedAtMs: 1760000003000,
+      };
+
+      return Promise.resolve({
+        conversation: managedConversation,
+        conversations: [channel, managedConversation],
+      } satisfies UpdateConversationSettingsResult);
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      chatApi: {
+        listConversations: () =>
+          Promise.resolve({ conversations: [channel, managedConversation] }),
+        updateConversationSettings,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.click(within(conversationPanel).getByRole("button", { name: /Project Room/ }));
+    await user.click(within(conversationPanel).getByRole("button", { name: "置顶" }));
+
+    expect(updateConversationSettings).toHaveBeenLastCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: managedConversation.conversationId,
+      title: null,
+      isPinned: true,
+      isMuted: null,
+    });
+    expect(await within(conversationPanel).findByRole("button", { name: "取消置顶" }))
+      .toBeInTheDocument();
+
+    await user.click(within(conversationPanel).getByRole("button", { name: "静音" }));
+    expect(updateConversationSettings).toHaveBeenLastCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: managedConversation.conversationId,
+      title: null,
+      isPinned: null,
+      isMuted: true,
+    });
+    expect(await within(conversationPanel).findByRole("button", { name: "取消静音" }))
+      .toBeInTheDocument();
+
+    const renameForm = within(conversationPanel).getByRole("form", { name: "重命名会话" });
+    await user.clear(within(renameForm).getByLabelText("名称"));
+    await user.type(within(renameForm).getByLabelText("名称"), "Renamed Room");
+    await user.click(within(renameForm).getByRole("button", { name: "重命名" }));
+
+    expect(updateConversationSettings).toHaveBeenLastCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: managedConversation.conversationId,
+      title: "Renamed Room",
+      isPinned: null,
+      isMuted: null,
+    });
+    expect((await within(conversationPanel).findAllByText("Renamed Room")).length)
+      .toBeGreaterThan(0);
+    expect(await screen.findByRole("status")).toHaveTextContent("会话已更新");
+  });
+
+  it("clears messages, deletes non-default conversations and keeps default delete disabled", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const channel = defaultChannel();
+    const managedConversation = conversationProfile({
+      conversationId: "01K00000000000000000000065",
+      kind: "private",
+      title: "Project DM",
+      participantKind: "member",
+      participantId: "01KMEMBER000000000000000010",
+      unreadCount: 1,
+      lastMessagePreview: "Keep this local",
+      lastActivityAtMs: 1760000002000,
+      updatedAtMs: 1760000002000,
+    });
+    const message = chatMessage({
+      conversationId: managedConversation.conversationId,
+      body: "Keep this local",
+    });
+    const clearedConversation = {
+      ...managedConversation,
+      unreadCount: 0,
+      lastMessagePreview: null,
+      updatedAtMs: 1760000003000,
+      lastActivityAtMs: 1760000003000,
+    };
+    const clearConversation = vi.fn(() =>
+      Promise.resolve({
+        conversation: clearedConversation,
+        clearedMessageCount: 1,
+        conversations: [clearedConversation, channel],
+      } satisfies ClearConversationResult),
+    );
+    const deleteConversation = vi.fn(() =>
+      Promise.resolve({
+        deletedConversationId: managedConversation.conversationId,
+        conversations: [channel],
+      } satisfies DeleteConversationResult),
+    );
+
+    try {
+      renderWorkspaceSelection({
+        getWorkspaceSelectionStatus: () => Promise.resolve(status),
+        pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+        chatApi: {
+          listConversations: () =>
+            Promise.resolve({ conversations: [managedConversation, channel] }),
+          listMessages: (request) =>
+            Promise.resolve({
+              messages:
+                request.conversationId === managedConversation.conversationId ? [message] : [],
+              hasMore: false,
+              nextBeforeMessageId: null,
+              readPosition: null,
+              conversation:
+                request.conversationId === managedConversation.conversationId
+                  ? managedConversation
+                  : channel,
+            }),
+          updateReadPosition: () =>
+            Promise.resolve({
+              readPosition: readPosition({
+                conversationId: managedConversation.conversationId,
+                lastReadMessageId: message.messageId,
+              }),
+              conversation: {
+                ...managedConversation,
+                unreadCount: 0,
+              },
+            }),
+          clearConversation,
+          deleteConversation,
+        },
+      });
+
+      await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+      const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+      await user.click(within(conversationPanel).getByRole("button", { name: /Project DM/ }));
+      const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+      expect(await within(messageLog).findByText("Keep this local")).toBeInTheDocument();
+
+      await user.click(within(conversationPanel).getByRole("button", { name: "清空消息" }));
+
+      expect(confirm).toHaveBeenCalledWith("清空 Project DM 的本地消息？");
+      expect(clearConversation).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: managedConversation.conversationId,
+      });
+      expect(await within(messageLog).findByText("暂无消息")).toBeInTheDocument();
+      expect(await screen.findByRole("status")).toHaveTextContent("已清除 1 条本地消息");
+
+      await user.click(within(conversationPanel).getByRole("button", { name: "删除会话" }));
+
+      expect(confirm).toHaveBeenCalledWith("删除会话 Project DM？");
+      expect(deleteConversation).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: managedConversation.conversationId,
+      });
+      expect(await screen.findByRole("status")).toHaveTextContent(
+        managedConversation.conversationId,
+      );
+      expect(within(conversationPanel).queryByRole("button", { name: /Project DM/ }))
+        .not.toBeInTheDocument();
+      expect(within(conversationPanel).getByRole("button", { name: "删除会话" }))
+        .toBeDisabled();
+    } finally {
+      confirm.mockRestore();
+    }
   });
 
   it("loads message history, sends with visible status and loads older messages without blocking input", async () => {

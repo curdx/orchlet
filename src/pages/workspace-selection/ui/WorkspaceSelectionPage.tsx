@@ -4,9 +4,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   AtSign,
+  BellOff,
   Bot,
   CheckCircle2,
   Edit3,
+  Eraser,
   FolderOpen,
   Hash,
   History,
@@ -86,6 +88,9 @@ type WorkspaceSelectionPageProps = {
     ChatApi,
     | "listConversations"
     | "createGroupConversation"
+    | "updateConversationSettings"
+    | "clearConversation"
+    | "deleteConversation"
     | "sendMessage"
     | "listMessages"
     | "updateReadPosition"
@@ -137,9 +142,13 @@ export function WorkspaceSelectionPage({
   const [isStartingConversation, setIsStartingConversation] = useState(false);
   const [isCreatingGroupConversation, setIsCreatingGroupConversation] = useState(false);
   const [isUpdatingGroupMembers, setIsUpdatingGroupMembers] = useState(false);
+  const [isUpdatingConversationSettings, setIsUpdatingConversationSettings] = useState(false);
+  const [isClearingConversation, setIsClearingConversation] = useState(false);
+  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
   const [lastPrivateConversation, setLastPrivateConversation] =
     useState<ConversationProfile | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const [messageDraft, setMessageDraft] = useState("");
   const [messages, setMessages] = useState<ChatMessageProfile[]>([]);
   const [nextBeforeMessageId, setNextBeforeMessageId] = useState<string | null>(null);
@@ -355,6 +364,10 @@ export function WorkspaceSelectionPage({
 
     setSelectedGroupMemberIds(selectedConversation.members.map((member) => member.memberId));
   }, [selectedConversation?.conversationId, selectedConversation?.kind, selectedConversation?.members]);
+
+  useEffect(() => {
+    setRenameDraft(selectedConversation?.title ?? "");
+  }, [selectedConversation?.conversationId, selectedConversation?.title]);
 
   async function handleOpenWorkspace() {
     await runOpenFlow(() => api.pickAndOpenWorkspace());
@@ -671,6 +684,169 @@ export function WorkspaceSelectionPage({
       });
     } finally {
       setIsUpdatingGroupMembers(false);
+    }
+  }
+
+  async function handleUpdateConversationSettings(update: {
+    title?: string;
+    isPinned?: boolean;
+    isMuted?: boolean;
+  }) {
+    if (!activeWorkspaceId || !selectedConversation) {
+      return;
+    }
+
+    setIsUpdatingConversationSettings(true);
+
+    try {
+      const result = await conversationsApi.updateConversationSettings({
+        workspaceId: activeWorkspaceId,
+        conversationId: selectedConversation.conversationId,
+        title: update.title ?? null,
+        isPinned: update.isPinned ?? null,
+        isMuted: update.isMuted ?? null,
+      });
+
+      queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, {
+        conversations: result.conversations,
+      });
+      setSelectedConversationId(result.conversation.conversationId);
+      setRenameDraft(result.conversation.title);
+      showToast({
+        tone: "info",
+        title: "会话已更新",
+        message: `${result.conversation.title} 的会话状态已保存。`,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法更新会话",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsUpdatingConversationSettings(false);
+    }
+  }
+
+  async function handleRenameConversation() {
+    const title = renameDraft.trim();
+
+    if (!title) {
+      showToast({
+        tone: "warning",
+        title: "会话名称为空",
+        message: "请输入会话名称后再保存。",
+      });
+      return;
+    }
+
+    await handleUpdateConversationSettings({ title });
+  }
+
+  async function handleClearConversation() {
+    if (!activeWorkspaceId || !selectedConversation) {
+      return;
+    }
+
+    const confirmed = window.confirm(`清空 ${selectedConversation.title} 的本地消息？`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsClearingConversation(true);
+
+    try {
+      const result = await conversationsApi.clearConversation({
+        workspaceId: activeWorkspaceId,
+        conversationId: selectedConversation.conversationId,
+      });
+
+      queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, {
+        conversations: result.conversations,
+      });
+      queryClient.setQueryData<ListMessagesResult>(messageQueryKey, (current) =>
+        current
+          ? {
+              ...current,
+              messages: [],
+              hasMore: false,
+              nextBeforeMessageId: null,
+              readPosition: null,
+              conversation: result.conversation,
+            }
+          : current,
+      );
+      setSelectedConversationId(result.conversation.conversationId);
+      setMessages([]);
+      setNextBeforeMessageId(null);
+      setHasOlderMessages(false);
+      showToast({
+        tone: "info",
+        title: "会话已清空",
+        message: `${result.conversation.title} 已清除 ${result.clearedMessageCount} 条本地消息。`,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法清空会话",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsClearingConversation(false);
+    }
+  }
+
+  async function handleDeleteConversation() {
+    if (!activeWorkspaceId || !selectedConversation) {
+      return;
+    }
+
+    const confirmed = window.confirm(`删除会话 ${selectedConversation.title}？`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsDeletingConversation(true);
+
+    try {
+      const result = await conversationsApi.deleteConversation({
+        workspaceId: activeWorkspaceId,
+        conversationId: selectedConversation.conversationId,
+      });
+      const nextConversation = result.conversations[0] ?? null;
+
+      queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, {
+        conversations: result.conversations,
+      });
+      queryClient.removeQueries({ queryKey: messageQueryKey });
+      setSelectedConversationId(nextConversation?.conversationId ?? null);
+      setMessages([]);
+      setNextBeforeMessageId(null);
+      setHasOlderMessages(false);
+      showToast({
+        tone: "info",
+        title: "会话已删除",
+        message: `已删除 ${result.deletedConversationId}。`,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法删除会话",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsDeletingConversation(false);
     }
   }
 
@@ -1173,11 +1349,25 @@ export function WorkspaceSelectionPage({
                 isSendingMessage={isSendingMessage}
                 isCreating={isCreatingGroupConversation}
                 isUpdating={isUpdatingGroupMembers}
+                isUpdatingSettings={isUpdatingConversationSettings}
+                isClearing={isClearingConversation}
+                isDeleting={isDeletingConversation}
+                renameDraft={renameDraft}
                 messageDraft={messageDraft}
                 groupTitle={groupTitle}
                 groupMemberIds={groupMemberIds}
                 selectedGroupMemberIds={selectedGroupMemberIds}
                 onSelectConversation={setSelectedConversationId}
+                onRenameDraftChange={setRenameDraft}
+                onRenameConversation={() => void handleRenameConversation()}
+                onTogglePinned={(isPinned) =>
+                  void handleUpdateConversationSettings({ isPinned })
+                }
+                onToggleMuted={(isMuted) =>
+                  void handleUpdateConversationSettings({ isMuted })
+                }
+                onClearConversation={() => void handleClearConversation()}
+                onDeleteConversation={() => void handleDeleteConversation()}
                 onMessageDraftChange={setMessageDraft}
                 onSendMessage={() => void handleSendMessage()}
                 onLoadOlderMessages={() => void handleLoadOlderMessages()}
@@ -1372,11 +1562,21 @@ function ConversationPanel({
   isSendingMessage,
   isCreating,
   isUpdating,
+  isUpdatingSettings,
+  isClearing,
+  isDeleting,
+  renameDraft,
   messageDraft,
   groupTitle,
   groupMemberIds,
   selectedGroupMemberIds,
   onSelectConversation,
+  onRenameDraftChange,
+  onRenameConversation,
+  onTogglePinned,
+  onToggleMuted,
+  onClearConversation,
+  onDeleteConversation,
   onMessageDraftChange,
   onSendMessage,
   onLoadOlderMessages,
@@ -1397,11 +1597,21 @@ function ConversationPanel({
   isSendingMessage: boolean;
   isCreating: boolean;
   isUpdating: boolean;
+  isUpdatingSettings: boolean;
+  isClearing: boolean;
+  isDeleting: boolean;
+  renameDraft: string;
   messageDraft: string;
   groupTitle: string;
   groupMemberIds: string[];
   selectedGroupMemberIds: string[];
   onSelectConversation: (conversationId: string) => void;
+  onRenameDraftChange: (value: string) => void;
+  onRenameConversation: () => void;
+  onTogglePinned: (isPinned: boolean) => void;
+  onToggleMuted: (isMuted: boolean) => void;
+  onClearConversation: () => void;
+  onDeleteConversation: () => void;
   onMessageDraftChange: (value: string) => void;
   onSendMessage: () => void;
   onLoadOlderMessages: () => void;
@@ -1414,6 +1624,10 @@ function ConversationPanel({
   const canCreateGroup = groupTitle.trim().length > 0 && groupMemberIds.length > 0;
   const canUpdateGroup =
     selectedConversation?.kind === "group" && selectedGroupMemberIds.length > 0;
+  const canRenameConversation =
+    Boolean(selectedConversation) &&
+    renameDraft.trim().length > 0 &&
+    renameDraft.trim() !== selectedConversation?.title;
 
   return (
     <section
@@ -1468,6 +1682,14 @@ function ConversationPanel({
                         strokeWidth={2}
                       />
                     ) : null}
+                    {conversation.isMuted ? (
+                      <BellOff
+                        aria-label="已静音"
+                        className="shrink-0 text-[#7a6d60]"
+                        size={13}
+                        strokeWidth={2}
+                      />
+                    ) : null}
                   </span>
                   <span className="mt-1 block truncate text-xs text-[#6a786c]">
                     {conversationKindLabel(conversation)}
@@ -1515,6 +1737,82 @@ function ConversationPanel({
               </p>
             ) : null}
           </div>
+
+          {selectedConversation ? (
+            <div className="grid gap-2 rounded-md border border-[#edf1ea] bg-[#f8fbf6] p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isUpdatingSettings}
+                  onClick={() => onTogglePinned(!selectedConversation.isPinned)}
+                  className={
+                    selectedConversation.isPinned
+                      ? "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#93aa70] bg-[#eef6ea] px-2.5 text-xs font-semibold text-[#37533e] transition hover:border-[#7f985e] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-60"
+                      : "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-60"
+                  }
+                >
+                  <Pin aria-hidden="true" size={13} strokeWidth={2} />
+                  {selectedConversation.isPinned ? "取消置顶" : "置顶"}
+                </button>
+                <button
+                  type="button"
+                  disabled={isUpdatingSettings}
+                  onClick={() => onToggleMuted(!selectedConversation.isMuted)}
+                  className={
+                    selectedConversation.isMuted
+                      ? "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#b79f84] bg-[#fff8f0] px-2.5 text-xs font-semibold text-[#6f4f2c] transition hover:border-[#a48663] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8b6d4b] disabled:cursor-wait disabled:opacity-60"
+                      : "inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-60"
+                  }
+                >
+                  <BellOff aria-hidden="true" size={13} strokeWidth={2} />
+                  {selectedConversation.isMuted ? "取消静音" : "静音"}
+                </button>
+                <button
+                  type="button"
+                  disabled={isClearing}
+                  onClick={onClearConversation}
+                  className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-60"
+                >
+                  <Eraser aria-hidden="true" size={13} strokeWidth={2} />
+                  {isClearing ? "清空中" : "清空消息"}
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedConversation.isDefault || isDeleting}
+                  onClick={onDeleteConversation}
+                  className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded-md border border-[#e0b8aa] bg-white px-2.5 text-xs font-semibold text-[#8b3e25] transition hover:border-[#d6947d] hover:bg-[#fff7f3] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8b3e25] disabled:cursor-not-allowed disabled:border-[#d8ded5] disabled:text-[#9aa39a] disabled:opacity-70"
+                >
+                  <Trash2 aria-hidden="true" size={13} strokeWidth={2} />
+                  {isDeleting ? "删除中" : "删除会话"}
+                </button>
+              </div>
+              <form
+                aria-label="重命名会话"
+                className="flex flex-wrap items-end gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  onRenameConversation();
+                }}
+              >
+                <label className="grid min-w-[180px] flex-1 gap-1.5 text-xs font-medium text-[#526054]">
+                  名称
+                  <input
+                    value={renameDraft}
+                    onChange={(event) => onRenameDraftChange(event.target.value)}
+                    className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87]"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={isUpdatingSettings || !canRenameConversation}
+                  className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-xs font-semibold text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Edit3 aria-hidden="true" size={13} strokeWidth={2} />
+                  {isUpdatingSettings ? "保存中" : "重命名"}
+                </button>
+              </form>
+            </div>
+          ) : null}
 
           <div className="grid gap-2 border-t border-[#e3eadf] pt-3">
             <div className="flex items-center justify-between gap-2">

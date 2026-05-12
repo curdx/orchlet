@@ -17,7 +17,8 @@
     "202605120930__member_permissions.sql",
     "202605121210__private_conversations.sql",
     "202605121300__conversation_list_groups.sql",
-    "202605121430__messages_read_positions.sql"
+    "202605121430__messages_read_positions.sql",
+    "202605121600__conversation_management.sql"
   ],
   "validationPaths": [
     "member profiles database must contain exactly one owner per workspace",
@@ -25,6 +26,7 @@
     "conversation records include exactly one default channel per initialized workspace",
     "private conversations reuse one conversation per workspace participant",
     "conversation_members records persist group member ids separately from conversation list records",
+    "conversation records include is_muted and deleted_at_ms management fields",
     "messages records persist local text messages with send status",
     "conversation_read_positions records persist local read cursor per conversation",
     "future stories must add their own manifest entries, migrations and fixtures with their own tables"

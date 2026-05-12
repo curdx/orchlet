@@ -1,15 +1,20 @@
 use crate::{
     app::chat::{
-        create_workspace_group_conversation, list_workspace_conversations, list_workspace_messages,
+        clear_workspace_conversation, create_workspace_group_conversation,
+        delete_workspace_conversation, list_workspace_conversations, list_workspace_messages,
         send_workspace_message, start_workspace_private_conversation,
-        update_workspace_group_conversation_members, update_workspace_read_position,
+        update_workspace_conversation_settings, update_workspace_group_conversation_members,
+        update_workspace_read_position,
     },
     contracts::{
-        AppError, CreateGroupConversationRequest, CreateGroupConversationResult,
-        ListConversationsRequest, ListConversationsResult, ListMessagesRequest, ListMessagesResult,
-        SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
-        StartPrivateConversationResult, UpdateGroupConversationMembersRequest,
-        UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
+        AppError, ClearConversationRequest, ClearConversationResult,
+        CreateGroupConversationRequest, CreateGroupConversationResult, DeleteConversationRequest,
+        DeleteConversationResult, ListConversationsRequest, ListConversationsResult,
+        ListMessagesRequest, ListMessagesResult, SendMessageRequest, SendMessageResult,
+        StartPrivateConversationRequest, StartPrivateConversationResult,
+        UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
+        UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
+        UpdateReadPositionRequest, UpdateReadPositionResult,
     },
 };
 use tauri::{AppHandle, Manager};
@@ -36,6 +41,30 @@ pub fn chat_message_send(
     request: SendMessageRequest,
 ) -> Result<SendMessageResult, AppError> {
     send_workspace_message(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_conversation_settings_update(
+    app: AppHandle,
+    request: UpdateConversationSettingsRequest,
+) -> Result<UpdateConversationSettingsResult, AppError> {
+    update_workspace_conversation_settings(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_conversation_clear(
+    app: AppHandle,
+    request: ClearConversationRequest,
+) -> Result<ClearConversationResult, AppError> {
+    clear_workspace_conversation(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_conversation_delete(
+    app: AppHandle,
+    request: DeleteConversationRequest,
+) -> Result<DeleteConversationResult, AppError> {
+    delete_workspace_conversation(app_data_dir(&app)?, request)
 }
 
 #[tauri::command]

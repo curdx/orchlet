@@ -58,7 +58,7 @@ development_status:
   2-3-global-contacts-private-chat-entry: done
   2-4-default-channel-group-chat-conversation-list: done
   2-5-message-send-history-pagination-read-position: done
-  2-6-conversation-management-actions: backlog
+  2-6-conversation-management-actions: done
   2-7-mentions-emoji-attachments-quick-prompts: backlog
   epic-2-retrospective: optional
 

@@ -37,6 +37,7 @@ pub struct ConversationProfile {
     pub title: String,
     pub is_default: bool,
     pub is_pinned: bool,
+    pub is_muted: bool,
     pub unread_count: u32,
     pub last_message_preview: Option<String>,
     pub participant_kind: Option<ConversationParticipantKind>,
@@ -99,6 +100,58 @@ pub struct ListConversationsRequest {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "chat.ts")]
 pub struct ListConversationsResult {
+    pub conversations: Vec<ConversationProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct UpdateConversationSettingsRequest {
+    pub workspace_id: String,
+    pub conversation_id: String,
+    pub title: Option<String>,
+    pub is_pinned: Option<bool>,
+    pub is_muted: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct UpdateConversationSettingsResult {
+    pub conversation: ConversationProfile,
+    pub conversations: Vec<ConversationProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ClearConversationRequest {
+    pub workspace_id: String,
+    pub conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ClearConversationResult {
+    pub conversation: ConversationProfile,
+    pub cleared_message_count: u32,
+    pub conversations: Vec<ConversationProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct DeleteConversationRequest {
+    pub workspace_id: String,
+    pub conversation_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct DeleteConversationResult {
+    pub deleted_conversation_id: String,
     pub conversations: Vec<ConversationProfile>,
 }
 

@@ -2,15 +2,19 @@ use std::path::Path;
 
 use crate::{
     contracts::{
-        AppError, CreateGroupConversationRequest, CreateGroupConversationResult,
-        ListConversationsRequest, ListConversationsResult, ListMessagesRequest, ListMessagesResult,
-        SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
-        StartPrivateConversationResult, UpdateGroupConversationMembersRequest,
-        UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
+        AppError, ClearConversationRequest, ClearConversationResult,
+        CreateGroupConversationRequest, CreateGroupConversationResult, DeleteConversationRequest,
+        DeleteConversationResult, ListConversationsRequest, ListConversationsResult,
+        ListMessagesRequest, ListMessagesResult, SendMessageRequest, SendMessageResult,
+        StartPrivateConversationRequest, StartPrivateConversationResult,
+        UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
+        UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
+        UpdateReadPositionRequest, UpdateReadPositionResult,
     },
     infrastructure::persistence::sqlite::conversation_repository::{
-        create_group_conversation, list_conversations, list_messages, send_message,
-        start_private_conversation, update_group_conversation_members, update_read_position,
+        clear_conversation, create_group_conversation, delete_conversation, list_conversations,
+        list_messages, send_message, start_private_conversation, update_conversation_settings,
+        update_group_conversation_members, update_read_position,
     },
 };
 
@@ -33,6 +37,27 @@ pub fn send_workspace_message(
     request: SendMessageRequest,
 ) -> Result<SendMessageResult, AppError> {
     send_message(app_data_dir.as_ref(), request)
+}
+
+pub fn update_workspace_conversation_settings(
+    app_data_dir: impl AsRef<Path>,
+    request: UpdateConversationSettingsRequest,
+) -> Result<UpdateConversationSettingsResult, AppError> {
+    update_conversation_settings(app_data_dir.as_ref(), request)
+}
+
+pub fn clear_workspace_conversation(
+    app_data_dir: impl AsRef<Path>,
+    request: ClearConversationRequest,
+) -> Result<ClearConversationResult, AppError> {
+    clear_conversation(app_data_dir.as_ref(), request)
+}
+
+pub fn delete_workspace_conversation(
+    app_data_dir: impl AsRef<Path>,
+    request: DeleteConversationRequest,
+) -> Result<DeleteConversationResult, AppError> {
+    delete_conversation(app_data_dir.as_ref(), request)
 }
 
 pub fn list_workspace_messages(
@@ -68,17 +93,20 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        create_workspace_group_conversation, list_workspace_conversations, list_workspace_messages,
+        clear_workspace_conversation, create_workspace_group_conversation,
+        delete_workspace_conversation, list_workspace_conversations, list_workspace_messages,
         send_workspace_message, start_workspace_private_conversation,
-        update_workspace_group_conversation_members, update_workspace_read_position,
+        update_workspace_conversation_settings, update_workspace_group_conversation_members,
+        update_workspace_read_position,
     };
     use crate::{
         app::{contacts::create_global_contact, members::invite_workspace_member},
         contracts::{
-            ChatMessageStatus, ContactKind, ConversationKind, ConversationParticipantKind,
-            CreateContactRequest, CreateGroupConversationRequest, InviteMemberRequest,
-            InvitedMemberType, ListConversationsRequest, ListMessagesRequest, MemberRuntimeKind,
-            MemberRuntimeProfile, SendMessageRequest, StartPrivateConversationRequest,
+            ChatMessageStatus, ClearConversationRequest, ContactKind, ConversationKind,
+            ConversationParticipantKind, CreateContactRequest, CreateGroupConversationRequest,
+            DeleteConversationRequest, InviteMemberRequest, InvitedMemberType,
+            ListConversationsRequest, ListMessagesRequest, MemberRuntimeKind, MemberRuntimeProfile,
+            SendMessageRequest, StartPrivateConversationRequest, UpdateConversationSettingsRequest,
             UpdateGroupConversationMembersRequest, UpdateReadPositionRequest,
         },
     };
@@ -266,6 +294,207 @@ mod tests {
 
         assert_eq!(updated.conversation.members.len(), 1);
         assert_eq!(updated.conversation.members[0].instance_label, "Builder");
+    }
+
+    #[test]
+    fn conversation_settings_update_pin_mute_and_rename() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace_id.clone(),
+                member_type: InvitedMemberType::Member,
+                display_name: "Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::Shell,
+                    runtime_id: Some("zsh".to_owned()),
+                    label: Some("zsh".to_owned()),
+                    command: Some("zsh".to_owned()),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member invited")
+        .member;
+        let group = create_workspace_group_conversation(
+            app_data.path(),
+            CreateGroupConversationRequest {
+                workspace_id: workspace_id.clone(),
+                title: "Review Room".to_owned(),
+                member_ids: vec![member.member_id],
+            },
+        )
+        .expect("group created")
+        .conversation;
+
+        let updated = update_workspace_conversation_settings(
+            app_data.path(),
+            UpdateConversationSettingsRequest {
+                workspace_id,
+                conversation_id: group.conversation_id.clone(),
+                title: Some("  Renamed Room  ".to_owned()),
+                is_pinned: Some(true),
+                is_muted: Some(true),
+            },
+        )
+        .expect("conversation settings updated");
+
+        assert_eq!(updated.conversation.title, "Renamed Room");
+        assert!(updated.conversation.is_pinned);
+        assert!(updated.conversation.is_muted);
+        assert_eq!(
+            updated.conversations[0].conversation_id,
+            group.conversation_id
+        );
+    }
+
+    #[test]
+    fn clear_conversation_removes_messages_and_read_position() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+        let sent = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                body: "Clear me".to_owned(),
+            },
+        )
+        .expect("message sent");
+
+        let cleared = clear_workspace_conversation(
+            app_data.path(),
+            ClearConversationRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+            },
+        )
+        .expect("conversation cleared");
+
+        assert_eq!(cleared.cleared_message_count, 1);
+        assert_eq!(cleared.conversation.unread_count, 0);
+        assert_eq!(cleared.conversation.last_message_preview, None);
+
+        let page = list_workspace_messages(
+            app_data.path(),
+            ListMessagesRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+                before_message_id: None,
+                limit: Some(10),
+            },
+        )
+        .expect("messages listed after clear");
+
+        assert_eq!(sent.message.body, "Clear me");
+        assert!(page.messages.is_empty());
+        assert!(page.read_position.is_none());
+    }
+
+    #[test]
+    fn delete_conversation_removes_non_default_conversation_from_active_lists() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace_id.clone(),
+                member_type: InvitedMemberType::Member,
+                display_name: "Builder".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::Shell,
+                    runtime_id: Some("zsh".to_owned()),
+                    label: Some("zsh".to_owned()),
+                    command: Some("zsh".to_owned()),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member invited")
+        .member;
+        let group = create_workspace_group_conversation(
+            app_data.path(),
+            CreateGroupConversationRequest {
+                workspace_id: workspace_id.clone(),
+                title: "Delete Room".to_owned(),
+                member_ids: vec![member.member_id],
+            },
+        )
+        .expect("group created")
+        .conversation;
+        send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: group.conversation_id.clone(),
+                body: "Delete me".to_owned(),
+            },
+        )
+        .expect("message sent");
+
+        let deleted = delete_workspace_conversation(
+            app_data.path(),
+            DeleteConversationRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: group.conversation_id.clone(),
+            },
+        )
+        .expect("conversation deleted");
+
+        assert_eq!(deleted.deleted_conversation_id, group.conversation_id);
+        assert!(!deleted
+            .conversations
+            .iter()
+            .any(|conversation| conversation.conversation_id == group.conversation_id));
+
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest { workspace_id },
+        )
+        .expect("conversations listed after delete");
+
+        assert!(!listed
+            .conversations
+            .iter()
+            .any(|conversation| conversation.conversation_id == group.conversation_id));
+    }
+
+    #[test]
+    fn default_channel_delete_is_rejected() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+
+        let error = delete_workspace_conversation(
+            app_data.path(),
+            DeleteConversationRequest {
+                workspace_id,
+                conversation_id: default_channel.conversation_id,
+            },
+        )
+        .expect_err("default channel delete should be rejected");
+
+        assert_eq!(error.code, "conversation.delete.defaultForbidden");
     }
 
     #[test]

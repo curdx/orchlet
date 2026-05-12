@@ -168,7 +168,7 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             privacy_class: StoragePrivacyClass::WorkspaceData,
             fixture_required: true,
             validation_check_id: "conversation.records.schema_validate".to_owned(),
-            notes: "Contains conversation list records only: default channel, group/private entries, pin/unread display fields and last activity metadata. Messages, read positions, notifications and dispatch are not stored here."
+            notes: "Contains conversation list records only: default channel, group/private entries, pin/mute/delete state, unread display fields and last activity metadata. Messages, read positions, notifications and dispatch are not stored here."
                 .to_owned(),
         },
         StorageManifestEntry {

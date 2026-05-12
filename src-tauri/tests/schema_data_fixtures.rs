@@ -214,7 +214,8 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
             "202605120930__member_permissions.sql",
             "202605121210__private_conversations.sql",
             "202605121300__conversation_list_groups.sql",
-            "202605121430__messages_read_positions.sql"
+            "202605121430__messages_read_positions.sql",
+            "202605121600__conversation_management.sql"
         ]
     );
     assert!(fixture
@@ -229,6 +230,10 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
         .validation_paths
         .iter()
         .any(|path| path.contains("conversation_members")));
+    assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("is_muted")));
     assert!(fixture
         .validation_paths
         .iter()
@@ -306,6 +311,7 @@ fn conversation_list_fixture_covers_channel_group_private_and_membership() {
     assert!(fixture.conversations.iter().any(|conversation| {
         conversation.kind == ConversationKind::Group
             && conversation.unread_count > 0
+            && conversation.is_muted
             && !conversation.members.is_empty()
     }));
     assert!(fixture.conversations.iter().any(|conversation| {

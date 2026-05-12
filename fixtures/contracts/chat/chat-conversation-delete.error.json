@@ -1,0 +1,9 @@
+{
+  "code": "conversation.delete.defaultForbidden",
+  "message": "默认频道不能删除。",
+  "severity": "warning",
+  "recoverable": true,
+  "userAction": "可以清空默认频道消息，或选择其他会话删除。",
+  "details": "conversationId=01K00000000000000000000050",
+  "correlationId": null
+}

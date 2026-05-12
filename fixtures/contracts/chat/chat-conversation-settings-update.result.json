@@ -3,12 +3,12 @@
     "conversationId": "01K00000000000000000000051",
     "workspaceId": "01K00000000000000000000000",
     "kind": "group",
-    "title": "Review Room",
+    "title": "Renamed Room",
     "isDefault": false,
-    "isPinned": false,
-    "isMuted": false,
-    "unreadCount": 0,
-    "lastMessagePreview": null,
+    "isPinned": true,
+    "isMuted": true,
+    "unreadCount": 3,
+    "lastMessagePreview": "Draft ready",
     "participantKind": null,
     "participantId": null,
     "members": [
@@ -24,10 +24,38 @@
       }
     ],
     "createdAtMs": 1760000009000,
-    "updatedAtMs": 1760000009000,
-    "lastActivityAtMs": 1760000009000
+    "updatedAtMs": 1760000011000,
+    "lastActivityAtMs": 1760000010000
   },
   "conversations": [
+    {
+      "conversationId": "01K00000000000000000000051",
+      "workspaceId": "01K00000000000000000000000",
+      "kind": "group",
+      "title": "Renamed Room",
+      "isDefault": false,
+      "isPinned": true,
+      "isMuted": true,
+      "unreadCount": 3,
+      "lastMessagePreview": "Draft ready",
+      "participantKind": null,
+      "participantId": null,
+      "members": [
+        {
+          "memberId": "01K00000000000000000000031",
+          "displayName": "Codex Reviewer",
+          "instanceLabel": "Codex Reviewer 1"
+        },
+        {
+          "memberId": "01K00000000000000000000032",
+          "displayName": "Codex Reviewer",
+          "instanceLabel": "Codex Reviewer 2"
+        }
+      ],
+      "createdAtMs": 1760000009000,
+      "updatedAtMs": 1760000011000,
+      "lastActivityAtMs": 1760000010000
+    },
     {
       "conversationId": "01K00000000000000000000050",
       "workspaceId": "01K00000000000000000000000",
@@ -44,34 +72,6 @@
       "createdAtMs": 1760000007000,
       "updatedAtMs": 1760000007000,
       "lastActivityAtMs": 1760000007000
-    },
-    {
-      "conversationId": "01K00000000000000000000051",
-      "workspaceId": "01K00000000000000000000000",
-      "kind": "group",
-      "title": "Review Room",
-      "isDefault": false,
-      "isPinned": false,
-      "isMuted": false,
-      "unreadCount": 0,
-      "lastMessagePreview": null,
-      "participantKind": null,
-      "participantId": null,
-      "members": [
-        {
-          "memberId": "01K00000000000000000000031",
-          "displayName": "Codex Reviewer",
-          "instanceLabel": "Codex Reviewer 1"
-        },
-        {
-          "memberId": "01K00000000000000000000032",
-          "displayName": "Codex Reviewer",
-          "instanceLabel": "Codex Reviewer 2"
-        }
-      ],
-      "createdAtMs": 1760000009000,
-      "updatedAtMs": 1760000009000,
-      "lastActivityAtMs": 1760000009000
     }
   ]
 }

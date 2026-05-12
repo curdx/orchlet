@@ -2,10 +2,14 @@ import type { AppError } from "../../src/contracts/generated/common";
 import type {
   ChatMessageProfile,
   ChatMessageStatus,
+  ClearConversationRequest,
+  ClearConversationResult,
   ConversationReadPositionProfile,
   ConversationKind,
   CreateGroupConversationRequest,
   CreateGroupConversationResult,
+  DeleteConversationRequest,
+  DeleteConversationResult,
   ListConversationsRequest,
   ListConversationsResult,
   ListMessagesRequest,
@@ -16,6 +20,8 @@ import type {
   SendMessageResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
+  UpdateConversationSettingsRequest,
+  UpdateConversationSettingsResult,
   UpdateGroupConversationMembersRequest,
   UpdateGroupConversationMembersResult,
   UpdateReadPositionRequest,
@@ -76,6 +82,15 @@ import listConversationsResult from "../../fixtures/contracts/chat/chat-conversa
 import createGroupConversationError from "../../fixtures/contracts/chat/chat-group-conversation-create.error.json";
 import createGroupConversationRequest from "../../fixtures/contracts/chat/chat-group-conversation-create.request.json";
 import createGroupConversationResult from "../../fixtures/contracts/chat/chat-group-conversation-create.result.json";
+import updateConversationSettingsError from "../../fixtures/contracts/chat/chat-conversation-settings-update.error.json";
+import updateConversationSettingsRequest from "../../fixtures/contracts/chat/chat-conversation-settings-update.request.json";
+import updateConversationSettingsResult from "../../fixtures/contracts/chat/chat-conversation-settings-update.result.json";
+import clearConversationError from "../../fixtures/contracts/chat/chat-conversation-clear.error.json";
+import clearConversationRequest from "../../fixtures/contracts/chat/chat-conversation-clear.request.json";
+import clearConversationResult from "../../fixtures/contracts/chat/chat-conversation-clear.result.json";
+import deleteConversationError from "../../fixtures/contracts/chat/chat-conversation-delete.error.json";
+import deleteConversationRequest from "../../fixtures/contracts/chat/chat-conversation-delete.request.json";
+import deleteConversationResult from "../../fixtures/contracts/chat/chat-conversation-delete.result.json";
 import sendMessageError from "../../fixtures/contracts/chat/chat-message-send.error.json";
 import sendMessageRequest from "../../fixtures/contracts/chat/chat-message-send.request.json";
 import sendMessageResult from "../../fixtures/contracts/chat/chat-message-send.result.json";
@@ -221,6 +236,33 @@ export const createGroupConversationResultFixture: CreateGroupConversationResult
 export const createGroupConversationErrorFixture: AppError =
   appError(createGroupConversationError);
 
+export const updateConversationSettingsRequestFixture: UpdateConversationSettingsRequest =
+  updateConversationSettingsRequest;
+export const updateConversationSettingsResultFixture: UpdateConversationSettingsResult = {
+  conversation: conversationProfile(updateConversationSettingsResult.conversation),
+  conversations: updateConversationSettingsResult.conversations.map(conversationProfile),
+};
+export const updateConversationSettingsErrorFixture: AppError = appError(
+  updateConversationSettingsError,
+);
+
+export const clearConversationRequestFixture: ClearConversationRequest =
+  clearConversationRequest;
+export const clearConversationResultFixture: ClearConversationResult = {
+  conversation: conversationProfile(clearConversationResult.conversation),
+  clearedMessageCount: clearConversationResult.clearedMessageCount,
+  conversations: clearConversationResult.conversations.map(conversationProfile),
+};
+export const clearConversationErrorFixture: AppError = appError(clearConversationError);
+
+export const deleteConversationRequestFixture: DeleteConversationRequest =
+  deleteConversationRequest;
+export const deleteConversationResultFixture: DeleteConversationResult = {
+  deletedConversationId: deleteConversationResult.deletedConversationId,
+  conversations: deleteConversationResult.conversations.map(conversationProfile),
+};
+export const deleteConversationErrorFixture: AppError = appError(deleteConversationError);
+
 export const sendMessageRequestFixture: SendMessageRequest = sendMessageRequest;
 export const sendMessageResultFixture: SendMessageResult = {
   message: chatMessageProfile(sendMessageResult.message),
@@ -281,6 +323,9 @@ type ErrorJson =
   | typeof deleteContactError
   | typeof listConversationsError
   | typeof createGroupConversationError
+  | typeof updateConversationSettingsError
+  | typeof clearConversationError
+  | typeof deleteConversationError
   | typeof sendMessageError
   | typeof listMessagesError
   | typeof updateReadPositionError
@@ -486,6 +531,11 @@ type ConversationJson =
   | (typeof listConversationsResult.conversations)[number]
   | typeof createGroupConversationResult.conversation
   | (typeof createGroupConversationResult.conversations)[number]
+  | typeof updateConversationSettingsResult.conversation
+  | (typeof updateConversationSettingsResult.conversations)[number]
+  | typeof clearConversationResult.conversation
+  | (typeof clearConversationResult.conversations)[number]
+  | (typeof deleteConversationResult.conversations)[number]
   | typeof sendMessageResult.conversation
   | typeof listMessagesResult.conversation
   | typeof updateReadPositionResult.conversation

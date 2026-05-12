@@ -1,6 +1,10 @@
 import type {
+  ClearConversationRequest,
+  ClearConversationResult,
   CreateGroupConversationRequest,
   CreateGroupConversationResult,
+  DeleteConversationRequest,
+  DeleteConversationResult,
   ListConversationsRequest,
   ListConversationsResult,
   ListMessagesRequest,
@@ -9,6 +13,8 @@ import type {
   SendMessageResult,
   StartPrivateConversationRequest,
   StartPrivateConversationResult,
+  UpdateConversationSettingsRequest,
+  UpdateConversationSettingsResult,
   UpdateGroupConversationMembersRequest,
   UpdateGroupConversationMembersResult,
   UpdateReadPositionRequest,
@@ -23,6 +29,15 @@ export type ChatApi = {
   createGroupConversation: (
     request: CreateGroupConversationRequest,
   ) => Promise<CreateGroupConversationResult>;
+  updateConversationSettings: (
+    request: UpdateConversationSettingsRequest,
+  ) => Promise<UpdateConversationSettingsResult>;
+  clearConversation: (
+    request: ClearConversationRequest,
+  ) => Promise<ClearConversationResult>;
+  deleteConversation: (
+    request: DeleteConversationRequest,
+  ) => Promise<DeleteConversationResult>;
   sendMessage: (request: SendMessageRequest) => Promise<SendMessageResult>;
   listMessages: (request: ListMessagesRequest) => Promise<ListMessagesResult>;
   updateReadPosition: (
@@ -44,6 +59,22 @@ export const chatApi: ChatApi = {
   },
   createGroupConversation(request) {
     return invokeCommand<CreateGroupConversationResult>("chat_group_conversation_create", {
+      request,
+    });
+  },
+  updateConversationSettings(request) {
+    return invokeCommand<UpdateConversationSettingsResult>(
+      "chat_conversation_settings_update",
+      { request },
+    );
+  },
+  clearConversation(request) {
+    return invokeCommand<ClearConversationResult>("chat_conversation_clear", {
+      request,
+    });
+  },
+  deleteConversation(request) {
+    return invokeCommand<DeleteConversationResult>("chat_conversation_delete", {
       request,
     });
   },

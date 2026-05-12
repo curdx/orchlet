@@ -124,6 +124,39 @@
     },
     {
       "domain": "chat",
+      "command": "chat_conversation_settings_update",
+      "requestFixture": "fixtures/contracts/chat/chat-conversation-settings-update.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-conversation-settings-update.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-conversation-settings-update.error.json",
+      "rustRequestDto": "UpdateConversationSettingsRequest",
+      "rustSuccessDto": "UpdateConversationSettingsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR25", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_conversation_clear",
+      "requestFixture": "fixtures/contracts/chat/chat-conversation-clear.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-conversation-clear.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-conversation-clear.error.json",
+      "rustRequestDto": "ClearConversationRequest",
+      "rustSuccessDto": "ClearConversationResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR25", "FR26", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_conversation_delete",
+      "requestFixture": "fixtures/contracts/chat/chat-conversation-delete.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-conversation-delete.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-conversation-delete.error.json",
+      "rustRequestDto": "DeleteConversationRequest",
+      "rustSuccessDto": "DeleteConversationResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR25", "FR26", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
       "command": "chat_message_send",
       "requestFixture": "fixtures/contracts/chat/chat-message-send.request.json",
       "successResultFixture": "fixtures/contracts/chat/chat-message-send.result.json",

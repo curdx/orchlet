@@ -6,11 +6,13 @@ pub mod member;
 pub mod workspace;
 
 pub use chat::{
-    ChatMessageProfile, ChatMessageStatus, ConversationKind, ConversationMemberSummary,
-    ConversationParticipantKind, ConversationProfile, ConversationReadPositionProfile,
-    CreateGroupConversationRequest, CreateGroupConversationResult, ListConversationsRequest,
+    ChatMessageProfile, ChatMessageStatus, ClearConversationRequest, ClearConversationResult,
+    ConversationKind, ConversationMemberSummary, ConversationParticipantKind, ConversationProfile,
+    ConversationReadPositionProfile, CreateGroupConversationRequest, CreateGroupConversationResult,
+    DeleteConversationRequest, DeleteConversationResult, ListConversationsRequest,
     ListConversationsResult, ListMessagesRequest, ListMessagesResult, SendMessageRequest,
     SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
+    UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
     UpdateReadPositionRequest, UpdateReadPositionResult,
 };

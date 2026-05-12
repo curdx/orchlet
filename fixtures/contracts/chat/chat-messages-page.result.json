@@ -37,6 +37,7 @@
     "title": "默认频道",
     "isDefault": true,
     "isPinned": true,
+    "isMuted": false,
     "unreadCount": 1,
     "lastMessagePreview": "Latest note",
     "participantKind": null,

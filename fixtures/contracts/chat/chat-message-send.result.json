@@ -16,6 +16,7 @@
     "title": "默认频道",
     "isDefault": true,
     "isPinned": true,
+    "isMuted": false,
     "unreadCount": 0,
     "lastMessagePreview": "Ship it",
     "participantKind": null,

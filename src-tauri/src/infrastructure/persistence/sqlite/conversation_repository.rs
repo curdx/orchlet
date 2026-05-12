@@ -5,12 +5,14 @@ use ulid::Ulid;
 
 use crate::{
     contracts::{
-        AppError, ChatMessageProfile, ChatMessageStatus, ConversationKind,
-        ConversationMemberSummary, ConversationParticipantKind, ConversationProfile,
-        ConversationReadPositionProfile, CreateGroupConversationRequest,
-        CreateGroupConversationResult, ListConversationsRequest, ListConversationsResult,
+        AppError, ChatMessageProfile, ChatMessageStatus, ClearConversationRequest,
+        ClearConversationResult, ConversationKind, ConversationMemberSummary,
+        ConversationParticipantKind, ConversationProfile, ConversationReadPositionProfile,
+        CreateGroupConversationRequest, CreateGroupConversationResult, DeleteConversationRequest,
+        DeleteConversationResult, ListConversationsRequest, ListConversationsResult,
         ListMessagesRequest, ListMessagesResult, MemberProfile, MemberRole, SendMessageRequest,
         SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
+        UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
         UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
         UpdateReadPositionRequest, UpdateReadPositionResult,
     },
@@ -38,6 +40,8 @@ const CONVERSATION_LIST_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/workspace/202605121300__conversation_list_groups.sql");
 const MESSAGES_READ_POSITIONS_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/workspace/202605121430__messages_read_positions.sql");
+const CONVERSATION_MANAGEMENT_MIGRATION_SQL: &str =
+    include_str!("../../../../migrations/workspace/202605121600__conversation_management.sql");
 const DEFAULT_CHANNEL_TITLE: &str = "默认频道";
 
 pub fn list_conversations(
@@ -241,6 +245,7 @@ pub fn create_group_conversation(
         is_pinned: false,
         unread_count: 0,
         last_message_preview: None,
+        is_muted: false,
         participant_kind: None,
         participant_id: None,
         members: members.into_iter().map(member_summary).collect(),
@@ -274,6 +279,190 @@ pub fn create_group_conversation(
 
     Ok(CreateGroupConversationResult {
         conversation,
+        conversations,
+    })
+}
+
+pub fn update_conversation_settings(
+    app_data_dir: &Path,
+    request: UpdateConversationSettingsRequest,
+) -> Result<UpdateConversationSettingsResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    validate_conversation_id(&request.conversation_id)?;
+    let title = request
+        .title
+        .as_deref()
+        .map(normalize_conversation_title)
+        .transpose()?;
+    let pinned = request.is_pinned.map(bool_to_sql);
+    let muted = request.is_muted.map(bool_to_sql);
+    let connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    ensure_default_channel(&connection, &request.workspace_id)?;
+    conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+
+    let timestamp = now_ms();
+    connection
+        .execute(
+            "UPDATE conversations
+             SET title = COALESCE(?1, title),
+                 is_pinned = COALESCE(?2, is_pinned),
+                 is_muted = COALESCE(?3, is_muted),
+                 updated_at_ms = ?4
+             WHERE workspace_id = ?5 AND id = ?6 AND deleted_at_ms IS NULL",
+            params![
+                title,
+                pinned,
+                muted,
+                timestamp as i64,
+                request.workspace_id,
+                request.conversation_id,
+            ],
+        )
+        .map_err(sqlite_error("conversation.settings.updateFailed"))?;
+
+    let conversation = conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+    let conversations =
+        list_conversations_from_connection(&connection, &request.workspace_id)?.conversations;
+
+    Ok(UpdateConversationSettingsResult {
+        conversation,
+        conversations,
+    })
+}
+
+pub fn clear_conversation(
+    app_data_dir: &Path,
+    request: ClearConversationRequest,
+) -> Result<ClearConversationResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    validate_conversation_id(&request.conversation_id)?;
+    let connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    ensure_default_channel(&connection, &request.workspace_id)?;
+    conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+
+    let cleared_message_count = connection
+        .execute(
+            "DELETE FROM messages WHERE workspace_id = ?1 AND conversation_id = ?2",
+            params![request.workspace_id, request.conversation_id],
+        )
+        .map_err(sqlite_error("conversation.clear.messagesFailed"))?
+        as u32;
+    connection
+        .execute(
+            "DELETE FROM conversation_read_positions
+             WHERE workspace_id = ?1 AND conversation_id = ?2",
+            params![request.workspace_id, request.conversation_id],
+        )
+        .map_err(sqlite_error("conversation.clear.readPositionFailed"))?;
+
+    let timestamp = now_ms();
+    connection
+        .execute(
+            "UPDATE conversations
+             SET unread_count = 0,
+                 last_message_preview = NULL,
+                 updated_at_ms = ?1,
+                 last_activity_at_ms = ?1
+             WHERE workspace_id = ?2 AND id = ?3 AND deleted_at_ms IS NULL",
+            params![
+                timestamp as i64,
+                request.workspace_id,
+                request.conversation_id
+            ],
+        )
+        .map_err(sqlite_error("conversation.clear.touchFailed"))?;
+
+    let conversation = conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+    let conversations =
+        list_conversations_from_connection(&connection, &request.workspace_id)?.conversations;
+
+    Ok(ClearConversationResult {
+        conversation,
+        cleared_message_count,
+        conversations,
+    })
+}
+
+pub fn delete_conversation(
+    app_data_dir: &Path,
+    request: DeleteConversationRequest,
+) -> Result<DeleteConversationResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    validate_conversation_id(&request.conversation_id)?;
+    let connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    ensure_default_channel(&connection, &request.workspace_id)?;
+    let conversation = conversation_by_id_from_connection(
+        &connection,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+
+    if conversation.is_default {
+        return Err(AppError::recoverable_error(
+            "conversation.delete.defaultForbidden",
+            "默认频道不能删除。",
+            "可以清空默认频道消息，或选择其他会话删除。",
+            Some(format!("conversationId={}", request.conversation_id)),
+        ));
+    }
+
+    connection
+        .execute(
+            "DELETE FROM messages WHERE workspace_id = ?1 AND conversation_id = ?2",
+            params![request.workspace_id, request.conversation_id],
+        )
+        .map_err(sqlite_error("conversation.delete.messagesFailed"))?;
+    connection
+        .execute(
+            "DELETE FROM conversation_read_positions
+             WHERE workspace_id = ?1 AND conversation_id = ?2",
+            params![request.workspace_id, request.conversation_id],
+        )
+        .map_err(sqlite_error("conversation.delete.readPositionFailed"))?;
+    connection
+        .execute(
+            "DELETE FROM conversation_members WHERE workspace_id = ?1 AND conversation_id = ?2",
+            params![request.workspace_id, request.conversation_id],
+        )
+        .map_err(sqlite_error("conversation.delete.membersFailed"))?;
+    let deleted = connection
+        .execute(
+            "DELETE FROM conversations
+             WHERE workspace_id = ?1 AND id = ?2 AND is_default = 0",
+            params![request.workspace_id, request.conversation_id],
+        )
+        .map_err(sqlite_error("conversation.delete.recordFailed"))?;
+
+    if deleted == 0 {
+        return Err(AppError::recoverable_error(
+            "conversation.delete.notFound",
+            "未找到可删除的会话。",
+            "请刷新会话列表后重试。",
+            Some(format!("conversationId={}", request.conversation_id)),
+        ));
+    }
+
+    let conversations =
+        list_conversations_from_connection(&connection, &request.workspace_id)?.conversations;
+
+    Ok(DeleteConversationResult {
+        deleted_conversation_id: request.conversation_id,
         conversations,
     })
 }
@@ -316,8 +505,8 @@ pub fn update_group_conversation_members(
     connection
         .execute(
             "UPDATE conversations
-             SET updated_at_ms = ?1, last_activity_at_ms = ?1
-             WHERE workspace_id = ?2 AND id = ?3",
+        SET updated_at_ms = ?1, last_activity_at_ms = ?1
+             WHERE workspace_id = ?2 AND id = ?3 AND deleted_at_ms IS NULL",
             params![
                 timestamp as i64,
                 request.workspace_id,
@@ -369,6 +558,7 @@ pub fn start_private_conversation(
         title: participant.title,
         is_default: false,
         is_pinned: false,
+        is_muted: false,
         unread_count: 0,
         last_message_preview: None,
         participant_kind: Some(request.participant_kind),
@@ -591,7 +781,8 @@ fn apply_conversation_migrations(connection: &Connection) -> Result<(), AppError
         .execute_batch(PRIVATE_CONVERSATION_MIGRATION_SQL)
         .map_err(sqlite_error("conversation.migration.failed"))?;
     apply_conversation_list_migration(connection)?;
-    apply_messages_read_positions_migration(connection)
+    apply_messages_read_positions_migration(connection)?;
+    apply_conversation_management_migration(connection)
 }
 
 fn apply_conversation_list_migration(connection: &Connection) -> Result<(), AppError> {
@@ -618,11 +809,53 @@ fn apply_messages_read_positions_migration(connection: &Connection) -> Result<()
     Ok(())
 }
 
+fn apply_conversation_management_migration(connection: &Connection) -> Result<(), AppError> {
+    let has_is_muted = conversation_column_exists(connection, "is_muted")?;
+    let has_deleted_at_ms = conversation_column_exists(connection, "deleted_at_ms")?;
+
+    if !has_is_muted && !has_deleted_at_ms {
+        connection
+            .execute_batch(CONVERSATION_MANAGEMENT_MIGRATION_SQL)
+            .map_err(sqlite_error("conversation.managementMigration.failed"))?;
+        return Ok(());
+    }
+
+    if !has_is_muted {
+        connection
+            .execute(
+                "ALTER TABLE conversations ADD COLUMN is_muted INTEGER NOT NULL DEFAULT 0",
+                [],
+            )
+            .map_err(sqlite_error("conversation.managementMigration.mutedFailed"))?;
+    }
+
+    if !has_deleted_at_ms {
+        connection
+            .execute(
+                "ALTER TABLE conversations ADD COLUMN deleted_at_ms INTEGER",
+                [],
+            )
+            .map_err(sqlite_error(
+                "conversation.managementMigration.deletedFailed",
+            ))?;
+    }
+
+    connection
+        .execute(
+            "CREATE INDEX IF NOT EXISTS idx_conversations__workspace_active_management
+             ON conversations(workspace_id, deleted_at_ms, is_pinned DESC, unread_count DESC, last_activity_at_ms DESC)",
+            [],
+        )
+        .map_err(sqlite_error("conversation.managementMigration.indexFailed"))?;
+    record_migration(connection, "202605121600__conversation_management")
+}
+
 fn ensure_default_channel(connection: &Connection, workspace_id: &str) -> Result<(), AppError> {
     let exists = connection
         .prepare(
             "SELECT id FROM conversations
              WHERE workspace_id = ?1 AND kind = 'channel' AND is_default = 1
+               AND deleted_at_ms IS NULL
              LIMIT 1",
         )
         .map_err(sqlite_error("conversation.default.prepareFailed"))?
@@ -641,6 +874,7 @@ fn ensure_default_channel(connection: &Connection, workspace_id: &str) -> Result
         title: DEFAULT_CHANNEL_TITLE.to_owned(),
         is_default: true,
         is_pinned: true,
+        is_muted: false,
         unread_count: 0,
         last_message_preview: None,
         participant_kind: None,
@@ -668,10 +902,10 @@ fn list_conversations_from_connection(
     let mut statement = connection
         .prepare(
             "SELECT id, workspace_id, kind, title, participant_kind, participant_id,
-                    is_default, is_pinned, unread_count, last_message_preview,
+                    is_default, is_pinned, is_muted, unread_count, last_message_preview,
                     created_at_ms, updated_at_ms, last_activity_at_ms
              FROM conversations
-             WHERE workspace_id = ?1
+             WHERE workspace_id = ?1 AND deleted_at_ms IS NULL
              ORDER BY is_pinned DESC,
                       CASE WHEN unread_count > 0 THEN 1 ELSE 0 END DESC,
                       last_activity_at_ms DESC,
@@ -704,10 +938,10 @@ fn conversation_by_id_from_connection(
     let mut statement = connection
         .prepare(
             "SELECT id, workspace_id, kind, title, participant_kind, participant_id,
-                    is_default, is_pinned, unread_count, last_message_preview,
+                    is_default, is_pinned, is_muted, unread_count, last_message_preview,
                     created_at_ms, updated_at_ms, last_activity_at_ms
              FROM conversations
-             WHERE workspace_id = ?1 AND id = ?2",
+             WHERE workspace_id = ?1 AND id = ?2 AND deleted_at_ms IS NULL",
         )
         .map_err(sqlite_error("conversation.getById.prepareFailed"))?;
     let mut conversation = statement
@@ -744,11 +978,12 @@ fn find_private_conversation(
     let mut statement = connection
         .prepare(
             "SELECT id, workspace_id, kind, title, participant_kind, participant_id,
-                    is_default, is_pinned, unread_count, last_message_preview,
+                    is_default, is_pinned, is_muted, unread_count, last_message_preview,
                     created_at_ms, updated_at_ms, last_activity_at_ms
              FROM conversations
              WHERE workspace_id = ?1 AND kind = 'private'
-               AND participant_kind = ?2 AND participant_id = ?3",
+               AND participant_kind = ?2 AND participant_id = ?3
+               AND deleted_at_ms IS NULL",
         )
         .map_err(sqlite_error("conversation.get.prepareFailed"))?;
     let result = statement.query_row(
@@ -779,8 +1014,8 @@ fn insert_conversation(
             "INSERT INTO conversations (
                 id, workspace_id, kind, title, participant_kind, participant_id,
                 created_at_ms, updated_at_ms, last_activity_at_ms, is_default,
-                is_pinned, unread_count, last_message_preview
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                is_pinned, is_muted, unread_count, last_message_preview
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 conversation.conversation_id,
                 conversation.workspace_id,
@@ -793,6 +1028,7 @@ fn insert_conversation(
                 conversation.last_activity_at_ms as i64,
                 bool_to_sql(conversation.is_default),
                 bool_to_sql(conversation.is_pinned),
+                bool_to_sql(conversation.is_muted),
                 conversation.unread_count as i64,
                 conversation.last_message_preview
             ],
@@ -833,7 +1069,7 @@ fn touch_conversation_after_message(
              SET last_message_preview = ?1,
                  last_activity_at_ms = ?2,
                  updated_at_ms = ?2
-             WHERE workspace_id = ?3 AND id = ?4",
+             WHERE workspace_id = ?3 AND id = ?4 AND deleted_at_ms IS NULL",
             params![
                 message_preview(&message.body),
                 message.created_at_ms as i64,
@@ -1048,7 +1284,7 @@ fn recalculate_unread_count_after(
         .execute(
             "UPDATE conversations
              SET unread_count = ?1, updated_at_ms = ?2
-             WHERE workspace_id = ?3 AND id = ?4",
+             WHERE workspace_id = ?3 AND id = ?4 AND deleted_at_ms IS NULL",
             params![unread_count, now_ms() as i64, workspace_id, conversation_id],
         )
         .map(|_| ())
@@ -1252,14 +1488,15 @@ fn conversation_from_row(row: &rusqlite::Row<'_>) -> Result<ConversationProfile,
         title: row.get(3)?,
         is_default: sql_bool(row.get::<_, i64>(6)?),
         is_pinned: sql_bool(row.get::<_, i64>(7)?),
-        unread_count: row.get::<_, i64>(8)? as u32,
-        last_message_preview: row.get(9)?,
+        is_muted: sql_bool(row.get::<_, i64>(8)?),
+        unread_count: row.get::<_, i64>(9)? as u32,
+        last_message_preview: row.get(10)?,
         participant_kind,
         participant_id,
         members: Vec::new(),
-        created_at_ms: row.get::<_, i64>(10)? as u64,
-        updated_at_ms: row.get::<_, i64>(11)? as u64,
-        last_activity_at_ms: row.get::<_, i64>(12)? as u64,
+        created_at_ms: row.get::<_, i64>(11)? as u64,
+        updated_at_ms: row.get::<_, i64>(12)? as u64,
+        last_activity_at_ms: row.get::<_, i64>(13)? as u64,
     })
 }
 

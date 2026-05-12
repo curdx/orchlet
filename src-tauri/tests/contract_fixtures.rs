@@ -1,16 +1,18 @@
 use std::{fs, path::Path};
 
 use orchlet_lib::contracts::{
-    AppError, ChatMessageStatus, ContactKind, ConversationKind, ConversationParticipantKind,
-    CreateContactRequest, CreateContactResult, CreateGroupConversationRequest,
-    CreateGroupConversationResult, DataIntegrityValidateRequest, DataIntegrityValidateResult,
-    DeleteContactRequest, DeleteContactResult, InviteMemberRequest, InviteMemberResult,
+    AppError, ChatMessageStatus, ClearConversationRequest, ClearConversationResult, ContactKind,
+    ConversationKind, ConversationParticipantKind, CreateContactRequest, CreateContactResult,
+    CreateGroupConversationRequest, CreateGroupConversationResult, DataIntegrityValidateRequest,
+    DataIntegrityValidateResult, DeleteContactRequest, DeleteContactResult,
+    DeleteConversationRequest, DeleteConversationResult, InviteMemberRequest, InviteMemberResult,
     InvitedMemberType, ListContactsRequest, ListContactsResult, ListConversationsRequest,
     ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
     ListMessagesResult, MemberRole, MemberRuntimeKind, MemberStatus, OpenWorkspaceRequest,
     OpenWorkspaceResult, RemoveMemberRequest, RemoveMemberResult, SendMessageRequest,
     SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
-    UpdateContactRequest, UpdateContactResult, UpdateGroupConversationMembersRequest,
+    UpdateContactRequest, UpdateContactResult, UpdateConversationSettingsRequest,
+    UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
     UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
     WorkspaceOpenStatus,
 };
@@ -167,6 +169,24 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/chat/chat-group-conversation-create.result.json");
     let create_group_error: AppError =
         read_fixture("../fixtures/contracts/chat/chat-group-conversation-create.error.json");
+    let settings_request: UpdateConversationSettingsRequest =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-settings-update.request.json");
+    let settings_result: UpdateConversationSettingsResult =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-settings-update.result.json");
+    let settings_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-settings-update.error.json");
+    let clear_request: ClearConversationRequest =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-clear.request.json");
+    let clear_result: ClearConversationResult =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-clear.result.json");
+    let clear_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-clear.error.json");
+    let delete_request: DeleteConversationRequest =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-delete.request.json");
+    let delete_result: DeleteConversationResult =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-delete.result.json");
+    let delete_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-conversation-delete.error.json");
     let send_message_request: SendMessageRequest =
         read_fixture("../fixtures/contracts/chat/chat-message-send.request.json");
     let send_message_result: SendMessageResult =
@@ -206,6 +226,7 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(list_result.conversations[0].kind, ConversationKind::Channel);
     assert!(list_result.conversations[0].is_default);
     assert!(list_result.conversations[0].is_pinned);
+    assert!(!list_result.conversations[0].is_muted);
     assert_eq!(list_result.conversations[1].kind, ConversationKind::Group);
     assert_eq!(list_result.conversations[1].members.len(), 2);
     assert_eq!(list_error.code, "member.workspace.invalidId");
@@ -217,6 +238,31 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
     );
     assert_eq!(create_group_result.conversation.members.len(), 2);
     assert_eq!(create_group_error.code, "conversation.title.empty");
+    assert_eq!(settings_request.title.as_deref(), Some(" Renamed Room "));
+    assert_eq!(settings_request.is_pinned, Some(true));
+    assert_eq!(settings_request.is_muted, Some(true));
+    assert_eq!(settings_result.conversation.title, "Renamed Room");
+    assert!(settings_result.conversation.is_pinned);
+    assert!(settings_result.conversation.is_muted);
+    assert_eq!(settings_error.code, "conversation.getById.notFound");
+    assert_eq!(
+        clear_request.conversation_id,
+        create_group_result.conversation.conversation_id
+    );
+    assert_eq!(clear_result.cleared_message_count, 3);
+    assert_eq!(clear_result.conversation.unread_count, 0);
+    assert_eq!(clear_result.conversation.last_message_preview, None);
+    assert_eq!(clear_error.code, "conversation.getById.notFound");
+    assert_eq!(
+        delete_request.conversation_id,
+        create_group_result.conversation.conversation_id
+    );
+    assert_eq!(
+        delete_result.deleted_conversation_id,
+        delete_request.conversation_id
+    );
+    assert_eq!(delete_result.conversations.len(), 1);
+    assert_eq!(delete_error.code, "conversation.delete.defaultForbidden");
     assert_eq!(send_message_request.body, "Ship it");
     assert_eq!(send_message_result.message.status, ChatMessageStatus::Sent);
     assert_eq!(
