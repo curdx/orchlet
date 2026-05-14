@@ -13,6 +13,8 @@ import type {
   ListMessagesResult,
   RepairWorkspaceChatDataRequest,
   RepairWorkspaceChatDataResult,
+  SendMessageAndDispatchRequest,
+  SendMessageAndDispatchResult,
   SendMessageRequest,
   SendMessageResult,
   StartPrivateConversationRequest,
@@ -49,6 +51,9 @@ export type ChatApi = {
     request: DeleteConversationRequest,
   ) => Promise<DeleteConversationResult>;
   sendMessage: (request: SendMessageRequest) => Promise<SendMessageResult>;
+  sendMessageAndDispatch: (
+    request: SendMessageAndDispatchRequest,
+  ) => Promise<SendMessageAndDispatchResult>;
   listMessages: (request: ListMessagesRequest) => Promise<ListMessagesResult>;
   updateReadPosition: (
     request: UpdateReadPositionRequest,
@@ -100,6 +105,11 @@ export const chatApi: ChatApi = {
   },
   sendMessage(request) {
     return invokeCommand<SendMessageResult>("chat_message_send", {
+      request,
+    });
+  },
+  sendMessageAndDispatch(request) {
+    return invokeCommand<SendMessageAndDispatchResult>("chat_message_send_and_dispatch", {
       request,
     });
   },

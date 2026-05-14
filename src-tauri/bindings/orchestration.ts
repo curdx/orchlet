@@ -17,4 +17,4 @@ export type DispatchRequestStatus = "pending" | "queued" | "skipped" | "dispatch
 
 export type DispatchTargetResolutionProfile = { memberId: string, source: DispatchTargetResolutionSource, reason: string, };
 
-export type DispatchTargetResolutionSource = "userSelected" | "explicitMention" | "privateConversation" | "conversationDefault" | "workspaceDefault";
+export type DispatchTargetResolutionSource = "userSelected" | "explicitMention" | "allMention" | "privateConversation" | "conversationDefault" | "workspaceDefault";

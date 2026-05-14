@@ -103,6 +103,7 @@ pub fn run() {
             gateway::chat_commands::chat_conversations_list,
             gateway::chat_commands::chat_group_conversation_create,
             gateway::chat_commands::chat_message_send,
+            gateway::chat_commands::chat_message_send_and_dispatch,
             gateway::chat_commands::chat_conversation_settings_update,
             gateway::chat_commands::chat_conversation_clear,
             gateway::chat_commands::chat_data_repair,

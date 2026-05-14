@@ -1,26 +1,34 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{
-    app::diagnostics::{best_effort_event, record_workspace_diagnostics_event_best_effort},
+    app::{
+        diagnostics::{best_effort_event, record_workspace_diagnostics_event_best_effort},
+        orchestration::dispatch_chat_message_to_resolved_target_for_send,
+        terminal::{TerminalEventSink, TerminalRuntimeState, TerminalStatusSink},
+    },
     contracts::{
         AppError, ClearConversationRequest, ClearConversationResult, ClearWorkspaceChatDataRequest,
         ClearWorkspaceChatDataResult, CreateGroupConversationRequest,
         CreateGroupConversationResult, DeleteConversationRequest, DeleteConversationResult,
         DiagnosticsCorrelationIds, DiagnosticsEventScope, DiagnosticsEventSeverity,
-        DiagnosticsMetadataEntry, ListConversationsRequest, ListConversationsResult,
-        ListMessagesRequest, ListMessagesResult, RepairWorkspaceChatDataRequest,
-        RepairWorkspaceChatDataResult, SendMessageRequest, SendMessageResult,
-        StartPrivateConversationRequest, StartPrivateConversationResult,
+        DiagnosticsMetadataEntry, DispatchChatMessageRequest, DispatchChatMessageResult,
+        ListConversationsRequest, ListConversationsResult, ListMessagesRequest, ListMessagesResult,
+        OpenedWorkspace, RepairWorkspaceChatDataRequest, RepairWorkspaceChatDataResult,
+        SendMessageAndDispatchRequest, SendMessageAndDispatchResult, SendMessageRequest,
+        SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
         UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
         UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
         UpdateReadPositionRequest, UpdateReadPositionResult,
     },
+    domain::{chat::has_all_mention_token, orchestration::plan_send_dispatch_targets},
     infrastructure::persistence::sqlite::conversation_repository::{
         clear_conversation, clear_workspace_chat_data, create_group_conversation,
         delete_conversation, list_conversations, list_messages, repair_workspace_chat_data,
         send_message, start_private_conversation, update_conversation_settings,
         update_group_conversation_members, update_read_position,
     },
+    infrastructure::persistence::sqlite::dispatch_repository::create_failed_dispatch_with_sources,
+    infrastructure::persistence::sqlite::member_repository::initialize_member_store,
 };
 
 pub fn list_workspace_conversations(
@@ -41,9 +49,25 @@ pub fn send_workspace_message(
     app_data_dir: impl AsRef<Path>,
     request: SendMessageRequest,
 ) -> Result<SendMessageResult, AppError> {
+    if has_all_mention_token(&request.body) {
+        return Err(AppError::recoverable_error(
+            "message.mention.allUnsupported",
+            "@all 需要通过发送并派发入口处理。",
+            "请使用当前聊天发送入口，或选择具体成员后重试。",
+            None,
+        ));
+    }
+
+    persist_workspace_message(app_data_dir.as_ref(), request)
+}
+
+fn persist_workspace_message(
+    app_data_dir: &Path,
+    request: SendMessageRequest,
+) -> Result<SendMessageResult, AppError> {
     let result = send_message(app_data_dir.as_ref(), request)?;
     record_workspace_diagnostics_event_best_effort(
-        app_data_dir.as_ref(),
+        app_data_dir,
         best_effort_event(
             &result.message.workspace_id,
             DiagnosticsEventScope::Chat,
@@ -63,6 +87,84 @@ pub fn send_workspace_message(
     );
 
     Ok(result)
+}
+
+pub fn send_workspace_message_and_dispatch(
+    app_data_dir: PathBuf,
+    workspace: &OpenedWorkspace,
+    request: SendMessageAndDispatchRequest,
+    terminal_state: &TerminalRuntimeState,
+    event_sink: TerminalEventSink,
+    status_sink: TerminalStatusSink,
+) -> Result<SendMessageAndDispatchResult, AppError> {
+    if workspace.metadata.project_id != request.workspace_id {
+        return Err(AppError::recoverable_error(
+            "chat.workspace.mismatch",
+            "消息不属于当前工作区。",
+            "请刷新工作区上下文后重试。",
+            Some(format!(
+                "activeWorkspaceId={} requestWorkspaceId={}",
+                workspace.metadata.project_id, request.workspace_id
+            )),
+        ));
+    }
+
+    let mention_all = has_all_mention_token(&request.body);
+    let sent = persist_workspace_message(
+        &app_data_dir,
+        SendMessageRequest {
+            workspace_id: request.workspace_id,
+            conversation_id: request.conversation_id,
+            body: request.body,
+            mentioned_member_ids: request.mentioned_member_ids,
+        },
+    )?;
+    let members = initialize_member_store(&app_data_dir, &sent.message.workspace_id)?.members;
+    let targets =
+        plan_send_dispatch_targets(mention_all, &sent.message, &sent.conversation, &members);
+    let mut dispatches = Vec::new();
+
+    for target in targets {
+        let dispatch_request = DispatchChatMessageRequest {
+            workspace_id: sent.message.workspace_id.clone(),
+            conversation_id: sent.message.conversation_id.clone(),
+            message_id: sent.message.message_id.clone(),
+            member_id: None,
+        };
+        let dispatch_result = dispatch_chat_message_to_resolved_target_for_send(
+            app_data_dir.clone(),
+            workspace,
+            dispatch_request,
+            target.clone(),
+            terminal_state,
+            event_sink.clone(),
+            status_sink.clone(),
+        )
+        .or_else(|error| {
+            create_failed_dispatch_with_sources(
+                &app_data_dir,
+                &sent.message.workspace_id,
+                &sent.message.conversation_id,
+                &sent.message.message_id,
+                std::slice::from_ref(&sent.message.message_id),
+                &target,
+                &error,
+            )
+            .map(|dispatch| DispatchChatMessageResult {
+                dispatch,
+                terminal_session: None,
+                session_created: false,
+            })
+        })?;
+        dispatches.push(dispatch_result);
+    }
+
+    Ok(SendMessageAndDispatchResult {
+        message: sent.message,
+        conversation: sent.conversation,
+        read_position: sent.read_position,
+        dispatches,
+    })
 }
 
 pub fn update_workspace_conversation_settings(
@@ -951,7 +1053,7 @@ mod tests {
                 mentioned_member_ids: Vec::new(),
             },
         )
-        .expect_err("@all should be rejected");
+        .expect_err("@all should use send-and-dispatch");
 
         assert_eq!(error.code, "message.mention.allUnsupported");
     }

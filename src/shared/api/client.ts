@@ -13,6 +13,10 @@ import type {
   ListMessagesResult,
 } from "../../contracts/generated/chat";
 import type {
+  DispatchChatMessageResult,
+  DispatchTargetResolutionSource,
+} from "../../contracts/generated/orchestration";
+import type {
   ContactProfile,
   CreateContactResult,
   DeleteContactResult,
@@ -368,6 +372,110 @@ function browserConversations(workspaceId: string): ConversationProfile[] {
       lastActivityAtMs: now - 1_800_000,
     },
   ];
+}
+
+function browserSendDispatchResults(
+  workspaceId: string,
+  conversation: ConversationProfile,
+  message: ChatMessageProfile,
+  mentionAll: boolean,
+): DispatchChatMessageResult[] {
+  const members = browserMembers(workspaceId);
+  const targetIds = browserSendDispatchTargetIds(conversation, message, mentionAll);
+  const timestamp = Date.now();
+
+  return targetIds.flatMap((memberId) => {
+    const member = members.find((candidate) => candidate.memberId === memberId);
+    if (!member || member.memberId === message.authorMemberId) {
+      return [];
+    }
+
+    const source = browserDispatchSource(conversation, message, mentionAll);
+    return [
+      {
+        dispatch: {
+          schemaVersion: 1,
+          dispatchRequestId: `browser-dispatch-${message.messageId}-${member.memberId}`,
+          workspaceId,
+          conversationId: conversation.conversationId,
+          messageId: message.messageId,
+          sourceMessageIds: [message.messageId],
+          memberId: member.memberId,
+          targetResolution: {
+            memberId: member.memberId,
+            source,
+            reason: browserDispatchReason(source, member.instanceLabel),
+          },
+          status: "failed",
+          terminalSessionId: null,
+          failure: {
+            code: "browser.dispatch.unsupported",
+            message: "浏览器预览不支持终端派发。",
+            userAction: "请在 Tauri 桌面应用中验证终端派发。",
+            details: null,
+          },
+          createdAtMs: timestamp,
+          updatedAtMs: timestamp,
+        },
+        terminalSession: null,
+        sessionCreated: false,
+      } satisfies DispatchChatMessageResult,
+    ];
+  });
+}
+
+function browserSendDispatchTargetIds(
+  conversation: ConversationProfile,
+  message: ChatMessageProfile,
+  mentionAll: boolean,
+) {
+  const candidates =
+    mentionAll && conversation.kind === "channel" && conversation.members.length === 0
+      ? browserConversationMembers(message.workspaceId)
+      : conversation.members;
+  const ids =
+    conversation.kind === "private" &&
+    conversation.participantKind === "member" &&
+    conversation.participantId
+      ? [conversation.participantId]
+      : mentionAll
+        ? candidates.map((member) => member.memberId)
+        : message.mentionedMemberIds;
+
+  return [...new Set(ids.filter((memberId) => memberId !== message.authorMemberId))];
+}
+
+function browserDispatchSource(
+  conversation: ConversationProfile,
+  message: ChatMessageProfile,
+  mentionAll: boolean,
+): DispatchTargetResolutionSource {
+  if (conversation.kind === "private") {
+    return "privateConversation";
+  }
+
+  if (mentionAll) {
+    return "allMention";
+  }
+
+  return message.mentionedMemberIds.length > 0 ? "explicitMention" : "userSelected";
+}
+
+function browserDispatchReason(source: DispatchTargetResolutionSource, label: string) {
+  switch (source) {
+    case "privateConversation":
+      return `当前私聊对象 ${label} 是本次发送目标。`;
+    case "allMention":
+      return `@all 指向成员 ${label}。`;
+    case "explicitMention":
+      return `消息明确提及 ${label}。`;
+    default:
+      return `浏览器预览选择了 ${label}。`;
+  }
+}
+
+function browserHasAllMentionToken(body: string) {
+  return body.split(/[\s,.!?;:，。！？；：]+/).some((token) => token === "@all");
 }
 
 function browserMessages(workspaceId: string, conversationId: string): ChatMessageProfile[] {
@@ -736,12 +844,13 @@ function invokeBrowserFallback<T>(
     } as T);
   }
 
-  if (command === "chat_message_send") {
+  if (command === "chat_message_send" || command === "chat_message_send_and_dispatch") {
     const request = (args?.request ?? {}) as {
       workspaceId?: string | null;
       conversationId?: string | null;
       body?: string | null;
       mentionedMemberIds?: string[] | null;
+      mentionAll?: boolean | null;
     };
     const workspaceId = request.workspaceId || BROWSER_WORKSPACE_ID;
     const conversation =
@@ -760,7 +869,7 @@ function invokeBrowserFallback<T>(
       updatedAtMs: Date.now(),
     } satisfies ChatMessageProfile;
 
-    return Promise.resolve({
+    const result = {
       message,
       conversation: {
         ...conversation,
@@ -775,7 +884,21 @@ function invokeBrowserFallback<T>(
         lastReadAtMs: message.createdAtMs,
         updatedAtMs: message.updatedAtMs,
       },
-    } as T);
+    };
+
+    return Promise.resolve(
+      (command === "chat_message_send_and_dispatch"
+        ? {
+            ...result,
+            dispatches: browserSendDispatchResults(
+              workspaceId,
+              conversation,
+              message,
+              Boolean(request.mentionAll) || browserHasAllMentionToken(message.body),
+            ),
+          }
+        : result) as T,
+    );
   }
 
   if (command === "diagnostics_overview_get") {

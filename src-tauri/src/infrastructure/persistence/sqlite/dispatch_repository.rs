@@ -146,6 +146,28 @@ pub fn mark_dispatch_failed(
     )
 }
 
+pub fn create_failed_dispatch_with_sources(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    conversation_id: &str,
+    message_id: &str,
+    source_message_ids: &[String],
+    target_resolution: &DispatchTargetResolutionProfile,
+    error: &AppError,
+) -> Result<DispatchRequestProfile, AppError> {
+    let dispatch = create_dispatch_with_status(
+        app_data_dir,
+        workspace_id,
+        conversation_id,
+        message_id,
+        source_message_ids,
+        target_resolution,
+        DispatchRequestStatus::Failed,
+    )?;
+
+    mark_dispatch_failed(app_data_dir, &dispatch, error)
+}
+
 pub fn dispatches_for_message(
     app_data_dir: &Path,
     workspace_id: &str,
@@ -613,6 +635,7 @@ fn target_source_to_str(source: &DispatchTargetResolutionSource) -> &'static str
     match source {
         DispatchTargetResolutionSource::UserSelected => "user_selected",
         DispatchTargetResolutionSource::ExplicitMention => "explicit_mention",
+        DispatchTargetResolutionSource::AllMention => "all_mention",
         DispatchTargetResolutionSource::PrivateConversation => "private_conversation",
         DispatchTargetResolutionSource::ConversationDefault => "conversation_default",
         DispatchTargetResolutionSource::WorkspaceDefault => "workspace_default",
@@ -622,6 +645,7 @@ fn target_source_to_str(source: &DispatchTargetResolutionSource) -> &'static str
 fn target_source_from_str(value: &str) -> DispatchTargetResolutionSource {
     match value {
         "explicit_mention" => DispatchTargetResolutionSource::ExplicitMention,
+        "all_mention" => DispatchTargetResolutionSource::AllMention,
         "private_conversation" => DispatchTargetResolutionSource::PrivateConversation,
         "conversation_default" => DispatchTargetResolutionSource::ConversationDefault,
         "workspace_default" => DispatchTargetResolutionSource::WorkspaceDefault,

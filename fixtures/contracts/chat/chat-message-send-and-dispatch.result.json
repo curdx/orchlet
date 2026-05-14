@@ -1,0 +1,80 @@
+{
+  "message": {
+    "messageId": "01K00000000000000000000070",
+    "workspaceId": "01K00000000000000000000000",
+    "conversationId": "01K00000000000000000000050",
+    "authorMemberId": "01K00000000000000000000030",
+    "body": "Ship it",
+    "mentionedMemberIds": ["01K00000000000000000000031"],
+    "status": "sent",
+    "createdAtMs": 1760000011000,
+    "updatedAtMs": 1760000011000
+  },
+  "conversation": {
+    "conversationId": "01K00000000000000000000050",
+    "workspaceId": "01K00000000000000000000000",
+    "kind": "channel",
+    "title": "默认频道",
+    "isDefault": true,
+    "isPinned": true,
+    "isMuted": false,
+    "unreadCount": 0,
+    "lastMessagePreview": "Ship it",
+    "participantKind": null,
+    "participantId": null,
+    "members": [],
+    "createdAtMs": 1760000007000,
+    "updatedAtMs": 1760000011000,
+    "lastActivityAtMs": 1760000011000
+  },
+  "readPosition": {
+    "workspaceId": "01K00000000000000000000000",
+    "conversationId": "01K00000000000000000000050",
+    "lastReadMessageId": "01K00000000000000000000070",
+    "lastReadAtMs": 1760000011000,
+    "updatedAtMs": 1760000011000
+  },
+  "dispatches": [
+    {
+      "dispatch": {
+        "schemaVersion": 1,
+        "dispatchRequestId": "01K00000000000000000000090",
+        "workspaceId": "01K00000000000000000000000",
+        "conversationId": "01K00000000000000000000050",
+        "messageId": "01K00000000000000000000070",
+        "sourceMessageIds": ["01K00000000000000000000070"],
+        "memberId": "01K00000000000000000000031",
+        "targetResolution": {
+          "memberId": "01K00000000000000000000031",
+          "source": "explicitMention",
+          "reason": "消息明确提及 Codex Reviewer。"
+        },
+        "status": "dispatched",
+        "terminalSessionId": "01K00000000000000000000080",
+        "failure": null,
+        "createdAtMs": 1760000012000,
+        "updatedAtMs": 1760000012001
+      },
+      "terminalSession": {
+        "schemaVersion": 1,
+        "terminalSessionId": "01K00000000000000000000080",
+        "workspaceId": "01K00000000000000000000000",
+        "memberId": "01K00000000000000000000031",
+        "title": "Codex Reviewer",
+        "status": "running",
+        "cols": 120,
+        "rows": 30,
+        "snapshot": {
+          "lastSeq": 1,
+          "text": "ready\n",
+          "truncated": false,
+          "updatedAtMs": 1760000012000
+        },
+        "exitReason": null,
+        "createdAtMs": 1760000012000,
+        "updatedAtMs": 1760000012001
+      },
+      "sessionCreated": true
+    }
+  ]
+}

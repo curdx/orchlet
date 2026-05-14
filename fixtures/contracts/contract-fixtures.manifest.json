@@ -851,6 +851,17 @@
     },
     {
       "domain": "chat",
+      "command": "chat_message_send_and_dispatch",
+      "requestFixture": "fixtures/contracts/chat/chat-message-send-and-dispatch.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-message-send-and-dispatch.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-message-send-and-dispatch.error.json",
+      "rustRequestDto": "SendMessageAndDispatchRequest",
+      "rustSuccessDto": "SendMessageAndDispatchResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR23", "FR45", "FR51", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
       "command": "chat_messages_page",
       "requestFixture": "fixtures/contracts/chat/chat-messages-page.request.json",
       "successResultFixture": "fixtures/contracts/chat/chat-messages-page.result.json",

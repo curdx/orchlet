@@ -61,6 +61,8 @@ import type {
   RemoveMemberRequest,
   RemoveMemberResult,
   SendMessageRequest,
+  SendMessageAndDispatchRequest,
+  SendMessageAndDispatchResult,
   SendMessageResult,
   CreateRoadmapGoalResult,
   CreateRoadmapTaskResult,
@@ -324,6 +326,9 @@ function renderWorkspaceSelection(api: {
     ) => Promise<ClearWorkspaceChatDataResult>;
     deleteConversation: (request: DeleteConversationRequest) => Promise<DeleteConversationResult>;
     sendMessage: (request: SendMessageRequest) => Promise<SendMessageResult>;
+    sendMessageAndDispatch: (
+      request: SendMessageAndDispatchRequest,
+    ) => Promise<SendMessageAndDispatchResult>;
     listMessages: (request: ListMessagesRequest) => Promise<ListMessagesResult>;
     updateReadPosition: (
       request: UpdateReadPositionRequest,
@@ -541,6 +546,8 @@ function renderWorkspaceSelection(api: {
             Promise.reject(new Error("clearWorkspaceData mock missing")),
           deleteConversation: () => Promise.reject(new Error("deleteConversation mock missing")),
           sendMessage: () => Promise.reject(new Error("sendMessage mock missing")),
+          sendMessageAndDispatch: () =>
+            Promise.reject(new Error("sendMessageAndDispatch mock missing")),
           listMessages: () =>
             Promise.resolve({
               messages: [],
@@ -3830,8 +3837,8 @@ describe("App workspace entry", () => {
     const olderPromise = new Promise<ListMessagesResult>((resolve) => {
       resolveOlder = resolve;
     });
-    let resolveSend!: (result: SendMessageResult) => void;
-    const sendPromise = new Promise<SendMessageResult>((resolve) => {
+    let resolveSend!: (result: SendMessageAndDispatchResult) => void;
+    const sendPromise = new Promise<SendMessageAndDispatchResult>((resolve) => {
       resolveSend = resolve;
     });
     const listMessages = vi.fn((request: ListMessagesRequest) => {
@@ -3847,7 +3854,7 @@ describe("App workspace entry", () => {
         conversation: channel,
       } satisfies ListMessagesResult);
     });
-    const sendMessage = vi.fn(() => sendPromise);
+    const sendMessageAndDispatch = vi.fn(() => sendPromise);
     const updateReadPosition = vi.fn(() =>
       Promise.resolve({
         readPosition: readPosition({
@@ -3867,7 +3874,7 @@ describe("App workspace entry", () => {
       chatApi: {
         listConversations: () => Promise.resolve({ conversations: [channel] }),
         listMessages,
-        sendMessage,
+        sendMessageAndDispatch,
         updateReadPosition,
       },
     });
@@ -3905,11 +3912,12 @@ describe("App workspace entry", () => {
     await user.type(composer, "Ship it");
     await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
     expect(await within(messageLog).findByText("sending")).toBeInTheDocument();
-    expect(sendMessage).toHaveBeenCalledWith({
+    expect(sendMessageAndDispatch).toHaveBeenCalledWith({
       workspaceId: "01K00000000000000000000000",
       conversationId: channel.conversationId,
       body: "Ship it",
       mentionedMemberIds: [],
+      mentionAll: false,
     });
 
     resolveSend({
@@ -3925,6 +3933,7 @@ describe("App workspace entry", () => {
         lastReadMessageId: sentMessage.messageId,
         lastReadAtMs: sentMessage.createdAtMs,
       }),
+      dispatches: [],
     });
 
     expect((await within(messageLog).findAllByText("sent")).length).toBeGreaterThan(0);
@@ -3934,12 +3943,13 @@ describe("App workspace entry", () => {
   it("updates chat send keyboard behavior from shortcut preferences", async () => {
     const user = userEvent.setup();
     const channel = defaultChannel();
-    const sendMessage = vi.fn(() =>
+    const sendMessageAndDispatch = vi.fn(() =>
       Promise.resolve({
         message: chatMessage({ body: "Ship it" }),
         conversation: channel,
         readPosition: readPosition(),
-      } satisfies SendMessageResult),
+        dispatches: [],
+      } satisfies SendMessageAndDispatchResult),
     );
 
     renderWorkspaceSelection({
@@ -3953,7 +3963,7 @@ describe("App workspace entry", () => {
       },
       chatApi: {
         listConversations: () => Promise.resolve({ conversations: [channel] }),
-        sendMessage,
+        sendMessageAndDispatch,
       },
     });
 
@@ -3964,15 +3974,16 @@ describe("App workspace entry", () => {
     await user.type(composer, "Ship it");
 
     fireEvent.keyDown(composer, { key: "Enter" });
-    expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendMessageAndDispatch).not.toHaveBeenCalled();
 
     fireEvent.keyDown(composer, { key: "Enter", ctrlKey: true });
     await waitFor(() => {
-      expect(sendMessage).toHaveBeenCalledWith({
+      expect(sendMessageAndDispatch).toHaveBeenCalledWith({
         workspaceId: "01K00000000000000000000000",
         conversationId: channel.conversationId,
         body: "Ship it",
         mentionedMemberIds: [],
+        mentionAll: false,
       });
     });
   });
@@ -4054,11 +4065,6 @@ describe("App workspace entry", () => {
             terminalMemberId: null,
             workspacePath: "/tmp/orchlet-demo",
             conversationType: "channel",
-            memberCount: null,
-            senderId: null,
-            senderName: null,
-            senderAvatar: null,
-            senderCanOpenTerminal: false,
             updatedAtMs: channel.updatedAtMs,
           },
           {
@@ -4069,16 +4075,10 @@ describe("App workspace entry", () => {
             terminalMemberId: null,
             workspacePath: "/tmp/orchlet-demo",
             conversationType: "group",
-            memberCount: null,
-            senderId: null,
-            senderName: null,
-            senderAvatar: null,
-            senderCanOpenTerminal: false,
             updatedAtMs: projectRoom.updatedAtMs,
           },
         ],
         sourceWindowLabel: "main",
-        avatarPng: null,
       }),
     );
   });
@@ -4141,7 +4141,6 @@ describe("App workspace entry", () => {
         workspaceName: "orchlet-demo",
         conversations: [],
         sourceWindowLabel: "main",
-        avatarPng: null,
       }),
     );
     expect(screen.getByLabelText("工作区未读总数")).toHaveTextContent("未读 0");
@@ -5883,6 +5882,129 @@ describe("App workspace entry", () => {
     ).toBeInTheDocument();
   });
 
+  it("auto-dispatches a sent private conversation message to the member terminal", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const privateConversation = conversationProfile({
+      conversationId: "01KPRIVATE000000000000001",
+      title: "Reviewer",
+      kind: "private",
+      participantKind: "member",
+      participantId: reviewer.memberId,
+    });
+    const sentMessage = chatMessage({
+      messageId: "01K00000000000000000000075",
+      conversationId: privateConversation.conversationId,
+      body: "Please inspect this context",
+      mentionedMemberIds: [],
+      createdAtMs: 1760000005000,
+      updatedAtMs: 1760000005000,
+    });
+    const sentDispatch: DispatchChatMessageResult = {
+      dispatch: {
+        schemaVersion: 1,
+        dispatchRequestId: "01KDISPATCH00000000000008",
+        workspaceId: privateConversation.workspaceId,
+        conversationId: privateConversation.conversationId,
+        messageId: sentMessage.messageId,
+        sourceMessageIds: [sentMessage.messageId],
+        memberId: reviewer.memberId,
+        targetResolution: {
+          memberId: reviewer.memberId,
+          source: "privateConversation",
+          reason: "当前私聊对象 Reviewer 是可运行终端的成员。",
+        },
+        status: "dispatched",
+        terminalSessionId: "01KTERMINAL00000000000014",
+        failure: null,
+        createdAtMs: 1760000005000,
+        updatedAtMs: 1760000005001,
+      },
+      terminalSession: terminalOpenResult({
+        session: {
+          ...terminalOpenResult().session,
+          terminalSessionId: "01KTERMINAL00000000000014",
+          memberId: reviewer.memberId,
+          title: "Reviewer",
+        },
+      }).session,
+      sessionCreated: true,
+    };
+    const sendMessageAndDispatch = vi.fn(() =>
+      Promise.resolve({
+        message: sentMessage,
+        conversation: {
+          ...privateConversation,
+          lastMessagePreview: sentMessage.body,
+          lastActivityAtMs: sentMessage.createdAtMs,
+          updatedAtMs: sentMessage.updatedAtMs,
+        },
+        readPosition: readPosition({
+          conversationId: privateConversation.conversationId,
+          lastReadMessageId: sentMessage.messageId,
+          lastReadAtMs: sentMessage.createdAtMs,
+        }),
+        dispatches: [sentDispatch],
+      } satisfies SendMessageAndDispatchResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [privateConversation] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: privateConversation,
+          }),
+        sendMessageAndDispatch,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.type(within(conversationPanel).getByLabelText("输入消息"), sentMessage.body);
+    await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(sendMessageAndDispatch).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: privateConversation.conversationId,
+        body: sentMessage.body,
+        mentionedMemberIds: [],
+        mentionAll: false,
+      });
+    });
+    expect(
+      await within(conversationPanel).findByText(
+        "当前私聊对象 Reviewer 是可运行终端的成员。",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("asks for target selection when mentioned dispatch targets are ambiguous", async () => {
     const user = userEvent.setup();
     const reviewer = memberProfile({
@@ -6029,7 +6151,7 @@ describe("App workspace entry", () => {
       },
     });
     const channel = defaultChannel();
-    const sendMessage = vi.fn((request: SendMessageRequest) =>
+    const sendMessageAndDispatch = vi.fn((request: SendMessageAndDispatchRequest) =>
       Promise.resolve({
         message: chatMessage({
           messageId: "01K00000000000000000000074",
@@ -6048,7 +6170,8 @@ describe("App workspace entry", () => {
           lastReadMessageId: "01K00000000000000000000074",
           lastReadAtMs: 1760000004000,
         }),
-      } satisfies SendMessageResult),
+        dispatches: [],
+      } satisfies SendMessageAndDispatchResult),
     );
 
     renderWorkspaceSelection({
@@ -6059,7 +6182,7 @@ describe("App workspace entry", () => {
       },
       chatApi: {
         listConversations: () => Promise.resolve({ conversations: [channel] }),
-        sendMessage,
+        sendMessageAndDispatch,
       },
     });
 
@@ -6082,29 +6205,104 @@ describe("App workspace entry", () => {
 
     await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
 
-    expect(sendMessage).toHaveBeenCalledWith({
+    expect(sendMessageAndDispatch).toHaveBeenCalledWith({
       workspaceId: "01K00000000000000000000000",
       conversationId: channel.conversationId,
       body: "@Reviewer please review",
       mentionedMemberIds: [reviewer.memberId],
+      mentionAll: false,
     });
   });
 
-  it("shows explicit MVP abandonment for @all without sending", async () => {
+  it("sends @all as a structured fan-out request", async () => {
     const user = userEvent.setup();
-    const sendMessage = vi.fn(() =>
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+    });
+    const builder = memberProfile({
+      memberId: "01KMEMBER000000000000000011",
+      role: "assistant",
+      displayName: "Builder",
+      instanceLabel: "Builder",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "gemini",
+        label: "Gemini CLI",
+        command: "gemini",
+      },
+    });
+    const channel = defaultChannel();
+    const sentMessage = chatMessage({
+      messageId: "01K00000000000000000000076",
+      body: "please review @all",
+      mentionedMemberIds: [],
+      createdAtMs: 1760000006000,
+      updatedAtMs: 1760000006000,
+    });
+    const sendMessageAndDispatch = vi.fn((request: SendMessageAndDispatchRequest) =>
       Promise.resolve({
-        message: chatMessage(),
-        conversation: defaultChannel(),
-        readPosition: readPosition(),
-      } satisfies SendMessageResult),
+        message: sentMessage,
+        conversation: {
+          ...channel,
+          lastMessagePreview: request.body,
+          lastActivityAtMs: sentMessage.createdAtMs,
+          updatedAtMs: sentMessage.updatedAtMs,
+        },
+        readPosition: readPosition({
+          lastReadMessageId: sentMessage.messageId,
+          lastReadAtMs: sentMessage.createdAtMs,
+        }),
+        dispatches: [reviewer, builder].map((member, index) => ({
+          dispatch: {
+            schemaVersion: 1,
+            dispatchRequestId: `01KDISPATCH0000000000001${index}`,
+            workspaceId: channel.workspaceId,
+            conversationId: channel.conversationId,
+            messageId: sentMessage.messageId,
+            sourceMessageIds: [sentMessage.messageId],
+            memberId: member.memberId,
+            targetResolution: {
+              memberId: member.memberId,
+              source: "allMention",
+              reason: `@all 指向可运行终端的成员 ${member.instanceLabel}。`,
+            },
+            status: "dispatched",
+            terminalSessionId: `01KTERMINAL0000000000001${index}`,
+            failure: null,
+            createdAtMs: 1760000006000,
+            updatedAtMs: 1760000006001,
+          },
+          terminalSession: terminalOpenResult({
+            session: {
+              ...terminalOpenResult().session,
+              terminalSessionId: `01KTERMINAL0000000000001${index}`,
+              memberId: member.memberId,
+              title: member.instanceLabel,
+            },
+          }).session,
+          sessionCreated: true,
+        })),
+      } satisfies SendMessageAndDispatchResult),
     );
 
     renderWorkspaceSelection({
       getWorkspaceSelectionStatus: () => Promise.resolve(status),
       pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [reviewer, builder] }),
+      },
       chatApi: {
-        sendMessage,
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        sendMessageAndDispatch,
       },
     });
 
@@ -6113,13 +6311,18 @@ describe("App workspace entry", () => {
     const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
     await user.type(within(conversationPanel).getByLabelText("输入消息"), "please review @all");
 
-    expect(within(conversationPanel).getByText(/@all 暂未在 MVP 中启用/))
-      .toBeInTheDocument();
-
     await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
 
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(await screen.findByRole("status")).toHaveTextContent("@all 暂未启用");
+    expect(sendMessageAndDispatch).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: channel.conversationId,
+      body: "please review @all",
+      mentionedMemberIds: [],
+      mentionAll: true,
+    });
+    expect(await within(conversationPanel).findByText(/已派发到 Reviewer, Builder/))
+      .toBeInTheDocument();
+    expect(within(conversationPanel).getByText("已派发到 2 个终端成员。")).toBeInTheDocument();
   });
 
   it("supports emoji search, recent emoji cache and Escape close", async () => {
@@ -6229,14 +6432,14 @@ describe("App workspace entry", () => {
   it("keeps a failed message visible when send fails", async () => {
     const user = userEvent.setup();
     const channel = defaultChannel();
-    const sendMessage = vi.fn(() => Promise.reject(new Error("disk full")));
+    const sendMessageAndDispatch = vi.fn(() => Promise.reject(new Error("disk full")));
 
     renderWorkspaceSelection({
       getWorkspaceSelectionStatus: () => Promise.resolve(status),
       pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
       chatApi: {
         listConversations: () => Promise.resolve({ conversations: [channel] }),
-        sendMessage,
+        sendMessageAndDispatch,
         updateReadPosition: () =>
           Promise.resolve({
             readPosition: readPosition(),

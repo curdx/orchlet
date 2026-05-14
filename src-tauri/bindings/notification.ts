@@ -32,7 +32,7 @@ export type NotificationPreferencesUpdateResult = { preferences: NotificationPre
 
 export type NotificationTrayState = { unreadCount: number, badgeLabel: string | null, hasUnread: boolean, };
 
-export type NotificationUnreadConversation = { conversationId: string, title: string, unreadCount: number, lastMessagePreview: string | null, terminalMemberId: string | null, workspacePath?: string | null, conversationType?: string | null, memberCount?: number | null, senderId?: string | null, senderName?: string | null, senderAvatar?: string | null, senderCanOpenTerminal?: boolean | null, updatedAtMs: number, };
+export type NotificationUnreadConversation = { conversationId: string, title: string, unreadCount: number, lastMessagePreview: string | null, terminalMemberId: string | null, workspacePath?: string, conversationType?: string, memberCount?: number, senderId?: string, senderName?: string, senderAvatar?: string, senderCanOpenTerminal?: boolean, updatedAtMs: number, };
 
 export type NotificationUnreadSummary = { schemaVersion: number, workspaceId: string | null, workspaceName: string | null, totalUnreadCount: number, conversations: Array<NotificationUnreadConversation>, tray: NotificationTrayState, updatedAtMs: number, sourceWindowLabel: string | null, };
 
@@ -40,6 +40,6 @@ export type NotificationUnreadSummaryRequest = Record<symbol, never>;
 
 export type NotificationUnreadSummaryResult = { summary: NotificationUnreadSummary, };
 
-export type NotificationUnreadUpdateRequest = { workspaceId: string | null, workspaceName: string | null, conversations: Array<NotificationUnreadConversation>, sourceWindowLabel: string | null, avatarPng?: Array<number> | null, };
+export type NotificationUnreadUpdateRequest = { workspaceId: string | null, workspaceName: string | null, conversations: Array<NotificationUnreadConversation>, sourceWindowLabel: string | null, avatarPng?: Array<number>, };
 
 export type NotificationUnreadUpdateResult = { summary: NotificationUnreadSummary, };

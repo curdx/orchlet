@@ -80,6 +80,7 @@ const requiredCommands = new Set([
   "chat_data_clear",
   "chat_conversation_delete",
   "chat_message_send",
+  "chat_message_send_and_dispatch",
   "chat_messages_page",
   "chat_read_position_update",
   "chat_group_conversation_members_update",

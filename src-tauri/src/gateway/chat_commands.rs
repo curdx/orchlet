@@ -1,25 +1,34 @@
+use std::sync::Arc;
+
 use crate::{
-    app::chat::{
-        clear_workspace_chat_data_use_case, clear_workspace_conversation,
-        create_workspace_group_conversation, delete_workspace_conversation,
-        list_workspace_conversations, list_workspace_messages, repair_workspace_chat_data_use_case,
-        send_workspace_message, start_workspace_private_conversation,
-        update_workspace_conversation_settings, update_workspace_group_conversation_members,
-        update_workspace_read_position,
+    app::{
+        chat::{
+            clear_workspace_chat_data_use_case, clear_workspace_conversation,
+            create_workspace_group_conversation, delete_workspace_conversation,
+            list_workspace_conversations, list_workspace_messages,
+            repair_workspace_chat_data_use_case, send_workspace_message,
+            send_workspace_message_and_dispatch, start_workspace_private_conversation,
+            update_workspace_conversation_settings, update_workspace_group_conversation_members,
+            update_workspace_read_position,
+        },
+        terminal::TerminalRuntimeState,
+        window_context::WindowContextRuntimeState,
     },
     contracts::{
         AppError, ClearConversationRequest, ClearConversationResult, ClearWorkspaceChatDataRequest,
         ClearWorkspaceChatDataResult, CreateGroupConversationRequest,
         CreateGroupConversationResult, DeleteConversationRequest, DeleteConversationResult,
         ListConversationsRequest, ListConversationsResult, ListMessagesRequest, ListMessagesResult,
-        RepairWorkspaceChatDataRequest, RepairWorkspaceChatDataResult, SendMessageRequest,
+        OpenedWorkspace, RepairWorkspaceChatDataRequest, RepairWorkspaceChatDataResult,
+        SendMessageAndDispatchRequest, SendMessageAndDispatchResult, SendMessageRequest,
         SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
         UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
         UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
         UpdateReadPositionRequest, UpdateReadPositionResult,
     },
+    domain::terminal::{TERMINAL_OUTPUT_EVENT, TERMINAL_STATUS_CHANGE_EVENT},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[tauri::command]
 pub fn chat_conversations_list(
@@ -43,6 +52,24 @@ pub fn chat_message_send(
     request: SendMessageRequest,
 ) -> Result<SendMessageResult, AppError> {
     send_workspace_message(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_message_send_and_dispatch(
+    app: AppHandle,
+    window_context_state: State<'_, WindowContextRuntimeState>,
+    terminal_state: State<'_, TerminalRuntimeState>,
+    request: SendMessageAndDispatchRequest,
+) -> Result<SendMessageAndDispatchResult, AppError> {
+    let workspace = active_workspace(&window_context_state)?;
+    send_workspace_message_and_dispatch(
+        app_data_dir(&app)?,
+        &workspace,
+        request,
+        &terminal_state,
+        terminal_output_sink(&app),
+        terminal_status_sink(&app),
+    )
 }
 
 #[tauri::command]
@@ -125,5 +152,36 @@ fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, AppError> {
             "会话操作未完成；请检查系统应用数据目录权限后重试。",
             Some(error.to_string()),
         )
+    })
+}
+
+fn active_workspace(
+    window_context_state: &WindowContextRuntimeState,
+) -> Result<OpenedWorkspace, AppError> {
+    window_context_state.active_workspace().ok_or_else(|| {
+        AppError::recoverable_error(
+            "chat.workspace.required",
+            "发送消息前需要先打开工作区。",
+            "请先选择并打开一个工作区，然后再发送消息。",
+            None,
+        )
+    })
+}
+
+fn terminal_output_sink(
+    app: &AppHandle,
+) -> Arc<dyn Fn(crate::contracts::TerminalOutputEventPayload) + Send + Sync> {
+    let app = app.clone();
+    Arc::new(move |event| {
+        let _ = app.emit(TERMINAL_OUTPUT_EVENT, event);
+    })
+}
+
+fn terminal_status_sink(
+    app: &AppHandle,
+) -> Arc<dyn Fn(crate::contracts::TerminalStatusEventPayload) + Send + Sync> {
+    let app = app.clone();
+    Arc::new(move |event| {
+        let _ = app.emit(TERMINAL_STATUS_CHANGE_EVENT, event);
     })
 }

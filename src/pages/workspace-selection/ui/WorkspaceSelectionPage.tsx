@@ -100,7 +100,10 @@ import type {
   RepairWorkspaceChatDataResult,
 } from "../../../contracts/generated/chat";
 import type { ContactKind, ContactProfile } from "../../../contracts/generated/contact";
-import type { DispatchRequestProfile } from "../../../contracts/generated/orchestration";
+import type {
+  DispatchChatMessageResult,
+  DispatchRequestProfile,
+} from "../../../contracts/generated/orchestration";
 import type {
   TerminalOutputEventPayload,
   TerminalSessionStatus,
@@ -116,6 +119,8 @@ import type {
   AppTheme,
   NotificationNavigationAction,
   NotificationPreferencesSnapshot,
+  NotificationUnreadConversation,
+  NotificationUnreadUpdateRequest,
   OpenWorkspaceResult,
   OpenedWorkspace,
   WindowContextSnapshot,
@@ -243,6 +248,7 @@ type WorkspaceSelectionPageProps = {
     | "clearWorkspaceData"
     | "deleteConversation"
     | "sendMessage"
+    | "sendMessageAndDispatch"
     | "listMessages"
     | "updateReadPosition"
     | "updateGroupConversationMembers"
@@ -569,9 +575,13 @@ export function WorkspaceSelectionPage({
   terminalApi: terminalsApi = terminalApi,
   terminalDispatchApi: dispatchApi = terminalDispatchApi,
   contactApi: contactsApi = contactApi,
-  chatApi: conversationsApi = chatApi,
+  chatApi: providedChatApi,
 }: WorkspaceSelectionPageProps) {
   const queryClient = useQueryClient();
+  const conversationsApi = useMemo(
+    () => ({ ...chatApi, ...providedChatApi }),
+    [providedChatApi],
+  );
   const language = windowContext?.preferences.language ?? "zh-CN";
   const text = WORKSPACE_SELECTION_TEXT[language];
   const [isOpening, setIsOpening] = useState(false);
@@ -912,7 +922,7 @@ export function WorkspaceSelectionPage({
 
       return left.terminalSessionId.localeCompare(right.terminalSessionId);
     });
-  const unreadConversations = useMemo(
+  const unreadConversations = useMemo<NotificationUnreadConversation[]>(
     () =>
       conversations
         .filter((conversation) => conversation.unreadCount > 0)
@@ -922,6 +932,21 @@ export function WorkspaceSelectionPage({
               ? profiledMembers.find((member) => member.memberId === conversation.participantId)
               : null;
           const terminalMemberId = participantMember?.memberId ?? null;
+          const optionalMetadata = {
+            ...(activeWorkspace?.rootPath ? { workspacePath: activeWorkspace.rootPath } : {}),
+            conversationType: conversation.kind,
+            ...(conversation.members.length > 0
+              ? { memberCount: conversation.members.length }
+              : {}),
+            ...(participantMember
+              ? {
+                  senderId: participantMember.memberId,
+                  senderName: participantMember.displayName,
+                  senderAvatar: memberFriendAvatar(participantMember),
+                  senderCanOpenTerminal: isTerminalCapableMember(participantMember),
+                }
+              : {}),
+          };
 
           return {
             conversationId: conversation.conversationId,
@@ -929,15 +954,7 @@ export function WorkspaceSelectionPage({
             unreadCount: conversation.unreadCount,
             lastMessagePreview: conversation.lastMessagePreview,
             terminalMemberId,
-            workspacePath: activeWorkspace?.rootPath ?? null,
-            conversationType: conversation.kind,
-            memberCount: conversation.members.length > 0 ? conversation.members.length : null,
-            senderId: participantMember?.memberId ?? null,
-            senderName: participantMember?.displayName ?? null,
-            senderAvatar: participantMember ? memberFriendAvatar(participantMember) : null,
-            senderCanOpenTerminal: participantMember
-              ? isTerminalCapableMember(participantMember)
-              : false,
+            ...optionalMetadata,
             updatedAtMs: conversation.updatedAtMs,
           };
         }),
@@ -1253,12 +1270,11 @@ export function WorkspaceSelectionPage({
   useEffect(() => {
     let cancelled = false;
     const avatarKey = unreadConversations[0]?.senderAvatar ?? null;
-    const request = {
+    const request: NotificationUnreadUpdateRequest = {
       workspaceId: activeWorkspaceId,
       workspaceName: activeWorkspace?.metadata.name ?? null,
       conversations: activeWorkspaceId ? unreadConversations : [],
       sourceWindowLabel: windowContext?.currentWindow.label ?? "main",
-      avatarPng: null as number[] | null,
     };
     const publishKey = JSON.stringify({ ...request, avatarKey });
 
@@ -1270,9 +1286,13 @@ export function WorkspaceSelectionPage({
     lastUnreadPublishKeyRef.current = publishKey;
 
     async function publishUnreadSummary() {
-      request.avatarPng = await renderNotificationAvatarPng(avatarKey);
+      const avatarPng = await renderNotificationAvatarPng(avatarKey);
       if (cancelled) {
         return;
+      }
+
+      if (avatarPng) {
+        request.avatarPng = avatarPng;
       }
 
       notificationsApi.updateUnreadSummary(request).catch((error) => {
@@ -2837,15 +2857,7 @@ export function WorkspaceSelectionPage({
       return;
     }
 
-    if (hasAllMentionToken(body)) {
-      showToast({
-        tone: "warning",
-        title: "@all 暂未启用",
-        message: "请选择具体成员提及；群体派发会在后续编排故事中明确实现。",
-      });
-      return;
-    }
-
+    const mentionAll = hasAllMentionToken(body);
     const timestamp = Date.now();
     const pendingMessage: ChatMessageProfile = {
       messageId: `pending-${timestamp}`,
@@ -2866,11 +2878,12 @@ export function WorkspaceSelectionPage({
     setMessages((current) => mergeMessagePages(current, [pendingMessage]));
 
     try {
-      const result = await conversationsApi.sendMessage({
+      const result = await conversationsApi.sendMessageAndDispatch({
         workspaceId: activeWorkspaceId,
         conversationId: selectedConversation.conversationId,
         body,
         mentionedMemberIds,
+        mentionAll,
       });
 
       setMessages((current) =>
@@ -2888,6 +2901,11 @@ export function WorkspaceSelectionPage({
               conversation: result.conversation,
             }
           : current,
+      );
+      applySendDispatchStates(
+        result.message,
+        result.dispatches,
+        mentionAll || mentionedMemberIds.length > 0 || selectedConversation.kind === "private",
       );
     } catch (error) {
       const appError = normalizeAppError(error);
@@ -2908,6 +2926,40 @@ export function WorkspaceSelectionPage({
     } finally {
       setIsSendingMessage(false);
     }
+  }
+
+  function applySendDispatchStates(
+    message: ChatMessageProfile,
+    dispatches: DispatchChatMessageResult[],
+    shouldHaveDispatch: boolean,
+  ) {
+    const dispatchState = stateForDispatchResults(dispatches, profiledMembers);
+    if (dispatchState) {
+      setMessageDispatchStates((current) => ({
+        ...current,
+        [message.messageId]: dispatchState,
+      }));
+      return;
+    }
+
+    if (!shouldHaveDispatch) {
+      return;
+    }
+
+    setMessageDispatchStates((current) => ({
+      ...current,
+      [message.messageId]: {
+        status: "failed",
+        message: "没有找到可派发的终端成员。",
+        userAction: "请确认会话成员已配置 CLI 或 Shell 运行时后重试。",
+      },
+    }));
+    showToast({
+      tone: "warning",
+      title: "没有可派发目标",
+      message: "消息已保存，但没有找到可派发的终端成员。",
+      action: "请确认成员运行时配置后重试。",
+    });
   }
 
   async function handleDispatchMessage(message: ChatMessageProfile, selectedMemberId?: string) {
@@ -9476,7 +9528,6 @@ function ChatWorkbenchParity({
   const selectedMentionMembers = mentionedMemberIds
     .map((memberId) => members.find((member) => member.memberId === memberId))
     .filter((member): member is MemberProfile => Boolean(member));
-  const hasUnsupportedAllMention = hasAllMentionToken(messageDraft);
   const filteredEmojiEntries = golutraEmojiSearchEntries(
     emojiSearch,
     activeEmojiGroupId,
@@ -9827,11 +9878,6 @@ function ChatWorkbenchParity({
                 ),
               )}
             </div>
-          ) : null}
-          {hasUnsupportedAllMention ? (
-            <p className="chat-workbench-parity__input-warning">
-              {text.unsupportedAllMention}
-            </p>
           ) : null}
           {isEmojiPanelOpen ? (
             <div className="chat-workbench-parity__emoji-panel" role="dialog" aria-label={text.emojiPanel}>
@@ -12818,7 +12864,6 @@ function ConversationPanel({
   const selectedMentionMembers = mentionedMemberIds
     .map((memberId) => members.find((member) => member.memberId === memberId))
     .filter((member): member is MemberProfile => Boolean(member));
-  const hasUnsupportedAllMention = hasAllMentionToken(messageDraft);
   const hasTimelineEntries = messages.length > 0 || terminalStreams.length > 0;
   const filteredEmojiOptions = emojiOptions.filter((option) => {
     const query = emojiSearch.trim().toLocaleLowerCase();
@@ -13350,12 +13395,6 @@ function ConversationPanel({
                 </div>
               ) : null}
 
-              {hasUnsupportedAllMention ? (
-                <p className="rounded-md border border-[#e0c37b] bg-[#fff8e6] px-3 py-2 text-xs font-medium text-[#765400]">
-                  @all 暂未在 MVP 中启用，请选择具体成员。
-                </p>
-              ) : null}
-
               <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
                 输入消息
                 <textarea
@@ -13815,6 +13854,112 @@ function terminalMemberLabel(
     members.find((member) => member.memberId === memberId)?.instanceLabel ??
     fallbackTitle ??
     shortId(memberId)
+  );
+}
+
+function stateForDispatchResults(
+  dispatches: DispatchChatMessageResult[],
+  members: MemberProfile[],
+): MessageDispatchState | null {
+  if (dispatches.length === 0) {
+    return null;
+  }
+
+  if (dispatches.length === 1) {
+    return stateForDispatchProfileWithMembers(dispatches[0].dispatch, members);
+  }
+
+  const profiles = dispatches.map((dispatch) => dispatch.dispatch);
+  const labels = profiles.map((dispatch) => dispatchMemberLabel(dispatch, members));
+  const failed = profiles.filter((dispatch) => dispatch.status === "failed");
+  if (failed.length > 0) {
+    return {
+      status: "failed",
+      memberLabel: labels.join(", "),
+      message:
+        failed.length === 1
+          ? (failed[0].failure?.message ?? "派发未能启动。")
+          : `${failed.length} 个目标派发失败。`,
+      userAction: failed[0].failure?.userAction ?? "请修复问题后重试派发。",
+    };
+  }
+
+  const queued = profiles.filter((dispatch) => dispatch.status === "queued");
+  if (queued.length > 0) {
+    return {
+      status: "queued",
+      memberLabel: labels.join(", "),
+      message: `${queued.length} 个目标正在工作中，任务已加入队列。`,
+      userAction: "成员设为在线后会继续下一条队列任务。",
+    };
+  }
+
+  const skipped = profiles.filter((dispatch) => dispatch.status === "skipped");
+  if (skipped.length > 0) {
+    const dispatchedCount = profiles.filter(
+      (dispatch) => dispatch.status === "dispatched",
+    ).length;
+    return {
+      status: "skipped",
+      memberLabel: labels.join(", "),
+      message:
+        skipped.length === profiles.length
+          ? "所有目标正在请勿打扰，派发已跳过。"
+          : `${dispatchedCount} 个目标已派发，${skipped.length} 个目标因请勿打扰被跳过。`,
+      userAction:
+        skipped.length === profiles.length
+          ? "成员可用后可重新派发。"
+          : "被跳过的成员可用后可重新派发。",
+    };
+  }
+
+  return {
+    status: "dispatched",
+    memberLabel: labels.join(", "),
+    terminalSessionId: profiles.length === 1 ? profiles[0].terminalSessionId : null,
+    message: `已派发到 ${labels.length} 个终端成员。`,
+  };
+}
+
+function stateForDispatchProfileWithMembers(
+  dispatch: DispatchRequestProfile,
+  members: MemberProfile[],
+): MessageDispatchState {
+  const member = members.find((candidate) => candidate.memberId === dispatch.memberId);
+
+  if (member) {
+    return stateForDispatchProfile(dispatch, member);
+  }
+
+  const memberLabel = shortId(dispatch.memberId);
+  if (dispatch.status === "failed") {
+    return {
+      status: "failed",
+      dispatchRequestId: dispatch.dispatchRequestId,
+      memberId: dispatch.memberId,
+      memberLabel,
+      message: dispatch.failure?.message ?? "派发未能启动。",
+      userAction: dispatch.failure?.userAction ?? "请修复问题后重试派发。",
+    };
+  }
+
+  return {
+    status:
+      dispatch.status === "queued" || dispatch.status === "skipped"
+        ? dispatch.status
+        : "dispatched",
+    dispatchRequestId: dispatch.dispatchRequestId,
+    memberId: dispatch.memberId,
+    memberLabel,
+    terminalSessionId: dispatch.terminalSessionId,
+    message: dispatch.targetResolution.reason,
+  };
+}
+
+function dispatchMemberLabel(dispatch: DispatchRequestProfile, members: MemberProfile[]) {
+  return (
+    members.find((member) => member.memberId === dispatch.memberId)?.instanceLabel ??
+    shortId(dispatch.memberId)
   );
 }
 

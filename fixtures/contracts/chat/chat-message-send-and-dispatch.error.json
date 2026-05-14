@@ -1,0 +1,9 @@
+{
+  "code": "chat.workspace.required",
+  "message": "发送消息前需要先打开工作区。",
+  "userAction": "请先选择并打开一个工作区，然后再发送消息。",
+  "details": null,
+  "correlationId": null,
+  "recoverable": true,
+  "severity": "warning"
+}

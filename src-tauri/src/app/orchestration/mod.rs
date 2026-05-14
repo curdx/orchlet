@@ -8,8 +8,10 @@ use crate::{
         DispatchQueueResumeResult, DispatchRequestProfile, DispatchTargetResolutionProfile,
         MemberProfile, MemberStatus, OpenedWorkspace, TerminalInputRequest, TerminalOpenRequest,
     },
+    domain::chat::has_all_mention_token,
     domain::orchestration::{
-        normalize_dispatch_payload, resolve_dispatch_target, validate_dispatch_scope,
+        normalize_dispatch_payload, plan_send_dispatch_targets, resolve_dispatch_target,
+        validate_dispatch_scope,
     },
     infrastructure::persistence::sqlite::{
         conversation_repository::{
@@ -27,6 +29,12 @@ use crate::{
 
 const DISPATCH_MERGE_LOOKBACK_LIMIT: u32 = 8;
 const DISPATCH_MERGE_WINDOW_MS: u64 = 5 * 60 * 1000;
+
+#[derive(Clone, Copy)]
+enum DispatchMergeMode {
+    ManualFallback,
+    SendFanOut,
+}
 
 pub fn dispatch_chat_message(
     app_data_dir: PathBuf,
@@ -60,10 +68,130 @@ pub fn dispatch_chat_message(
         &conversation,
         &members,
     )?;
+    dispatch_chat_message_with_target_resolution(
+        app_data_dir,
+        workspace,
+        &request,
+        message,
+        conversation,
+        members,
+        target_resolution,
+        DispatchMergeMode::ManualFallback,
+        terminal_state,
+        event_sink,
+        status_sink,
+    )
+}
+
+pub fn dispatch_chat_message_to_resolved_target(
+    app_data_dir: PathBuf,
+    workspace: &OpenedWorkspace,
+    request: DispatchChatMessageRequest,
+    target_resolution: DispatchTargetResolutionProfile,
+    terminal_state: &TerminalRuntimeState,
+    event_sink: TerminalEventSink,
+    status_sink: TerminalStatusSink,
+) -> Result<DispatchChatMessageResult, AppError> {
+    dispatch_chat_message_to_resolved_target_with_merge(
+        app_data_dir,
+        workspace,
+        request,
+        target_resolution,
+        DispatchMergeMode::ManualFallback,
+        terminal_state,
+        event_sink,
+        status_sink,
+    )
+}
+
+pub fn dispatch_chat_message_to_resolved_target_for_send(
+    app_data_dir: PathBuf,
+    workspace: &OpenedWorkspace,
+    request: DispatchChatMessageRequest,
+    target_resolution: DispatchTargetResolutionProfile,
+    terminal_state: &TerminalRuntimeState,
+    event_sink: TerminalEventSink,
+    status_sink: TerminalStatusSink,
+) -> Result<DispatchChatMessageResult, AppError> {
+    dispatch_chat_message_to_resolved_target_with_merge(
+        app_data_dir,
+        workspace,
+        request,
+        target_resolution,
+        DispatchMergeMode::SendFanOut,
+        terminal_state,
+        event_sink,
+        status_sink,
+    )
+}
+
+fn dispatch_chat_message_to_resolved_target_with_merge(
+    app_data_dir: PathBuf,
+    workspace: &OpenedWorkspace,
+    request: DispatchChatMessageRequest,
+    target_resolution: DispatchTargetResolutionProfile,
+    merge_mode: DispatchMergeMode,
+    terminal_state: &TerminalRuntimeState,
+    event_sink: TerminalEventSink,
+    status_sink: TerminalStatusSink,
+) -> Result<DispatchChatMessageResult, AppError> {
+    validate_dispatch_scope(
+        &workspace.metadata.project_id,
+        &request.workspace_id,
+        &request.conversation_id,
+        &request.message_id,
+    )?;
+    let message = message_by_id(
+        &app_data_dir,
+        &request.workspace_id,
+        &request.conversation_id,
+        &request.message_id,
+    )?;
+    let conversation = conversation_by_id(
+        &app_data_dir,
+        &request.workspace_id,
+        &request.conversation_id,
+    )?;
+    let members = initialize_member_store(&app_data_dir, &request.workspace_id)?.members;
+    dispatch_chat_message_with_target_resolution(
+        app_data_dir,
+        workspace,
+        &request,
+        message,
+        conversation,
+        members,
+        target_resolution,
+        merge_mode,
+        terminal_state,
+        event_sink,
+        status_sink,
+    )
+}
+
+fn dispatch_chat_message_with_target_resolution(
+    app_data_dir: PathBuf,
+    workspace: &OpenedWorkspace,
+    request: &DispatchChatMessageRequest,
+    message: ChatMessageProfile,
+    conversation: ConversationProfile,
+    members: Vec<MemberProfile>,
+    target_resolution: DispatchTargetResolutionProfile,
+    merge_mode: DispatchMergeMode,
+    terminal_state: &TerminalRuntimeState,
+    event_sink: TerminalEventSink,
+    status_sink: TerminalStatusSink,
+) -> Result<DispatchChatMessageResult, AppError> {
     let target_member = members
         .iter()
         .find(|member| member.member_id == target_resolution.member_id)
-        .expect("target resolution returns a member from members");
+        .ok_or_else(|| {
+            AppError::recoverable_error(
+                "dispatch.target.notFound",
+                "未找到派发目标成员。",
+                "请刷新成员列表后重试。",
+                Some(format!("memberId={}", target_resolution.member_id)),
+            )
+        })?;
 
     if let Some(existing_dispatch) = active_dispatch_for_source_message(
         &app_data_dir,
@@ -81,11 +209,12 @@ pub fn dispatch_chat_message(
 
     let dispatch_plan = build_dispatch_plan(
         &app_data_dir,
-        &request,
+        request,
         &message,
         &conversation,
         &members,
         &target_resolution,
+        merge_mode,
     )?;
 
     if target_member.status == MemberStatus::DoNotDisturb {
@@ -232,6 +361,7 @@ fn build_dispatch_plan(
     conversation: &ConversationProfile,
     members: &[MemberProfile],
     target_resolution: &DispatchTargetResolutionProfile,
+    merge_mode: DispatchMergeMode,
 ) -> Result<DispatchPlan, AppError> {
     let recent_messages = recent_messages_through_message(
         app_data_dir,
@@ -258,15 +388,18 @@ fn build_dispatch_plan(
         let candidate_resolution = if candidate.message_id == message.message_id {
             target_resolution.clone()
         } else {
-            match resolve_dispatch_target(
-                None,
-                &candidate.mentioned_member_ids,
+            let Some(resolution) = resolve_merge_candidate_target(
+                merge_mode,
+                &candidate,
                 conversation,
                 members,
-            ) {
-                Ok(resolution) => resolution,
-                Err(_) => break,
-            }
+                &target_resolution.member_id,
+            )?
+            else {
+                break;
+            };
+
+            resolution
         };
 
         if candidate_resolution.member_id != target_resolution.member_id {
@@ -303,6 +436,34 @@ fn build_dispatch_plan(
         source_message_ids,
         payload,
     })
+}
+
+fn resolve_merge_candidate_target(
+    merge_mode: DispatchMergeMode,
+    candidate: &ChatMessageProfile,
+    conversation: &ConversationProfile,
+    members: &[MemberProfile],
+    target_member_id: &str,
+) -> Result<Option<DispatchTargetResolutionProfile>, AppError> {
+    match merge_mode {
+        DispatchMergeMode::ManualFallback => match resolve_dispatch_target(
+            None,
+            &candidate.mentioned_member_ids,
+            conversation,
+            members,
+        ) {
+            Ok(resolution) => Ok(Some(resolution)),
+            Err(_) => Ok(None),
+        },
+        DispatchMergeMode::SendFanOut => Ok(plan_send_dispatch_targets(
+            has_all_mention_token(&candidate.body),
+            candidate,
+            conversation,
+            members,
+        )
+        .into_iter()
+        .find(|resolution| resolution.member_id == target_member_id)),
+    }
 }
 
 fn dispatch_payload_for_sources(
@@ -431,7 +592,7 @@ mod tests {
         app::{
             chat::{
                 list_workspace_conversations, send_workspace_message,
-                start_workspace_private_conversation,
+                send_workspace_message_and_dispatch, start_workspace_private_conversation,
             },
             members::{invite_workspace_member, update_workspace_member_status},
             orchestration::{dispatch_chat_message, resume_member_dispatch_queue},
@@ -445,9 +606,10 @@ mod tests {
             ConversationParticipantKind, DispatchChatMessageRequest, DispatchQueueResumeRequest,
             DispatchRequestStatus, DispatchTargetResolutionSource, InviteMemberRequest,
             InvitedMemberType, ListConversationsRequest, MemberRuntimeKind, MemberRuntimeProfile,
-            MemberStatus, OpenedWorkspace, SendMessageRequest, StartPrivateConversationRequest,
-            TerminalStreamKind, UpdateMemberStatusRequest, WorkspaceAccessMode, WorkspaceMetadata,
-            WorkspaceRegistryAction, WorkspaceRegistryEntry,
+            MemberStatus, OpenedWorkspace, SendMessageAndDispatchRequest, SendMessageRequest,
+            StartPrivateConversationRequest, TerminalStreamKind, UpdateMemberStatusRequest,
+            WorkspaceAccessMode, WorkspaceMetadata, WorkspaceRegistryAction,
+            WorkspaceRegistryEntry,
         },
         infrastructure::persistence::{
             json_store::terminal_configuration_store::{
@@ -624,6 +786,472 @@ mod tests {
         .expect("persisted dispatches");
         assert_eq!(persisted.len(), 1);
         assert_eq!(persisted[0].status, DispatchRequestStatus::Dispatched);
+    }
+
+    #[test]
+    fn send_and_dispatch_private_conversation_targets_participant() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let conversation = start_workspace_private_conversation(
+            app_data.path(),
+            StartPrivateConversationRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                participant_kind: ConversationParticipantKind::Member,
+                participant_id: member.member_id.clone(),
+            },
+        )
+        .expect("private conversation")
+        .conversation;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = send_workspace_message_and_dispatch(
+            app_data.path().to_path_buf(),
+            &workspace,
+            SendMessageAndDispatchRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Inspect this context".to_owned(),
+                mentioned_member_ids: Vec::new(),
+                mention_all: false,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("send and dispatch");
+
+        assert_eq!(result.message.body, "Inspect this context");
+        assert_eq!(result.dispatches.len(), 1);
+        assert_eq!(
+            result.dispatches[0].dispatch.target_resolution.source,
+            DispatchTargetResolutionSource::PrivateConversation
+        );
+        assert_eq!(result.dispatches[0].dispatch.member_id, member.member_id);
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            ["input:Inspect this context\n"]
+        );
+    }
+
+    #[test]
+    fn send_and_dispatch_plain_channel_message_does_not_use_default_fallback() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member");
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = send_workspace_message_and_dispatch(
+            app_data.path().to_path_buf(),
+            &workspace,
+            SendMessageAndDispatchRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Just noting this for later".to_owned(),
+                mentioned_member_ids: Vec::new(),
+                mention_all: false,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("send without dispatch");
+
+        assert_eq!(result.message.body, "Just noting this for later");
+        assert!(result.dispatches.is_empty());
+        assert!(launcher.operations.lock().expect("operations").is_empty());
+        assert_eq!(terminal_state.session_count(), 0);
+    }
+
+    #[test]
+    fn send_and_dispatch_fans_out_to_multiple_mentions() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let codex_command = available_command(app_data.path(), "codex");
+        let reviewer = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(codex_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("reviewer")
+        .member;
+        let gemini_command = available_command(app_data.path(), "gemini");
+        let builder = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Gemini Builder".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("gemini".to_owned()),
+                    label: Some("Gemini CLI".to_owned()),
+                    command: Some(gemini_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("builder")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = send_workspace_message_and_dispatch(
+            app_data.path().to_path_buf(),
+            &workspace,
+            SendMessageAndDispatchRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "@Reviewer @Builder please split this".to_owned(),
+                mentioned_member_ids: vec![reviewer.member_id.clone(), builder.member_id.clone()],
+                mention_all: false,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("send and fan out");
+
+        let dispatched_member_ids = result
+            .dispatches
+            .iter()
+            .map(|dispatch| dispatch.dispatch.member_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(result.dispatches.len(), 2);
+        assert!(dispatched_member_ids.contains(reviewer.member_id.as_str()));
+        assert!(dispatched_member_ids.contains(builder.member_id.as_str()));
+        assert!(result.dispatches.iter().all(|dispatch| {
+            dispatch.dispatch.target_resolution.source
+                == DispatchTargetResolutionSource::ExplicitMention
+        }));
+        assert_eq!(launcher.operations.lock().expect("operations").len(), 2);
+        let persisted = dispatches_for_message(
+            app_data.path(),
+            &workspace.metadata.project_id,
+            &conversation.conversation_id,
+            &result.message.message_id,
+        )
+        .expect("persisted dispatches");
+        let persisted_member_ids = persisted
+            .iter()
+            .map(|dispatch| dispatch.member_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(persisted.len(), 2);
+        assert!(persisted_member_ids.contains(reviewer.member_id.as_str()));
+        assert!(persisted_member_ids.contains(builder.member_id.as_str()));
+    }
+
+    #[test]
+    fn send_and_dispatch_reports_non_terminal_mention_failure() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let codex_command = available_command(app_data.path(), "codex");
+        let reviewer = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(codex_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("reviewer")
+        .member;
+        let observer = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Observer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::None,
+                    runtime_id: None,
+                    label: None,
+                    command: None,
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("observer")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = send_workspace_message_and_dispatch(
+            app_data.path().to_path_buf(),
+            &workspace,
+            SendMessageAndDispatchRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "@Reviewer @Observer please split this".to_owned(),
+                mentioned_member_ids: vec![reviewer.member_id.clone(), observer.member_id.clone()],
+                mention_all: false,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("send and fan out with visible failure");
+
+        assert_eq!(result.dispatches.len(), 2);
+        let failed = result
+            .dispatches
+            .iter()
+            .find(|dispatch| dispatch.dispatch.member_id == observer.member_id)
+            .expect("observer dispatch");
+        assert_eq!(failed.dispatch.status, DispatchRequestStatus::Failed);
+        assert!(failed.dispatch.failure.is_some());
+        assert_eq!(launcher.operations.lock().expect("operations").len(), 1);
+    }
+
+    #[test]
+    fn send_and_dispatch_does_not_merge_plain_channel_history() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let plain = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "Keep this in chat only".to_owned(),
+                mentioned_member_ids: Vec::new(),
+            },
+        )
+        .expect("plain message")
+        .message;
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = send_workspace_message_and_dispatch(
+            app_data.path().to_path_buf(),
+            &workspace,
+            SendMessageAndDispatchRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "@Reviewer please act now".to_owned(),
+                mentioned_member_ids: vec![member.member_id],
+                mention_all: false,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("send and dispatch mention");
+
+        assert_ne!(result.dispatches[0].dispatch.message_id, plain.message_id);
+        assert_eq!(
+            result.dispatches[0].dispatch.source_message_ids,
+            vec![result.message.message_id.clone()]
+        );
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            ["input:@Reviewer please act now\n"]
+        );
+    }
+
+    #[test]
+    fn send_and_dispatch_all_mention_fans_out_to_workspace_channel_members() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let codex_command = available_command(app_data.path(), "codex");
+        let reviewer = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(codex_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("reviewer")
+        .member;
+        let gemini_command = available_command(app_data.path(), "gemini");
+        let builder = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Gemini Builder".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("gemini".to_owned()),
+                    label: Some("Gemini CLI".to_owned()),
+                    command: Some(gemini_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("builder")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = send_workspace_message_and_dispatch(
+            app_data.path().to_path_buf(),
+            &workspace,
+            SendMessageAndDispatchRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "@all please inspect this".to_owned(),
+                mentioned_member_ids: Vec::new(),
+                mention_all: false,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("send and fan out");
+
+        let dispatched_member_ids = result
+            .dispatches
+            .iter()
+            .map(|dispatch| dispatch.dispatch.member_id.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(result.dispatches.len(), 2);
+        assert!(dispatched_member_ids.contains(reviewer.member_id.as_str()));
+        assert!(dispatched_member_ids.contains(builder.member_id.as_str()));
+        assert!(result.dispatches.iter().all(|dispatch| {
+            dispatch.dispatch.target_resolution.source == DispatchTargetResolutionSource::AllMention
+        }));
+        assert_eq!(launcher.operations.lock().expect("operations").len(), 2);
     }
 
     #[test]

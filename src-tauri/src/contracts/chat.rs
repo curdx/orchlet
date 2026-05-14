@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::orchestration::DispatchChatMessageResult;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "chat.ts")]
@@ -238,10 +240,31 @@ pub struct SendMessageRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "chat.ts")]
+pub struct SendMessageAndDispatchRequest {
+    pub workspace_id: String,
+    pub conversation_id: String,
+    pub body: String,
+    pub mentioned_member_ids: Vec<String>,
+    pub mention_all: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
 pub struct SendMessageResult {
     pub message: ChatMessageProfile,
     pub conversation: ConversationProfile,
     pub read_position: ConversationReadPositionProfile,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct SendMessageAndDispatchResult {
+    pub message: ChatMessageProfile,
+    pub conversation: ConversationProfile,
+    pub read_position: ConversationReadPositionProfile,
+    pub dispatches: Vec<DispatchChatMessageResult>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

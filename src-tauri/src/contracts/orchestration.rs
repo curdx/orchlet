@@ -20,6 +20,7 @@ pub enum DispatchRequestStatus {
 pub enum DispatchTargetResolutionSource {
     UserSelected,
     ExplicitMention,
+    AllMention,
     PrivateConversation,
     ConversationDefault,
     WorkspaceDefault,

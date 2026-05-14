@@ -20,11 +20,11 @@ pub use chat::{
     CreateGroupConversationRequest, CreateGroupConversationResult, DeleteConversationRequest,
     DeleteConversationResult, ListConversationsRequest, ListConversationsResult,
     ListMessagesRequest, ListMessagesResult, RepairWorkspaceChatDataRequest,
-    RepairWorkspaceChatDataResult, SendMessageRequest, SendMessageResult,
-    StartPrivateConversationRequest, StartPrivateConversationResult,
-    UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
-    UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
-    UpdateReadPositionRequest, UpdateReadPositionResult,
+    RepairWorkspaceChatDataResult, SendMessageAndDispatchRequest, SendMessageAndDispatchResult,
+    SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
+    StartPrivateConversationResult, UpdateConversationSettingsRequest,
+    UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
+    UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
 };
 pub use common::{AppError, AppErrorSeverity};
 pub use contact::{

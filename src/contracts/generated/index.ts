@@ -23,6 +23,8 @@ export type {
   ListMessagesResult,
   RepairWorkspaceChatDataRequest,
   RepairWorkspaceChatDataResult,
+  SendMessageAndDispatchRequest,
+  SendMessageAndDispatchResult,
   SendMessageRequest,
   SendMessageResult,
   StartPrivateConversationRequest,

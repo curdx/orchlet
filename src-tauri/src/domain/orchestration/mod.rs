@@ -1,8 +1,8 @@
 use crate::{
     contracts::{
-        AppError, ConversationKind, ConversationParticipantKind, ConversationProfile,
-        DispatchTargetResolutionProfile, DispatchTargetResolutionSource, MemberProfile,
-        MemberRuntimeKind,
+        AppError, ChatMessageProfile, ConversationKind, ConversationParticipantKind,
+        ConversationProfile, DispatchTargetResolutionProfile, DispatchTargetResolutionSource,
+        MemberProfile, MemberRuntimeKind,
     },
     domain::{
         chat::{validate_conversation_id, validate_message_id},
@@ -83,10 +83,7 @@ pub fn resolve_dispatch_target(
                 return Ok(target_resolution(
                     member,
                     DispatchTargetResolutionSource::PrivateConversation,
-                    format!(
-                        "当前私聊对象 {} 是可运行终端的成员。",
-                        member.instance_label
-                    ),
+                    format!("当前私聊对象 {} 是本次发送目标。", member.instance_label),
                 ));
             }
         }
@@ -139,6 +136,76 @@ pub fn resolve_dispatch_target(
     }
 }
 
+pub fn plan_send_dispatch_targets(
+    mention_all: bool,
+    message: &ChatMessageProfile,
+    conversation: &ConversationProfile,
+    members: &[MemberProfile],
+) -> Vec<DispatchTargetResolutionProfile> {
+    if conversation.kind == ConversationKind::Private
+        && matches!(
+            conversation.participant_kind.as_ref(),
+            Some(ConversationParticipantKind::Member)
+        )
+    {
+        return conversation
+            .participant_id
+            .as_deref()
+            .and_then(|participant_id| {
+                member_by_id(members, participant_id)
+                    .filter(|member| member.member_id != message.author_member_id)
+            })
+            .map(|member| {
+                target_resolution(
+                    member,
+                    DispatchTargetResolutionSource::PrivateConversation,
+                    format!(
+                        "当前私聊对象 {} 是可运行终端的成员。",
+                        member.instance_label
+                    ),
+                )
+            })
+            .into_iter()
+            .collect();
+    }
+
+    if mention_all {
+        let member_ids =
+            if conversation.members.is_empty() && conversation.kind == ConversationKind::Channel {
+                members
+                    .iter()
+                    .map(|member| member.member_id.clone())
+                    .collect::<Vec<_>>()
+            } else {
+                conversation
+                    .members
+                    .iter()
+                    .map(|member| member.member_id.clone())
+                    .collect::<Vec<_>>()
+            };
+
+        return fan_out_targets(
+            &member_ids,
+            &message.author_member_id,
+            members,
+            DispatchTargetResolutionSource::AllMention,
+            |member| format!("@all 指向成员 {}。", member.instance_label),
+        );
+    }
+
+    if !message.mentioned_member_ids.is_empty() {
+        return fan_out_targets(
+            &message.mentioned_member_ids,
+            &message.author_member_id,
+            members,
+            DispatchTargetResolutionSource::ExplicitMention,
+            |member| format!("消息明确提及 {}。", member.instance_label),
+        );
+    }
+
+    Vec::new()
+}
+
 pub fn is_terminal_capable_member(member: &MemberProfile) -> bool {
     member.runtime.kind != MemberRuntimeKind::None
         && member
@@ -147,6 +214,38 @@ pub fn is_terminal_capable_member(member: &MemberProfile) -> bool {
             .as_deref()
             .map(|command| !command.trim().is_empty())
             .unwrap_or(false)
+}
+
+fn fan_out_targets<F>(
+    member_ids: &[String],
+    sender_member_id: &str,
+    members: &[MemberProfile],
+    source: DispatchTargetResolutionSource,
+    reason: F,
+) -> Vec<DispatchTargetResolutionProfile>
+where
+    F: Fn(&MemberProfile) -> String,
+{
+    let mut targets = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+
+    for member_id in member_ids {
+        if member_id == sender_member_id || !seen.insert(member_id) {
+            continue;
+        }
+
+        if let Some(member) = member_by_id(members, member_id) {
+            if source == DispatchTargetResolutionSource::AllMention
+                && !member.permissions.can_mention
+            {
+                continue;
+            }
+
+            targets.push(target_resolution(member, source.clone(), reason(member)));
+        }
+    }
+
+    targets
 }
 
 pub fn target_resolution_from_parts(
@@ -173,17 +272,14 @@ fn terminal_capable_member<'a>(
     members: &'a [MemberProfile],
     member_id: &str,
 ) -> Result<&'a MemberProfile, AppError> {
-    let member = members
-        .iter()
-        .find(|member| member.member_id == member_id)
-        .ok_or_else(|| {
-            AppError::recoverable_error(
-                "dispatch.target.notFound",
-                "未找到派发目标成员。",
-                "请刷新成员列表后重试。",
-                Some(format!("memberId={}", member_id)),
-            )
-        })?;
+    let member = member_by_id(members, member_id).ok_or_else(|| {
+        AppError::recoverable_error(
+            "dispatch.target.notFound",
+            "未找到派发目标成员。",
+            "请刷新成员列表后重试。",
+            Some(format!("memberId={}", member_id)),
+        )
+    })?;
 
     if is_terminal_capable_member(member) {
         Ok(member)
@@ -195,6 +291,10 @@ fn terminal_capable_member<'a>(
             Some(format!("memberId={}", member_id)),
         ))
     }
+}
+
+fn member_by_id<'a>(members: &'a [MemberProfile], member_id: &str) -> Option<&'a MemberProfile> {
+    members.iter().find(|member| member.member_id == member_id)
 }
 
 fn terminal_capable_candidates<'a>(

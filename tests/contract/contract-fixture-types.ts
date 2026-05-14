@@ -22,6 +22,8 @@ import type {
   ConversationProfile,
   RepairWorkspaceChatDataRequest,
   RepairWorkspaceChatDataResult,
+  SendMessageAndDispatchRequest,
+  SendMessageAndDispatchResult,
   SendMessageRequest,
   SendMessageResult,
   StartPrivateConversationRequest,
@@ -308,6 +310,9 @@ import deleteConversationError from "../../fixtures/contracts/chat/chat-conversa
 import deleteConversationRequest from "../../fixtures/contracts/chat/chat-conversation-delete.request.json";
 import deleteConversationResult from "../../fixtures/contracts/chat/chat-conversation-delete.result.json";
 import sendMessageError from "../../fixtures/contracts/chat/chat-message-send.error.json";
+import sendMessageAndDispatchError from "../../fixtures/contracts/chat/chat-message-send-and-dispatch.error.json";
+import sendMessageAndDispatchRequest from "../../fixtures/contracts/chat/chat-message-send-and-dispatch.request.json";
+import sendMessageAndDispatchResult from "../../fixtures/contracts/chat/chat-message-send-and-dispatch.result.json";
 import sendMessageRequest from "../../fixtures/contracts/chat/chat-message-send.request.json";
 import sendMessageResult from "../../fixtures/contracts/chat/chat-message-send.result.json";
 import listMessagesError from "../../fixtures/contracts/chat/chat-messages-page.error.json";
@@ -1197,6 +1202,24 @@ export const sendMessageResultFixture: SendMessageResult = {
 };
 export const sendMessageErrorFixture: AppError = appError(sendMessageError);
 
+export const sendMessageAndDispatchRequestFixture: SendMessageAndDispatchRequest =
+  sendMessageAndDispatchRequest;
+export const sendMessageAndDispatchResultFixture: SendMessageAndDispatchResult = {
+  message: chatMessageProfile(sendMessageAndDispatchResult.message),
+  conversation: conversationProfile(sendMessageAndDispatchResult.conversation),
+  readPosition: readPositionProfile(sendMessageAndDispatchResult.readPosition),
+  dispatches: sendMessageAndDispatchResult.dispatches.map((dispatch) => ({
+    dispatch: dispatchRequestProfile(dispatch.dispatch),
+    terminalSession: dispatch.terminalSession
+      ? terminalSessionProfile(dispatch.terminalSession)
+      : null,
+    sessionCreated: dispatch.sessionCreated,
+  })),
+};
+export const sendMessageAndDispatchErrorFixture: AppError = appError(
+  sendMessageAndDispatchError,
+);
+
 export const listMessagesRequestFixture: ListMessagesRequest = listMessagesRequest;
 export const listMessagesResultFixture: ListMessagesResult = {
   messages: listMessagesResult.messages.map(chatMessageProfile),
@@ -1314,6 +1337,7 @@ type ErrorJson =
   | typeof clearChatDataError
   | typeof deleteConversationError
   | typeof sendMessageError
+  | typeof sendMessageAndDispatchError
   | typeof listMessagesError
   | typeof updateReadPositionError
   | typeof updateGroupConversationMembersError
@@ -1854,6 +1878,7 @@ type ConversationJson =
   | (typeof clearChatDataResult.conversations)[number]
   | (typeof deleteConversationResult.conversations)[number]
   | typeof sendMessageResult.conversation
+  | typeof sendMessageAndDispatchResult.conversation
   | typeof listMessagesResult.conversation
   | typeof updateReadPositionResult.conversation
   | typeof updateGroupConversationMembersResult.conversation
@@ -1862,10 +1887,12 @@ type ConversationJson =
 
 type ChatMessageJson =
   | typeof sendMessageResult.message
+  | typeof sendMessageAndDispatchResult.message
   | (typeof listMessagesResult.messages)[number];
 
 type ReadPositionJson =
   | typeof sendMessageResult.readPosition
+  | typeof sendMessageAndDispatchResult.readPosition
   | NonNullable<typeof listMessagesResult.readPosition>
   | typeof updateReadPositionResult.readPosition;
 
@@ -2016,7 +2043,8 @@ function terminalEnvironmentStatus(value: string): TerminalEnvironmentStatus {
 
 type DispatchRequestJson =
   | typeof dispatchChatMessageResult.dispatch
-  | NonNullable<typeof dispatchQueueResumeResult.dispatch>;
+  | NonNullable<typeof dispatchQueueResumeResult.dispatch>
+  | (typeof sendMessageAndDispatchResult.dispatches)[number]["dispatch"];
 
 function dispatchRequestProfile(dispatch: DispatchRequestJson): DispatchRequestProfile {
   return {
@@ -2048,6 +2076,7 @@ function dispatchTargetResolutionSource(value: string): DispatchTargetResolution
   switch (value) {
     case "userSelected":
     case "explicitMention":
+    case "allMention":
     case "privateConversation":
     case "conversationDefault":
     case "workspaceDefault":

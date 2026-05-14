@@ -43,7 +43,8 @@ use orchlet_lib::contracts::{
     ResetTerminalConfigurationRequest, ResetTerminalConfigurationResult, RoadmapTaskStatus,
     RunChatConsistencyDiagnosticsRequest, RunChatConsistencyDiagnosticsResult,
     RunTerminalConsistencyDiagnosticsRequest, RunTerminalConsistencyDiagnosticsResult,
-    SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult, SendMessageRequest,
+    SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
+    SendMessageAndDispatchRequest, SendMessageAndDispatchResult, SendMessageRequest,
     SendMessageResult, ShortcutKeymapProfile, SkillImportStatus, SkillLibraryListRequest,
     SkillLibraryListResult, SkillSource, StartDiagnosticsRunRequest, StartDiagnosticsRunResult,
     StartPrivateConversationRequest, StartPrivateConversationResult, TerminalAttachRequest,
@@ -1252,6 +1253,12 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/chat/chat-message-send.result.json");
     let send_message_error: AppError =
         read_fixture("../fixtures/contracts/chat/chat-message-send.error.json");
+    let send_dispatch_request: SendMessageAndDispatchRequest =
+        read_fixture("../fixtures/contracts/chat/chat-message-send-and-dispatch.request.json");
+    let send_dispatch_result: SendMessageAndDispatchResult =
+        read_fixture("../fixtures/contracts/chat/chat-message-send-and-dispatch.result.json");
+    let send_dispatch_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-message-send-and-dispatch.error.json");
     let list_messages_request: ListMessagesRequest =
         read_fixture("../fixtures/contracts/chat/chat-messages-page.request.json");
     let list_messages_result: ListMessagesResult =
@@ -1352,6 +1359,21 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
         send_message_result.message.message_id
     );
     assert_eq!(send_message_error.code, "message.body.empty");
+    assert_eq!(send_dispatch_request.body, send_message_request.body);
+    assert!(!send_dispatch_request.mention_all);
+    assert_eq!(send_dispatch_result.dispatches.len(), 1);
+    assert_eq!(
+        send_dispatch_result.dispatches[0]
+            .dispatch
+            .target_resolution
+            .source,
+        DispatchTargetResolutionSource::ExplicitMention
+    );
+    assert_eq!(
+        send_dispatch_result.dispatches[0].dispatch.message_id,
+        send_dispatch_result.message.message_id
+    );
+    assert_eq!(send_dispatch_error.code, "chat.workspace.required");
     assert_eq!(list_messages_request.limit, Some(30));
     assert_eq!(list_messages_result.messages.len(), 2);
     assert!(list_messages_result.has_more);
