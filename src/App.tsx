@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { TerminalPage } from "./pages/terminal";
 import { WorkspaceSelectionPage } from "./pages/workspace-selection";
-import { notificationApi, terminalApi, windowContextApi } from "./shared/api";
+import { notificationApi, settingsApi, terminalApi, windowContextApi } from "./shared/api";
 import { isTauriRuntime } from "./shared/api/client";
 import { useToastStore, type ToastMessage } from "./shared/ui";
 import type { NotificationApi } from "./shared/api/notification-api";
@@ -15,6 +15,9 @@ import type {
   AppTheme,
   NotificationUnreadSummary,
   OpenedWorkspace,
+  ProfileAvatarSnapshot,
+  ProfileSettingsSnapshot,
+  ProfileStatus,
   WindowContextSnapshot,
   WindowMode,
 } from "./contracts/generated";
@@ -124,6 +127,26 @@ type ContextMenuState = {
   x: number;
   y: number;
   entries: ContextMenuEntry[];
+};
+
+const DEFAULT_SHELL_PROFILE_SETTINGS: ProfileSettingsSnapshot = {
+  schemaVersion: 1,
+  displayName: "Owner",
+  timezone: "UTC",
+  status: "online",
+  statusMessage: null,
+  avatar: {
+    kind: "placeholder",
+    presetId: null,
+    uploadId: null,
+    sourceFileName: null,
+    contentType: null,
+    sizeBytes: null,
+    libraryRelativePath: null,
+    updatedAtMs: 1,
+  },
+  createdAtMs: 1,
+  updatedAtMs: 1,
 };
 
 const NOTIFICATION_PREVIEW_TEXT = {
@@ -589,9 +612,19 @@ function SidebarNav({
   onChange: (tab: MainTabId) => void;
 }) {
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
-  const [accountStatus, setAccountStatus] = useState<AccountStatus>("online");
+  const [fallbackAccountStatus, setFallbackAccountStatus] = useState<AccountStatus>("online");
   const avatarButtonRef = useRef<HTMLButtonElement>(null);
   const [statusMenuPosition, setStatusMenuPosition] = useState({ top: 24, left: 88 });
+  const queryClient = useQueryClient();
+  const profileQuery = useQuery({
+    queryKey: ["profile-settings"],
+    queryFn: settingsApi.getProfileSettings,
+    enabled: isTauriRuntime(),
+  });
+  const profile = profileQuery.data?.profile ?? DEFAULT_SHELL_PROFILE_SETTINGS;
+  const accountStatus = isTauriRuntime()
+    ? profileStatusToAccountStatus(profile.status)
+    : fallbackAccountStatus;
   const text = SHELL_TEXT[language];
 
   function updateStatusMenuPosition() {
@@ -656,9 +689,7 @@ function SidebarNav({
             setStatusMenuOpen((isOpen) => !isOpen);
           }}
         >
-          <span className="sidebar-nav__avatar" aria-label={text.avatar}>
-            O
-          </span>
+          <ShellProfileAvatar avatar={profile.avatar} displayName={profile.displayName} label={text.avatar} />
           <span className={`sidebar-nav__status-dot sidebar-nav__status-dot--${accountStatus}`} />
         </button>
         {statusMenuOpen ? createPortal(
@@ -679,7 +710,12 @@ function SidebarNav({
                 role="menuitemradio"
                 aria-checked={accountStatus === status}
                 onClick={() => {
-                  setAccountStatus(status);
+                  setFallbackAccountStatus(status);
+                  void updateShellProfileStatus({
+                    nextStatus: status,
+                    profile,
+                    queryClient,
+                  });
                   setStatusMenuOpen(false);
                 }}
               >
@@ -742,6 +778,79 @@ function SidebarNav({
       </button>
     </nav>
   );
+}
+
+function ShellProfileAvatar({
+  avatar,
+  displayName,
+  label,
+}: {
+  avatar: ProfileAvatarSnapshot | null;
+  displayName: string;
+  label: string;
+}) {
+  const normalizedName = displayName.trim() || "Owner";
+
+  if (avatar?.kind === "uploaded" && avatar.previewDataUrl) {
+    return (
+      <img
+        src={avatar.previewDataUrl}
+        alt={label}
+        className="sidebar-nav__avatar sidebar-nav__avatar--image"
+      />
+    );
+  }
+
+  const initial = normalizedName.slice(0, 1).toLocaleUpperCase();
+
+  return (
+    <span className="sidebar-nav__avatar" aria-label={label}>
+      {initial}
+    </span>
+  );
+}
+
+async function updateShellProfileStatus({
+  nextStatus,
+  profile,
+  queryClient,
+}: {
+  nextStatus: AccountStatus;
+  profile: ProfileSettingsSnapshot;
+  queryClient: QueryClient;
+}) {
+  const status = accountStatusToProfileStatus(nextStatus);
+  const optimisticProfile: ProfileSettingsSnapshot = {
+    ...profile,
+    status,
+    updatedAtMs: Date.now(),
+  };
+
+  queryClient.setQueryData(["profile-settings"], { profile: optimisticProfile });
+
+  if (!isTauriRuntime()) {
+    return;
+  }
+
+  try {
+    const result = await settingsApi.updateProfileSettings({
+      displayName: profile.displayName,
+      timezone: profile.timezone,
+      status,
+      statusMessage: profile.statusMessage ?? "",
+    });
+    queryClient.setQueryData(["profile-settings"], { profile: result.profile });
+  } catch {
+    queryClient.setQueryData(["profile-settings"], { profile });
+  }
+}
+
+function profileStatusToAccountStatus(status: ProfileStatus): AccountStatus {
+  return status === "doNotDisturb" ? "dnd" : status;
+}
+
+function accountStatusToProfileStatus(status: AccountStatus): ProfileStatus {
+  return status === "dnd" ? "doNotDisturb" : status;
 }
 
 function ShellToastStack() {

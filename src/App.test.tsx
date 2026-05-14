@@ -1374,6 +1374,100 @@ describe("App workspace entry", () => {
     expect(screen.queryByRole("heading", { name: "工作区已打开" })).not.toBeInTheDocument();
   });
 
+  it("shows workspace members in the parity chat member rail when a channel has no member summaries", async () => {
+    const user = userEvent.setup();
+    const owner = memberProfile();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      avatar: "css:mint",
+      status: "working",
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel({ members: [] });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      memberApi: { listMembers: () => Promise.resolve({ members: [owner, reviewer] }) },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const workbench = await screen.findByRole("region", { name: "聊天工作台" });
+    expect((await within(workbench).findAllByText("Reviewer")).length).toBeGreaterThan(0);
+    expect(within(workbench).getByTitle("工作中")).toBeInTheDocument();
+    expect(within(workbench).queryByText("暂无成员")).not.toBeInTheDocument();
+  });
+
+  it("resolves a private member conversation from participant metadata when member summaries are empty", async () => {
+    const user = userEvent.setup();
+    const owner = memberProfile();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      avatar: "css:ember",
+      status: "online",
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const privateConversation = conversationProfile({
+      conversationId: "01KPRIVATE000000000000001",
+      title: "Outdated title",
+      kind: "private",
+      participantKind: "member",
+      participantId: reviewer.memberId,
+      members: [],
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      memberApi: { listMembers: () => Promise.resolve({ members: [owner, reviewer] }) },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [privateConversation] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: privateConversation,
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const workbench = await screen.findByRole("region", { name: "聊天工作台" });
+    expect((await within(workbench).findAllByText("Reviewer")).length).toBeGreaterThan(0);
+    expect(within(workbench).getAllByText("Owner").length).toBeGreaterThan(0);
+    expect(within(workbench).queryByText("Outdated title")).not.toBeInTheDocument();
+    expect(within(workbench).queryByText("暂无成员")).not.toBeInTheDocument();
+  });
+
   it("localizes parity chat workbench and invite menu from Chinese preferences", async () => {
     const user = userEvent.setup();
     const channel = defaultChannel();

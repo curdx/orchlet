@@ -4327,6 +4327,8 @@ export function WorkspaceSelectionPage({
         selectedConversation={selectedConversation}
         messages={messages}
         members={profiledMembers}
+        contacts={contacts}
+        terminalActivity={memberTerminalActivity}
         messageDraft={messageDraft}
         mentionedMemberIds={mentionedMemberIds}
         attachmentEntries={attachmentEntries}
@@ -5218,6 +5220,10 @@ const CHAT_PARITY_TEXT = {
     noMembers: "暂无成员",
     actionsFor: "{name} 的操作",
     ownerFallback: "群主",
+    contactRole: "联系人",
+    contactSection: "联系人 — {count}",
+    missingRole: "未知成员",
+    missingSection: "未解析 — {count}",
     conversationActions: {
       pin: "置顶",
       unpin: "取消置顶",
@@ -5318,6 +5324,10 @@ const CHAT_PARITY_TEXT = {
     noMembers: "No members",
     actionsFor: "Actions for {name}",
     ownerFallback: "Owner",
+    contactRole: "Contact",
+    contactSection: "CONTACTS — {count}",
+    missingRole: "Unknown member",
+    missingSection: "UNRESOLVED — {count}",
     conversationActions: {
       pin: "Pin",
       unpin: "Unpin",
@@ -5414,6 +5424,10 @@ const CHAT_PARITY_TEXT = {
   noMembers: string;
   actionsFor: string;
   ownerFallback: string;
+  contactRole: string;
+  contactSection: string;
+  missingRole: string;
+  missingSection: string;
   conversationActions: Record<string, string>;
   memberActions: Record<string, string>;
   roles: Record<MemberProfile["role"], string>;
@@ -5451,6 +5465,20 @@ type FriendsParityEntry =
       canRemove: boolean;
       canOpenTerminal: boolean;
     };
+
+type ChatParticipantEntry = {
+  id: string;
+  section: MemberProfile["role"] | "contact" | "missing";
+  kind: "member" | "contact" | "missing";
+  displayName: string;
+  roleLabel: string;
+  avatar: string;
+  status: MemberProfile["status"];
+  member: MemberProfile | null;
+  contact: ContactProfile | null;
+  terminalMeta: TerminalSessionStatus | null;
+  canMention: boolean;
+};
 
 function friendsParityStatusOptions(language: AppLanguage): Array<{
   id: MemberProfile["status"];
@@ -9366,6 +9394,8 @@ function ChatWorkbenchParity({
   selectedConversation,
   messages,
   members,
+  contacts,
+  terminalActivity,
   messageDraft,
   mentionedMemberIds,
   attachmentEntries,
@@ -9432,6 +9462,8 @@ function ChatWorkbenchParity({
   selectedConversation: ConversationProfile | null;
   messages: ChatMessageProfile[];
   members: MemberProfile[];
+  contacts: ContactProfile[];
+  terminalActivity: Record<string, MemberTerminalActivity>;
   messageDraft: string;
   mentionedMemberIds: string[];
   attachmentEntries: AttachmentEntry[];
@@ -9508,11 +9540,23 @@ function ChatWorkbenchParity({
   const [recentEmojis, setRecentEmojis] = useState<string[]>(() => loadRecentEmojis());
   const channelConversations = conversations.filter((conversation) => conversation.kind !== "private");
   const directConversations = conversations.filter((conversation) => conversation.kind === "private");
-  const conversationMembers =
-    selectedConversation?.members
-      .map((summary) => members.find((member) => member.memberId === summary.memberId))
-      .filter((member): member is MemberProfile => Boolean(member)) ??
-    members.slice(0, 8);
+  const conversationParticipants = resolveChatParticipants(
+    selectedConversation,
+    members,
+    contacts,
+    terminalActivity,
+    language,
+  );
+  const selectedPrivateParticipant = resolvePrivateChatParticipant(
+    selectedConversation,
+    members,
+    contacts,
+    terminalActivity,
+    language,
+  );
+  const conversationMembers = conversationParticipants
+    .map((participant) => participant.member)
+    .filter((member): member is MemberProfile => Boolean(member));
   const mentionQuery = activeMentionQuery(messageDraft);
   const mentionSuggestions =
     mentionQuery === null || mentionQuery.toLocaleLowerCase() === "all"
@@ -9666,6 +9710,9 @@ function ChatWorkbenchParity({
             title={text.channels}
             workspaceName={activeWorkspace.metadata.name}
             conversations={channelConversations}
+            members={members}
+            contacts={contacts}
+            terminalActivity={terminalActivity}
             selectedConversationId={selectedConversation?.conversationId ?? null}
             isLoading={isLoadingConversations}
             openMenuId={openConversationMenuId}
@@ -9678,6 +9725,9 @@ function ChatWorkbenchParity({
             title={text.directMessages}
             workspaceName={activeWorkspace.metadata.name}
             conversations={directConversations}
+            members={members}
+            contacts={contacts}
+            terminalActivity={terminalActivity}
             selectedConversationId={selectedConversation?.conversationId ?? null}
             isLoading={false}
             openMenuId={openConversationMenuId}
@@ -9710,10 +9760,14 @@ function ChatWorkbenchParity({
           <div className="chat-workbench-parity__header-copy">
             <h1>
               {selectedConversation
-                ? chatConversationDisplayTitle(selectedConversation, activeWorkspace.metadata.name)
+                ? chatConversationDisplayTitle(
+                    selectedConversation,
+                    activeWorkspace.metadata.name,
+                    selectedPrivateParticipant,
+                  )
                 : activeWorkspace.metadata.name}
             </h1>
-            <p>{chatConversationDescription(selectedConversation, conversationMembers.length, language)}</p>
+            <p>{chatConversationDescription(selectedConversation, conversationParticipants.length, language)}</p>
           </div>
           <div className="chat-workbench-parity__header-actions">
             <button
@@ -9723,7 +9777,7 @@ function ChatWorkbenchParity({
             >
               <WorkspaceMaterialSymbol name="group" />
               <span>{text.members}</span>
-              <strong>{conversationMembers.length}</strong>
+              <strong>{conversationParticipants.length}</strong>
             </button>
             <button
               type="button"
@@ -10067,51 +10121,56 @@ function ChatWorkbenchParity({
           </div>
         </div>
         <div className="chat-workbench-parity__member-list custom-scrollbar">
-          {conversationMembers.length > 0 ? (
-            parityMemberSections(conversationMembers, language).map((section) => (
+          {conversationParticipants.length > 0 ? (
+            parityParticipantSections(conversationParticipants, language).map((section) => (
               <section key={section.title} className="chat-workbench-parity__member-section">
                 <h3>{section.title}</h3>
-                {section.members.map((member) => (
-                  <div key={member.memberId} className="chat-workbench-parity__member">
-                    <span className="chat-workbench-parity__avatar">
-                      {memberInitials(member.instanceLabel || member.displayName)}
-                    </span>
+                {section.participants.map((participant) => (
+                  <div key={participant.id} className="chat-workbench-parity__member">
+                    <ChatParticipantAvatar
+                      avatar={participant.avatar}
+                      displayName={participant.displayName}
+                    />
                     <span className="chat-workbench-parity__member-copy">
-                      <strong>{member.instanceLabel || member.displayName}</strong>
-                      <span>{parityMemberRoleLabel(member.role, language)}</span>
-                      <small>{parityMemberStatusLabel(member.status, language)}</small>
+                      <strong>{participant.displayName}</strong>
+                      <span>{participant.roleLabel}</span>
+                      <small>{parityMemberStatusLabel(participant.status, language)}</small>
                     </span>
                     <span
-                      className={`chat-workbench-parity__status chat-workbench-parity__status--${member.status}`}
-                      title={parityMemberStatusLabel(member.status, language)}
+                      className={`chat-workbench-parity__status chat-workbench-parity__status--${participant.status}`}
+                      title={parityMemberStatusLabel(participant.status, language)}
                     />
-                    <button
-                      type="button"
-                      className="chat-workbench-parity__member-menu-button"
-                      aria-label={formatChatText(text.actionsFor, {
-                        name: member.instanceLabel || member.displayName,
-                      })}
-                      onClick={() =>
-                        setOpenMemberMenuId((current) =>
-                          current === member.memberId ? null : member.memberId,
-                        )
-                      }
-                    >
-                      <WorkspaceMaterialSymbol name="more_vert" />
-                    </button>
-                    {openMemberMenuId === member.memberId ? (
-                      <ChatMemberActionMenu
-                        member={member}
-                        language={language}
-                        onClose={() => setOpenMemberMenuId(null)}
-                        onStartPrivateConversation={onStartPrivateConversation}
-                        onOpenMemberTerminal={onOpenMemberTerminal}
-                        onMentionMember={onMentionMember}
-                        onRenameMember={onRenameMember}
-                        onUpdateMemberStatus={onUpdateMemberStatus}
-                        onRemoveMember={onRemoveMember}
-                        onUnavailable={onUnavailable}
-                      />
+                    {participant.member ? (
+                      <>
+                        <button
+                          type="button"
+                          className="chat-workbench-parity__member-menu-button"
+                          aria-label={formatChatText(text.actionsFor, {
+                            name: participant.displayName,
+                          })}
+                          onClick={() =>
+                            setOpenMemberMenuId((current) =>
+                              current === participant.id ? null : participant.id,
+                            )
+                          }
+                        >
+                          <WorkspaceMaterialSymbol name="more_vert" />
+                        </button>
+                        {openMemberMenuId === participant.id ? (
+                          <ChatMemberActionMenu
+                            member={participant.member}
+                            language={language}
+                            onClose={() => setOpenMemberMenuId(null)}
+                            onStartPrivateConversation={onStartPrivateConversation}
+                            onOpenMemberTerminal={onOpenMemberTerminal}
+                            onMentionMember={onMentionMember}
+                            onRenameMember={onRenameMember}
+                            onUpdateMemberStatus={onUpdateMemberStatus}
+                            onRemoveMember={onRemoveMember}
+                            onUnavailable={onUnavailable}
+                          />
+                        ) : null}
+                      </>
                     ) : null}
                   </div>
                 ))}
@@ -10162,6 +10221,9 @@ function ChatConversationGroup({
   title,
   workspaceName,
   conversations,
+  members,
+  contacts,
+  terminalActivity,
   selectedConversationId,
   isLoading,
   openMenuId,
@@ -10173,6 +10235,9 @@ function ChatConversationGroup({
   title: string;
   workspaceName: string;
   conversations: ConversationProfile[];
+  members: MemberProfile[];
+  contacts: ContactProfile[];
+  terminalActivity: Record<string, MemberTerminalActivity>;
   selectedConversationId: string | null;
   isLoading: boolean;
   openMenuId: string | null;
@@ -10196,7 +10261,18 @@ function ChatConversationGroup({
       <div className="chat-workbench-parity__conversation-stack">
         {conversations.length > 0 ? (
           conversations.map((conversation) => {
-            const displayTitle = chatConversationDisplayTitle(conversation, workspaceName);
+            const privateParticipant = resolvePrivateChatParticipant(
+              conversation,
+              members,
+              contacts,
+              terminalActivity,
+              language,
+            );
+            const displayTitle = chatConversationDisplayTitle(
+              conversation,
+              workspaceName,
+              privateParticipant,
+            );
 
             return (
               <div
@@ -10213,11 +10289,22 @@ function ChatConversationGroup({
                   onClick={() => onSelectConversation(conversation.conversationId)}
                 >
                   <span className="chat-workbench-parity__conversation-icon">
-                    {conversation.kind === "private" ? (
+                    {conversation.kind === "private" && privateParticipant ? (
+                      <ChatParticipantAvatar
+                        avatar={privateParticipant.avatar}
+                        displayName={privateParticipant.displayName}
+                      />
+                    ) : conversation.kind === "private" ? (
                       memberInitials(displayTitle)
                     ) : (
                       <WorkspaceMaterialSymbol name={conversation.kind === "group" ? "forum" : "tag"} />
                     )}
+                    {conversation.kind === "private" && privateParticipant ? (
+                      <span
+                        className={`chat-workbench-parity__conversation-status chat-workbench-parity__status--${privateParticipant.status}`}
+                        title={parityMemberStatusLabel(privateParticipant.status, language)}
+                      />
+                    ) : null}
                   </span>
                   <span className="chat-workbench-parity__conversation-copy">
                     <span>
@@ -10303,6 +10390,40 @@ function ChatConversationGroup({
         )}
       </div>
     </section>
+  );
+}
+
+function ChatParticipantAvatar({
+  avatar,
+  displayName,
+}: {
+  avatar: string;
+  displayName: string;
+}) {
+  const imageSrc = friendAvatarImageSrc(avatar);
+  const avatarStyle = friendAvatarVars(avatar);
+  const hasAvatarArt = Boolean(imageSrc || avatarStyle);
+
+  return (
+    <span
+      className={[
+        "chat-workbench-parity__avatar",
+        hasAvatarArt ? "friends-parity__avatar" : "",
+        imageSrc ? "friends-parity__avatar--image chat-workbench-parity__avatar--image" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      style={avatarStyle}
+      aria-label={displayName}
+    >
+      {imageSrc ? (
+        <img className="friends-parity__avatar-image" src={imageSrc} alt="" />
+      ) : avatarStyle ? (
+        <span className="friends-parity__avatar-ring" />
+      ) : (
+        memberInitials(displayName)
+      )}
+    </span>
   );
 }
 
@@ -10415,6 +10536,168 @@ function formatChatText(
   );
 }
 
+function resolveChatParticipants(
+  conversation: ConversationProfile | null,
+  members: MemberProfile[],
+  contacts: ContactProfile[],
+  terminalActivity: Record<string, MemberTerminalActivity>,
+  language: AppLanguage,
+): ChatParticipantEntry[] {
+  if (!conversation) {
+    return members.slice(0, 8).map((member) => memberToChatParticipant(member, language, terminalActivity));
+  }
+
+  if (conversation.kind === "channel") {
+    return members.map((member) => memberToChatParticipant(member, language, terminalActivity));
+  }
+
+  if (conversation.kind === "private") {
+    const participants: ChatParticipantEntry[] = [];
+    const owner = members.find((member) => member.role === "owner") ?? null;
+    const privateParticipant = resolvePrivateChatParticipant(
+      conversation,
+      members,
+      contacts,
+      terminalActivity,
+      language,
+    );
+
+    if (owner) {
+      pushUniqueChatParticipant(participants, memberToChatParticipant(owner, language, terminalActivity));
+    }
+    if (privateParticipant) {
+      pushUniqueChatParticipant(participants, privateParticipant);
+    }
+
+    return participants;
+  }
+
+  return conversation.members.map((summary) => {
+    const member = members.find((candidate) => candidate.memberId === summary.memberId);
+
+    return member
+      ? memberToChatParticipant(member, language, terminalActivity)
+      : missingChatParticipant(
+          summary.memberId,
+          summary.instanceLabel || summary.displayName,
+          language,
+        );
+  });
+}
+
+function resolvePrivateChatParticipant(
+  conversation: ConversationProfile | null,
+  members: MemberProfile[],
+  contacts: ContactProfile[],
+  terminalActivity: Record<string, MemberTerminalActivity>,
+  language: AppLanguage,
+): ChatParticipantEntry | null {
+  if (!conversation || conversation.kind !== "private" || !conversation.participantId) {
+    return null;
+  }
+
+  if (conversation.participantKind === "member") {
+    const member = members.find((candidate) => candidate.memberId === conversation.participantId);
+
+    return member
+      ? memberToChatParticipant(member, language, terminalActivity)
+      : missingChatParticipant(
+          conversation.participantId,
+          conversation.title || conversation.participantId,
+          language,
+        );
+  }
+
+  if (conversation.participantKind === "contact") {
+    const contact = contacts.find((candidate) => candidate.contactId === conversation.participantId);
+
+    return contact
+      ? contactToChatParticipant(contact, language)
+      : missingChatParticipant(
+          conversation.participantId,
+          conversation.title || conversation.participantId,
+          language,
+        );
+  }
+
+  return missingChatParticipant(
+    conversation.participantId,
+    conversation.title || conversation.participantId,
+    language,
+  );
+}
+
+function memberToChatParticipant(
+  member: MemberProfile,
+  language: AppLanguage,
+  terminalActivity: Record<string, MemberTerminalActivity>,
+): ChatParticipantEntry {
+  const displayName = member.instanceLabel || member.displayName;
+
+  return {
+    id: `member:${member.memberId}`,
+    section: member.role,
+    kind: "member",
+    displayName,
+    roleLabel: parityMemberRoleLabel(member.role, language),
+    avatar: memberFriendAvatar(member),
+    status: member.status,
+    member,
+    contact: null,
+    terminalMeta: terminalActivity[member.memberId]?.status ?? null,
+    canMention: member.permissions.canMention,
+  };
+}
+
+function contactToChatParticipant(contact: ContactProfile, language: AppLanguage): ChatParticipantEntry {
+  return {
+    id: `contact:${contact.contactId}`,
+    section: "contact",
+    kind: "contact",
+    displayName: contact.displayName,
+    roleLabel: CHAT_PARITY_TEXT[language].contactRole,
+    avatar: ensureFriendAvatar(contact.avatar, `contact:${contact.contactId}:${contact.displayName}`),
+    status: contact.status,
+    member: null,
+    contact,
+    terminalMeta: null,
+    canMention: false,
+  };
+}
+
+function missingChatParticipant(
+  participantId: string,
+  displayName: string,
+  language: AppLanguage,
+): ChatParticipantEntry {
+  const name = displayName.trim() || participantId;
+
+  return {
+    id: `missing:${participantId}`,
+    section: "missing",
+    kind: "missing",
+    displayName: name,
+    roleLabel: CHAT_PARITY_TEXT[language].missingRole,
+    avatar: seededFriendAvatar(`missing:${participantId}:${name}`),
+    status: "offline",
+    member: null,
+    contact: null,
+    terminalMeta: null,
+    canMention: false,
+  };
+}
+
+function pushUniqueChatParticipant(
+  participants: ChatParticipantEntry[],
+  participant: ChatParticipantEntry,
+) {
+  if (participants.some((candidate) => candidate.id === participant.id)) {
+    return;
+  }
+
+  participants.push(participant);
+}
+
 function chatConversationKindLabel(conversation: ConversationProfile, language: AppLanguage) {
   const text = CHAT_PARITY_TEXT[language];
 
@@ -10429,11 +10712,19 @@ function chatConversationKindLabel(conversation: ConversationProfile, language: 
   return text.directMessage;
 }
 
-function chatConversationDisplayTitle(conversation: ConversationProfile, workspaceName: string) {
+function chatConversationDisplayTitle(
+  conversation: ConversationProfile,
+  workspaceName: string,
+  privateParticipant: ChatParticipantEntry | null = null,
+) {
   const normalizedWorkspaceName = workspaceName.trim();
 
   if (conversation.isDefault && normalizedWorkspaceName) {
     return normalizedWorkspaceName;
+  }
+
+  if (conversation.kind === "private" && privateParticipant) {
+    return privateParticipant.displayName;
   }
 
   return conversation.title;
@@ -10475,32 +10766,46 @@ function parityMemberRoleLabel(role: MemberProfile["role"], language: AppLanguag
   return CHAT_PARITY_TEXT[language].roles[role];
 }
 
-function parityMemberSections(members: MemberProfile[], language: AppLanguage) {
+function parityParticipantSections(participants: ChatParticipantEntry[], language: AppLanguage) {
   const text = CHAT_PARITY_TEXT[language];
   const sections = [
     {
-      role: "owner" as const,
-      members: members.filter((member) => member.role === "owner"),
+      section: "owner" as const,
+      title: text.sections.owner,
+      participants: participants.filter((participant) => participant.section === "owner"),
     },
     {
-      role: "admin" as const,
-      members: members.filter((member) => member.role === "admin"),
+      section: "admin" as const,
+      title: text.sections.admin,
+      participants: participants.filter((participant) => participant.section === "admin"),
     },
     {
-      role: "assistant" as const,
-      members: members.filter((member) => member.role === "assistant"),
+      section: "assistant" as const,
+      title: text.sections.assistant,
+      participants: participants.filter((participant) => participant.section === "assistant"),
     },
     {
-      role: "member" as const,
-      members: members.filter((member) => member.role === "member"),
+      section: "member" as const,
+      title: text.sections.member,
+      participants: participants.filter((participant) => participant.section === "member"),
+    },
+    {
+      section: "contact" as const,
+      title: text.contactSection,
+      participants: participants.filter((participant) => participant.section === "contact"),
+    },
+    {
+      section: "missing" as const,
+      title: text.missingSection,
+      participants: participants.filter((participant) => participant.section === "missing"),
     },
   ];
 
   return sections
-    .filter((section) => section.members.length > 0)
+    .filter((section) => section.participants.length > 0)
     .map((section) => ({
       ...section,
-      title: formatChatText(text.sections[section.role], { count: section.members.length }),
+      title: formatChatText(section.title, { count: section.participants.length }),
     }));
 }
 

@@ -1924,6 +1924,25 @@ textarea,
   font-size: 18px;
 }
 
+.chat-workbench-parity__conversation-icon > .chat-workbench-parity__avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  box-shadow: none;
+  font-size: 10px;
+}
+
+.chat-workbench-parity__conversation-status {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  z-index: 3;
+  width: 9px;
+  height: 9px;
+  border: 2px solid rgb(var(--color-panel));
+  border-radius: 999px;
+}
+
 .chat-workbench-parity__conversation-copy {
   display: none;
   min-width: 0;
@@ -2835,6 +2854,10 @@ textarea,
   font-size: 11px;
 }
 
+.chat-workbench-parity__avatar--image {
+  overflow: hidden;
+}
+
 .chat-workbench-parity__member-copy {
   display: grid;
   min-width: 0;
@@ -3638,6 +3661,10 @@ button.friends-parity__avatar {
   box-shadow: 0 0 12px var(--avatar-glow, rgb(56 189 248 / 0.35));
   mix-blend-mode: screen;
   opacity: 0.8;
+}
+
+.chat-workbench-parity__avatar.chat-workbench-parity__avatar--image {
+  overflow: hidden;
 }
 
 .friends-parity__manage-avatar p {
@@ -6854,6 +6881,10 @@ button.friends-parity__avatar {
     font-size: 18px;
     font-weight: 700;
     transition: border-color 160ms ease;
+  }
+
+  .sidebar-nav__avatar--image {
+    object-fit: cover;
   }
 
   .sidebar-nav__avatar-button:hover .sidebar-nav__avatar {
