@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod contacts;
 pub mod data_integrity;
+pub mod diagnostics;
 pub mod members;
 pub mod notification;
 pub mod orchestration;

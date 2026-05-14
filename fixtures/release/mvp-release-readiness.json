@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-14",
+  "overallStatus": "blocked",
+  "capabilityRegistry": "fixtures/capabilities/mvp-capability-status.json",
+  "smokeResults": "fixtures/release/three-platform-smoke-results.json",
+  "releaseNotes": "docs/release/mvp-release-notes-draft.md",
+  "parityBaseline": "_bmad-output/planning-artifacts/golutra-parity-baseline-2026-05-13.md",
+  "statusValues": ["pass", "manual", "blocked", "fail"],
+  "checks": [
+    {
+      "id": "workspaceOpen",
+      "domain": "workspace",
+      "title": "Workspace open and metadata",
+      "status": "pass",
+      "releaseImpact": "Users can open a local directory and get a stable workspace identity.",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.2", "path": "_bmad-output/implementation-artifacts/1-2-open-directory-create-workspace-metadata.md" },
+        { "kind": "fixture", "reference": "workspace open contract", "path": "fixtures/contracts/workspace/workspace-open.result.json" }
+      ],
+      "knownIssues": [],
+      "blockingFailures": []
+    },
+    {
+      "id": "memberInvite",
+      "domain": "members",
+      "title": "Member invite and runtime profile",
+      "status": "pass",
+      "releaseImpact": "Users can invite assistant/member instances with permissions and runtime metadata.",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.2", "path": "_bmad-output/implementation-artifacts/2-2-multi-instance-invite-permissions-member-actions.md" },
+        { "kind": "fixture", "reference": "member invite contract", "path": "fixtures/contracts/member/member-invite.result.json" }
+      ],
+      "knownIssues": [],
+      "blockingFailures": []
+    },
+    {
+      "id": "messageToTerminalDispatch",
+      "domain": "orchestration",
+      "title": "Message-to-terminal dispatch",
+      "status": "pass",
+      "releaseImpact": "Chat messages can resolve a target member and dispatch to the member terminal with recoverable failure states.",
+      "evidence": [
+        { "kind": "story", "reference": "Story 4.1", "path": "_bmad-output/implementation-artifacts/4-1-dispatch-chat-message-to-member-terminal.md" },
+        { "kind": "fixture", "reference": "dispatch contract", "path": "fixtures/contracts/orchestration/dispatch-chat-message.result.json" }
+      ],
+      "knownIssues": [],
+      "blockingFailures": []
+    },
+    {
+      "id": "terminalOutputBackwrite",
+      "domain": "terminal",
+      "title": "Terminal output backwrite to chat",
+      "status": "pass",
+      "releaseImpact": "Terminal output can be reflected into chat according to stream/final-only preferences.",
+      "evidence": [
+        { "kind": "story", "reference": "Story 4.5", "path": "_bmad-output/implementation-artifacts/4-5-terminal-output-chat-stream-status-sync.md" },
+        { "kind": "story", "reference": "Story 7.7", "path": "_bmad-output/implementation-artifacts/7-7-chat-terminal-output-display-preferences.md" },
+        { "kind": "fixture", "reference": "terminal output event fixture", "path": "fixtures/contracts/terminal/terminal-output.event.json" }
+      ],
+      "knownIssues": [],
+      "blockingFailures": []
+    },
+    {
+      "id": "notificationJump",
+      "domain": "notifications",
+      "title": "Notification jump actions",
+      "status": "pass",
+      "releaseImpact": "Notification preview can navigate to unread conversations and member terminals.",
+      "evidence": [
+        { "kind": "story", "reference": "Story 5.2", "path": "_bmad-output/implementation-artifacts/5-2-notification-preview-navigation.md" },
+        { "kind": "fixture", "reference": "notification navigation contract", "path": "fixtures/contracts/notification/notification-navigation-dispatch.result.json" }
+      ],
+      "knownIssues": [],
+      "blockingFailures": []
+    },
+    {
+      "id": "golutraParityGate",
+      "domain": "ui-parity",
+      "title": "Golutra UI and behavior parity gate",
+      "status": "blocked",
+      "releaseImpact": "MVP release must not be approved until the React app matches /Users/wdx/opc/golutra user-visible UI, flows, states and placeholder boundaries.",
+      "evidence": [
+        { "kind": "proposal", "reference": "Golutra parity correction", "path": "_bmad-output/planning-artifacts/sprint-change-proposal-2026-05-13-golutra-parity.md" },
+        { "kind": "story", "reference": "Story 9.1", "path": "_bmad-output/implementation-artifacts/9-1-golutra-parity-baseline.md" },
+        { "kind": "baseline", "reference": "Golutra parity baseline", "path": "_bmad-output/planning-artifacts/golutra-parity-baseline-2026-05-13.md" },
+        { "kind": "story", "reference": "Story 9.2 shell/global parity", "path": "_bmad-output/implementation-artifacts/9-2-app-shell-titlebar-sidebar-global-systems-parity.md" },
+        { "kind": "story", "reference": "Story 9.3 workspace selection parity", "path": "_bmad-output/implementation-artifacts/9-3-workspace-selection-parity.md" },
+        { "kind": "story", "reference": "Story 9.4 chat parity", "path": "_bmad-output/implementation-artifacts/9-4-chat-interface-parity.md" },
+        { "kind": "story", "reference": "Story 9.5 friends/members parity", "path": "_bmad-output/implementation-artifacts/9-5-friends-members-invite-modal-parity.md" },
+        { "kind": "story", "reference": "Story 9.6 terminal parity", "path": "_bmad-output/implementation-artifacts/9-6-terminal-workspace-terminal-pane-parity.md" },
+        { "kind": "story", "reference": "Story 9.7 settings parity", "path": "_bmad-output/implementation-artifacts/9-7-settings-parity.md" },
+        { "kind": "story", "reference": "Story 9.8 marketplace parity", "path": "_bmad-output/implementation-artifacts/9-8-skill-store-plugin-marketplace-parity.md" },
+        { "kind": "story", "reference": "Story 9.9 notification preview parity", "path": "_bmad-output/implementation-artifacts/9-9-notification-preview-tray-flow-parity.md" },
+        { "kind": "story", "reference": "Story 9.11 native tray lifecycle parity", "path": "_bmad-output/implementation-artifacts/9-11-native-tray-lifecycle-parity.md" },
+        { "kind": "story", "reference": "Story 9.12 legacy workspace metadata compatibility", "path": "_bmad-output/implementation-artifacts/9-12-legacy-golutra-workspace-metadata-compatibility.md" },
+        { "kind": "story", "reference": "Story 9.13 legacy global settings compatibility", "path": "_bmad-output/implementation-artifacts/9-13-legacy-golutra-global-settings-compatibility.md" },
+        { "kind": "story", "reference": "Story 9.14 legacy workspace registry compatibility", "path": "_bmad-output/implementation-artifacts/9-14-legacy-golutra-workspace-registry-compatibility.md" },
+        { "kind": "story", "reference": "Story 9.15 legacy workspace skills compatibility", "path": "_bmad-output/implementation-artifacts/9-15-legacy-golutra-workspace-skills-compatibility.md" },
+        { "kind": "story", "reference": "Story 9.16 legacy contacts compatibility", "path": "_bmad-output/implementation-artifacts/9-16-legacy-golutra-contacts-compatibility.md" },
+        { "kind": "story", "reference": "Story 9.17 legacy avatar library compatibility", "path": "_bmad-output/implementation-artifacts/9-17-legacy-golutra-avatar-library-compatibility.md" },
+        { "kind": "story", "reference": "Story 9.18 legacy chat.redb compatibility", "path": "_bmad-output/implementation-artifacts/9-18-legacy-golutra-chat-redb-compatibility.md" },
+        { "kind": "report", "reference": "Story 9.10 parity release gate report", "path": "_bmad-output/implementation-artifacts/9-10-parity-release-gate-report.md" },
+        { "kind": "checklist", "reference": "Rebuild parity checklist", "path": "docs/rebuild/parity-checklist.md" }
+      ],
+      "knownIssues": [
+        "Epic 9 visual parity evidence exists for the main screens. Native tray lifecycle parity has Story 9.11 code/test evidence, .golutra workspace/local metadata compatibility has Story 9.12 code/test evidence, root-level global-settings.json compatibility has Story 9.13 code/test evidence, legacy recent/workspace registry compatibility has Story 9.14 code/test evidence, workspace .golutra/skills symlink compatibility has Story 9.15 code/test evidence, root-level contacts.json import has Story 9.16 code/test evidence, legacy avatar-library compatibility has Story 9.17 code/test evidence, and legacy chat.redb compatibility has Story 9.18 code/test evidence, but release is still blocked by missing packaged platform smoke.",
+        "Native tray lifecycle behavior still needs packaged OS smoke evidence on the target release platforms.",
+        ".golutra/workspace.json identity reuse/mirroring, .golutra/local.json refresh, global-settings.json settings import, recent/workspace registry import, workspace .golutra/skills symlink import, contacts.json import, legacy local profile avatar-library support and legacy chat.redb text/system message import are structurally supported; unsupported legacy chat attachments are skipped and current stores remain authoritative.",
+        "Skill Store and Plugin Marketplace remote data remain placeholder-only because Golutra keeps the remote arrays empty behind TODO comments."
+      ],
+      "blockingFailures": [
+        "No Windows/macOS/Linux packaged smoke evidence exists for parity release acceptance."
+      ]
+    },
+    {
+      "id": "restartRecovery",
+      "domain": "platform",
+      "title": "Restart recovery smoke",
+      "status": "blocked",
+      "releaseImpact": "MVP release should not be approved until packaged restart recovery is smoke-tested on Windows, macOS and Linux.",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.7 smoke scaffold", "path": "_bmad-output/implementation-artifacts/1-7-test-contract-fixture-desktop-smoke-scaffolding.md" },
+        { "kind": "fixture", "reference": "three-platform smoke results", "path": "fixtures/release/three-platform-smoke-results.json" }
+      ],
+      "knownIssues": [
+        "Packaged desktop restart recovery has not been executed on the three release platforms."
+      ],
+      "blockingFailures": [
+        "No Windows/macOS/Linux smoke evidence exists for close-and-reopen workspace recovery."
+      ]
+    }
+  ]
+}

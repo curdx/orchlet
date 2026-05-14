@@ -1,0 +1,9 @@
+{
+  "code": "settings.terminalConfig.invalidRecordVersion",
+  "message": "CLI 与终端配置版本不受支持。",
+  "userAction": "请使用兼容版本的 orchlet，或先备份 terminal-config.json。",
+  "details": "schemaVersion=99 expected=1",
+  "severity": "error",
+  "recoverable": true,
+  "correlationId": null
+}

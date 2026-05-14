@@ -3,9 +3,17 @@ import type { AppLanguage, AppTheme } from "./workspace";
 
 export type AppPreferencesSettingsSnapshot = { schemaVersion: number, theme: AppTheme, language: AppLanguage, createdAtMs: number, updatedAtMs: number, };
 
+export type ChatTerminalOutputDisplayMode = "stream" | "finalOnly";
+
+export type ChatTerminalOutputPreferencesSnapshot = { schemaVersion: number, displayMode: ChatTerminalOutputDisplayMode, createdAtMs: number, updatedAtMs: number, };
+
 export type DeleteUploadedProfileAvatarRequest = Record<symbol, never>;
 
 export type DeleteUploadedProfileAvatarResult = { profile: ProfileSettingsSnapshot, };
+
+export type GetChatTerminalOutputPreferencesRequest = Record<symbol, never>;
+
+export type GetChatTerminalOutputPreferencesResult = { preferences: ChatTerminalOutputPreferencesSnapshot, };
 
 export type GetProfileSettingsRequest = Record<symbol, never>;
 
@@ -15,6 +23,10 @@ export type GetShortcutPreferencesRequest = Record<symbol, never>;
 
 export type GetShortcutPreferencesResult = { preferences: ShortcutPreferencesSnapshot, };
 
+export type GetTerminalConfigurationRequest = Record<symbol, never>;
+
+export type GetTerminalConfigurationResult = { configuration: TerminalConfigurationSnapshot, };
+
 export type ProfileAvatarKind = "placeholder" | "preset" | "uploaded";
 
 export type ProfileAvatarSnapshot = { kind: ProfileAvatarKind, presetId: string | null, uploadId: string | null, sourceFileName: string | null, contentType: string | null, sizeBytes: number | null, libraryRelativePath: string | null, previewDataUrl?: string, updatedAtMs: number, };
@@ -23,6 +35,10 @@ export type ProfileSettingsSnapshot = { schemaVersion: number, displayName: stri
 
 export type ProfileStatus = "online" | "offline" | "working" | "doNotDisturb";
 
+export type ResetChatTerminalOutputPreferencesRequest = Record<symbol, never>;
+
+export type ResetChatTerminalOutputPreferencesResult = { preferences: ChatTerminalOutputPreferencesSnapshot, };
+
 export type ResetProfileAvatarRequest = Record<symbol, never>;
 
 export type ResetProfileAvatarResult = { profile: ProfileSettingsSnapshot, };
@@ -30,6 +46,10 @@ export type ResetProfileAvatarResult = { profile: ProfileSettingsSnapshot, };
 export type ResetShortcutPreferencesRequest = { profile: ShortcutKeymapProfile | null, };
 
 export type ResetShortcutPreferencesResult = { preferences: ShortcutPreferencesSnapshot, };
+
+export type ResetTerminalConfigurationRequest = Record<symbol, never>;
+
+export type ResetTerminalConfigurationResult = { configuration: TerminalConfigurationSnapshot, };
 
 export type SelectProfileAvatarPresetRequest = { presetId: string, };
 
@@ -41,6 +61,18 @@ export type ShortcutKeymapProfile = "default" | "vscode" | "slack";
 
 export type ShortcutPreferencesSnapshot = { schemaVersion: number, profile: ShortcutKeymapProfile, shortcutsEnabled: boolean, shortcutHintsEnabled: boolean, disabledActionIds: Array<string>, bindings: Array<ShortcutBindingSnapshot>, createdAtMs: number, updatedAtMs: number, };
 
+export type TerminalBuiltInCliEntry = { runtimeId: string, label: string, command: string, };
+
+export type TerminalConfigurationSnapshot = { schemaVersion: number, builtInCliEntries: Array<TerminalBuiltInCliEntry>, customCliEntries: Array<TerminalCustomCliEntry>, customTerminalEntries: Array<TerminalCustomTerminalEntry>, defaultTerminalId: string | null, createdAtMs: number, updatedAtMs: number, };
+
+export type TerminalCustomCliEntry = { cliId: string, label: string, command: string, };
+
+export type TerminalCustomTerminalEntry = { terminalId: string, label: string, command: string, };
+
+export type UpdateChatTerminalOutputPreferencesRequest = { displayMode: ChatTerminalOutputDisplayMode, };
+
+export type UpdateChatTerminalOutputPreferencesResult = { preferences: ChatTerminalOutputPreferencesSnapshot, };
+
 export type UpdateProfileSettingsRequest = { displayName: string | null, timezone: string | null, status: string | null, statusMessage: string | null, };
 
 export type UpdateProfileSettingsResult = { profile: ProfileSettingsSnapshot, };
@@ -48,6 +80,10 @@ export type UpdateProfileSettingsResult = { profile: ProfileSettingsSnapshot, };
 export type UpdateShortcutPreferencesRequest = { profile: ShortcutKeymapProfile | null, shortcutsEnabled: boolean | null, shortcutHintsEnabled: boolean | null, disabledActionIds: Array<string> | null, };
 
 export type UpdateShortcutPreferencesResult = { preferences: ShortcutPreferencesSnapshot, };
+
+export type UpdateTerminalConfigurationRequest = { builtInCliEntries: Array<TerminalBuiltInCliEntry>, customCliEntries: Array<TerminalCustomCliEntry>, customTerminalEntries: Array<TerminalCustomTerminalEntry>, defaultTerminalId: string | null, };
+
+export type UpdateTerminalConfigurationResult = { configuration: TerminalConfigurationSnapshot, };
 
 export type UploadProfileAvatarRequest = { sourcePath: string, };
 

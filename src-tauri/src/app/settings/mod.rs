@@ -2,25 +2,37 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     contracts::{
-        AppError, AppPreferencesSettingsSnapshot, DeleteUploadedProfileAvatarRequest,
-        DeleteUploadedProfileAvatarResult, GetProfileSettingsRequest, GetProfileSettingsResult,
-        GetShortcutPreferencesRequest, GetShortcutPreferencesResult, ProfileSettingsSnapshot,
+        AppError, AppPreferencesSettingsSnapshot, ChatTerminalOutputPreferencesSnapshot,
+        DeleteUploadedProfileAvatarRequest, DeleteUploadedProfileAvatarResult,
+        GetChatTerminalOutputPreferencesRequest, GetChatTerminalOutputPreferencesResult,
+        GetProfileSettingsRequest, GetProfileSettingsResult, GetShortcutPreferencesRequest,
+        GetShortcutPreferencesResult, GetTerminalConfigurationRequest,
+        GetTerminalConfigurationResult, ProfileSettingsSnapshot,
+        ResetChatTerminalOutputPreferencesRequest, ResetChatTerminalOutputPreferencesResult,
         ResetProfileAvatarRequest, ResetProfileAvatarResult, ResetShortcutPreferencesRequest,
-        ResetShortcutPreferencesResult, SelectProfileAvatarPresetRequest,
-        SelectProfileAvatarPresetResult, ShortcutPreferencesSnapshot, UpdateAppPreferencesRequest,
+        ResetShortcutPreferencesResult, ResetTerminalConfigurationRequest,
+        ResetTerminalConfigurationResult, SelectProfileAvatarPresetRequest,
+        SelectProfileAvatarPresetResult, ShortcutPreferencesSnapshot,
+        TerminalConfigurationSnapshot, UpdateAppPreferencesRequest,
+        UpdateChatTerminalOutputPreferencesRequest, UpdateChatTerminalOutputPreferencesResult,
         UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
         UpdateShortcutPreferencesRequest, UpdateShortcutPreferencesResult,
+        UpdateTerminalConfigurationRequest, UpdateTerminalConfigurationResult,
         UploadProfileAvatarRequest, UploadProfileAvatarResult,
     },
     domain::settings::{
         default_shortcut_bindings, normalize_profile_display_name, normalize_profile_status,
         normalize_profile_status_message, normalize_profile_timezone,
         normalize_shortcut_preferences, placeholder_avatar_snapshot, preset_avatar_snapshot,
-        uploaded_avatar_snapshot,
+        uploaded_avatar_snapshot, validate_chat_terminal_output_preferences,
     },
     infrastructure::persistence::json_store::{
         app_preferences_store::{
             load_app_preferences, save_app_preferences, validate_app_preferences_store,
+        },
+        chat_terminal_output_preferences_store::{
+            default_chat_terminal_output_preferences, load_chat_terminal_output_preferences,
+            save_chat_terminal_output_preferences, validate_chat_terminal_output_preferences_store,
         },
         profile_settings_store::{
             copy_uploaded_profile_avatar, delete_current_uploaded_profile_avatar,
@@ -30,6 +42,10 @@ use crate::{
         shortcut_preferences_store::{
             default_shortcut_preferences_for_profile, load_shortcut_preferences,
             save_shortcut_preferences, validate_shortcut_preferences_store,
+        },
+        terminal_configuration_store::{
+            default_terminal_configuration, load_terminal_configuration,
+            save_terminal_configuration, validate_terminal_configuration_store,
         },
         workspace_registry_store::now_ms,
     },
@@ -115,6 +131,103 @@ pub fn reset_shortcut_preferences(
 
 pub fn validate_shortcut_preferences(app_data_dir: impl AsRef<Path>) -> Result<(), AppError> {
     validate_shortcut_preferences_store(app_data_dir.as_ref())
+}
+
+pub fn get_chat_terminal_output_preferences(
+    app_data_dir: impl AsRef<Path>,
+    _request: GetChatTerminalOutputPreferencesRequest,
+) -> Result<GetChatTerminalOutputPreferencesResult, AppError> {
+    Ok(GetChatTerminalOutputPreferencesResult {
+        preferences: load_chat_terminal_output_preferences(app_data_dir.as_ref())?,
+    })
+}
+
+pub fn update_chat_terminal_output_preferences(
+    app_data_dir: impl AsRef<Path>,
+    request: UpdateChatTerminalOutputPreferencesRequest,
+) -> Result<UpdateChatTerminalOutputPreferencesResult, AppError> {
+    let app_data_dir = app_data_dir.as_ref();
+    let current = load_chat_terminal_output_preferences(app_data_dir)?;
+    let preferences = ChatTerminalOutputPreferencesSnapshot {
+        schema_version: current.schema_version,
+        display_mode: request.display_mode,
+        created_at_ms: current.created_at_ms,
+        updated_at_ms: next_chat_terminal_output_preferences_timestamp(&current),
+    };
+
+    validate_chat_terminal_output_preferences(&preferences)?;
+    save_chat_terminal_output_preferences(app_data_dir, &preferences)?;
+
+    Ok(UpdateChatTerminalOutputPreferencesResult { preferences })
+}
+
+pub fn reset_chat_terminal_output_preferences(
+    app_data_dir: impl AsRef<Path>,
+    _request: ResetChatTerminalOutputPreferencesRequest,
+) -> Result<ResetChatTerminalOutputPreferencesResult, AppError> {
+    let app_data_dir = app_data_dir.as_ref();
+    let current = load_chat_terminal_output_preferences(app_data_dir)?;
+    let mut preferences = default_chat_terminal_output_preferences();
+    preferences.created_at_ms = current.created_at_ms;
+    preferences.updated_at_ms = next_chat_terminal_output_preferences_timestamp(&current);
+    save_chat_terminal_output_preferences(app_data_dir, &preferences)?;
+
+    Ok(ResetChatTerminalOutputPreferencesResult { preferences })
+}
+
+pub fn validate_chat_terminal_output_preferences_for_app_data(
+    app_data_dir: impl AsRef<Path>,
+) -> Result<(), AppError> {
+    validate_chat_terminal_output_preferences_store(app_data_dir.as_ref())
+}
+
+pub fn get_terminal_configuration(
+    app_data_dir: impl AsRef<Path>,
+    _request: GetTerminalConfigurationRequest,
+) -> Result<GetTerminalConfigurationResult, AppError> {
+    Ok(GetTerminalConfigurationResult {
+        configuration: load_terminal_configuration(app_data_dir.as_ref())?,
+    })
+}
+
+pub fn update_terminal_configuration(
+    app_data_dir: impl AsRef<Path>,
+    request: UpdateTerminalConfigurationRequest,
+) -> Result<UpdateTerminalConfigurationResult, AppError> {
+    let app_data_dir = app_data_dir.as_ref();
+    let current = load_terminal_configuration(app_data_dir)?;
+    let mut configuration = TerminalConfigurationSnapshot {
+        schema_version: current.schema_version,
+        built_in_cli_entries: request.built_in_cli_entries,
+        custom_cli_entries: request.custom_cli_entries,
+        custom_terminal_entries: request.custom_terminal_entries,
+        default_terminal_id: request.default_terminal_id,
+        created_at_ms: current.created_at_ms,
+        updated_at_ms: next_terminal_configuration_timestamp(&current),
+    };
+
+    crate::domain::settings::normalize_terminal_configuration(&mut configuration)?;
+    save_terminal_configuration(app_data_dir, &configuration)?;
+
+    Ok(UpdateTerminalConfigurationResult { configuration })
+}
+
+pub fn reset_terminal_configuration(
+    app_data_dir: impl AsRef<Path>,
+    _request: ResetTerminalConfigurationRequest,
+) -> Result<ResetTerminalConfigurationResult, AppError> {
+    let app_data_dir = app_data_dir.as_ref();
+    let current = load_terminal_configuration(app_data_dir)?;
+    let mut configuration = default_terminal_configuration();
+    configuration.created_at_ms = current.created_at_ms;
+    configuration.updated_at_ms = next_terminal_configuration_timestamp(&current);
+    save_terminal_configuration(app_data_dir, &configuration)?;
+
+    Ok(ResetTerminalConfigurationResult { configuration })
+}
+
+pub fn validate_terminal_configuration(app_data_dir: impl AsRef<Path>) -> Result<(), AppError> {
+    validate_terminal_configuration_store(app_data_dir.as_ref())
 }
 
 pub fn get_profile_settings(
@@ -283,6 +396,16 @@ fn next_shortcut_timestamp(preferences: &ShortcutPreferencesSnapshot) -> u64 {
     now_ms().max(preferences.updated_at_ms + 1)
 }
 
+fn next_terminal_configuration_timestamp(configuration: &TerminalConfigurationSnapshot) -> u64 {
+    now_ms().max(configuration.updated_at_ms + 1)
+}
+
+fn next_chat_terminal_output_preferences_timestamp(
+    preferences: &ChatTerminalOutputPreferencesSnapshot,
+) -> u64 {
+    now_ms().max(preferences.updated_at_ms + 1)
+}
+
 fn next_preferences_timestamp(preferences: &AppPreferencesSettingsSnapshot) -> u64 {
     now_ms().max(preferences.updated_at_ms + 1)
 }
@@ -294,17 +417,32 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        delete_uploaded_profile_avatar, get_app_preferences, get_profile_settings,
-        get_shortcut_preferences, reset_profile_avatar, reset_shortcut_preferences,
-        select_profile_avatar_preset, update_app_preferences, update_profile_settings,
+        delete_uploaded_profile_avatar, get_app_preferences, get_chat_terminal_output_preferences,
+        get_profile_settings, get_shortcut_preferences, get_terminal_configuration,
+        reset_chat_terminal_output_preferences, reset_profile_avatar, reset_shortcut_preferences,
+        select_profile_avatar_preset, update_app_preferences,
+        update_chat_terminal_output_preferences, update_profile_settings,
         update_shortcut_preferences, upload_profile_avatar,
     };
     use crate::contracts::{
-        AppLanguage, AppTheme, DeleteUploadedProfileAvatarRequest, GetProfileSettingsRequest,
-        GetShortcutPreferencesRequest, ProfileAvatarKind, ProfileStatus, ResetProfileAvatarRequest,
+        AppLanguage, AppTheme, ChatTerminalOutputDisplayMode, DeleteUploadedProfileAvatarRequest,
+        GetChatTerminalOutputPreferencesRequest, GetProfileSettingsRequest,
+        GetShortcutPreferencesRequest, GetTerminalConfigurationRequest, ProfileAvatarKind,
+        ProfileStatus, ResetChatTerminalOutputPreferencesRequest, ResetProfileAvatarRequest,
         ResetShortcutPreferencesRequest, SelectProfileAvatarPresetRequest, ShortcutKeymapProfile,
-        UpdateAppPreferencesRequest, UpdateProfileSettingsRequest,
-        UpdateShortcutPreferencesRequest, UploadProfileAvatarRequest,
+        UpdateAppPreferencesRequest, UpdateChatTerminalOutputPreferencesRequest,
+        UpdateProfileSettingsRequest, UpdateShortcutPreferencesRequest, UploadProfileAvatarRequest,
+    };
+    use crate::domain::settings::PROFILE_AVATAR_MAX_BYTES;
+    use crate::infrastructure::persistence::json_store::{
+        legacy_global_settings_store::legacy_global_settings_path,
+        notification_preferences_store::{
+            default_notification_preferences, load_notification_preferences,
+            save_notification_preferences,
+        },
+        terminal_configuration_store::{
+            default_terminal_configuration, save_terminal_configuration,
+        },
     };
 
     #[test]
@@ -341,6 +479,148 @@ mod tests {
 
         assert_eq!(error.code, "settings.preferences.invalidJson");
         assert!(error.recoverable);
+    }
+
+    #[test]
+    fn legacy_global_settings_hydrate_missing_current_settings_surfaces() {
+        let app_data = tempdir().expect("app data dir");
+        write_legacy_global_settings(app_data.path());
+
+        let preferences = get_app_preferences(app_data.path()).expect("preferences");
+        let profile =
+            get_profile_settings(app_data.path(), GetProfileSettingsRequest {}).expect("profile");
+        let notifications = load_notification_preferences(app_data.path()).expect("notifications");
+        let shortcuts = get_shortcut_preferences(app_data.path(), GetShortcutPreferencesRequest {})
+            .expect("shortcuts");
+        let chat_output = get_chat_terminal_output_preferences(
+            app_data.path(),
+            GetChatTerminalOutputPreferencesRequest {},
+        )
+        .expect("chat output");
+        let terminal =
+            get_terminal_configuration(app_data.path(), GetTerminalConfigurationRequest {})
+                .expect("terminal");
+
+        assert_eq!(preferences.theme, AppTheme::Light);
+        assert_eq!(preferences.language, AppLanguage::ZhCn);
+        assert_eq!(profile.profile.display_name, "Legacy Dana");
+        assert_eq!(profile.profile.timezone, "UTC");
+        assert_eq!(profile.profile.status, ProfileStatus::DoNotDisturb);
+        assert_eq!(
+            profile.profile.status_message.as_deref(),
+            Some("legacy focus")
+        );
+        assert!(!notifications.desktop_notifications_enabled);
+        assert!(notifications.mentions_only);
+        assert_eq!(shortcuts.preferences.profile, ShortcutKeymapProfile::Vscode);
+        assert!(!shortcuts.preferences.shortcuts_enabled);
+        assert_eq!(
+            chat_output.preferences.display_mode,
+            ChatTerminalOutputDisplayMode::FinalOnly
+        );
+        assert!(terminal
+            .configuration
+            .custom_cli_entries
+            .iter()
+            .any(|entry| entry.command == "legacy-reviewer --stdio"));
+        assert_eq!(
+            terminal.configuration.default_terminal_id.as_deref(),
+            Some("legacy-terminal-ghostty")
+        );
+    }
+
+    #[test]
+    fn current_settings_files_take_precedence_over_legacy_global_settings() {
+        let app_data = tempdir().expect("app data dir");
+        write_legacy_global_settings(app_data.path());
+
+        update_app_preferences(
+            app_data.path(),
+            UpdateAppPreferencesRequest {
+                theme: Some(AppTheme::Dark),
+                language: Some(AppLanguage::EnUs),
+                source_window_label: None,
+            },
+        )
+        .expect("current preferences");
+        update_profile_settings(
+            app_data.path(),
+            UpdateProfileSettingsRequest {
+                display_name: Some("Current Dana".to_owned()),
+                timezone: Some("Asia/Shanghai".to_owned()),
+                status: Some("working".to_owned()),
+                status_message: Some("current".to_owned()),
+            },
+        )
+        .expect("current profile");
+        let mut notifications = default_notification_preferences();
+        notifications.desktop_notifications_enabled = true;
+        notifications.mentions_only = false;
+        save_notification_preferences(app_data.path(), &notifications)
+            .expect("current notifications");
+        update_shortcut_preferences(
+            app_data.path(),
+            UpdateShortcutPreferencesRequest {
+                profile: Some(ShortcutKeymapProfile::Slack),
+                shortcuts_enabled: Some(true),
+                shortcut_hints_enabled: Some(true),
+                disabled_action_ids: Some(Vec::new()),
+            },
+        )
+        .expect("current shortcuts");
+        update_chat_terminal_output_preferences(
+            app_data.path(),
+            UpdateChatTerminalOutputPreferencesRequest {
+                display_mode: ChatTerminalOutputDisplayMode::Stream,
+            },
+        )
+        .expect("current chat output");
+        let mut terminal = default_terminal_configuration();
+        terminal.default_terminal_id = None;
+        save_terminal_configuration(app_data.path(), &terminal).expect("current terminal");
+
+        assert_eq!(
+            get_app_preferences(app_data.path())
+                .expect("preferences")
+                .theme,
+            AppTheme::Dark
+        );
+        assert_eq!(
+            get_profile_settings(app_data.path(), GetProfileSettingsRequest {})
+                .expect("profile")
+                .profile
+                .display_name,
+            "Current Dana"
+        );
+        assert!(
+            load_notification_preferences(app_data.path())
+                .expect("notifications")
+                .desktop_notifications_enabled
+        );
+        assert_eq!(
+            get_shortcut_preferences(app_data.path(), GetShortcutPreferencesRequest {})
+                .expect("shortcuts")
+                .preferences
+                .profile,
+            ShortcutKeymapProfile::Slack
+        );
+        assert_eq!(
+            get_chat_terminal_output_preferences(
+                app_data.path(),
+                GetChatTerminalOutputPreferencesRequest {},
+            )
+            .expect("chat output")
+            .preferences
+            .display_mode,
+            ChatTerminalOutputDisplayMode::Stream
+        );
+        assert!(
+            get_terminal_configuration(app_data.path(), GetTerminalConfigurationRequest {},)
+                .expect("terminal")
+                .configuration
+                .custom_cli_entries
+                .is_empty()
+        );
     }
 
     #[test]
@@ -422,6 +702,146 @@ mod tests {
 
         assert_eq!(error.code, "settings.shortcuts.unknownAction");
         assert!(error.recoverable);
+    }
+
+    #[test]
+    fn chat_terminal_output_preferences_update_persists_and_restores_from_disk() {
+        let app_data = tempdir().expect("app data dir");
+
+        let updated = update_chat_terminal_output_preferences(
+            app_data.path(),
+            UpdateChatTerminalOutputPreferencesRequest {
+                display_mode: ChatTerminalOutputDisplayMode::FinalOnly,
+            },
+        )
+        .expect("chat terminal output preferences updated");
+
+        assert_eq!(
+            updated.preferences.display_mode,
+            ChatTerminalOutputDisplayMode::FinalOnly
+        );
+
+        let restored = get_chat_terminal_output_preferences(
+            app_data.path(),
+            GetChatTerminalOutputPreferencesRequest {},
+        )
+        .expect("restored");
+
+        assert_eq!(restored.preferences, updated.preferences);
+    }
+
+    #[test]
+    fn chat_terminal_output_preferences_reset_restores_stream_default() {
+        let app_data = tempdir().expect("app data dir");
+        update_chat_terminal_output_preferences(
+            app_data.path(),
+            UpdateChatTerminalOutputPreferencesRequest {
+                display_mode: ChatTerminalOutputDisplayMode::FinalOnly,
+            },
+        )
+        .expect("chat terminal output preferences seeded");
+
+        let reset = reset_chat_terminal_output_preferences(
+            app_data.path(),
+            ResetChatTerminalOutputPreferencesRequest {},
+        )
+        .expect("chat terminal output preferences reset");
+
+        assert_eq!(
+            reset.preferences.display_mode,
+            ChatTerminalOutputDisplayMode::Stream
+        );
+    }
+
+    #[test]
+    fn chat_terminal_output_preferences_reject_invalid_json_without_overwriting_saved_mode() {
+        let app_data = tempdir().expect("app data dir");
+        update_chat_terminal_output_preferences(
+            app_data.path(),
+            UpdateChatTerminalOutputPreferencesRequest {
+                display_mode: ChatTerminalOutputDisplayMode::FinalOnly,
+            },
+        )
+        .expect("chat terminal output preferences seeded");
+
+        let preferences_path = app_data
+            .path()
+            .join("settings")
+            .join("chat-terminal-output.json");
+        fs::write(&preferences_path, "{not json").expect("invalid preference fixture");
+
+        let error = get_chat_terminal_output_preferences(
+            app_data.path(),
+            GetChatTerminalOutputPreferencesRequest {},
+        )
+        .expect_err("invalid json rejected");
+
+        assert_eq!(error.code, "settings.chatTerminalOutput.invalidJson");
+        assert!(error.recoverable);
+    }
+
+    #[test]
+    fn legacy_local_profile_avatar_loads_uploaded_snapshot_with_preview() {
+        let app_data = tempdir().expect("app data dir");
+        write_legacy_global_settings_with_avatar(app_data.path(), Some("local:avatar1"));
+        write_legacy_avatar_library(app_data.path(), "avatar1", "avatar1.png");
+        write_legacy_avatar_file(app_data.path(), "avatar1.png", b"legacy png");
+
+        let profile =
+            get_profile_settings(app_data.path(), GetProfileSettingsRequest {}).expect("profile");
+        let avatar = profile.profile.avatar.as_ref().expect("avatar");
+
+        assert_eq!(avatar.kind, ProfileAvatarKind::Uploaded);
+        assert_eq!(avatar.upload_id.as_deref(), Some("avatar1"));
+        assert_eq!(avatar.source_file_name.as_deref(), Some("avatar1.png"));
+        assert_eq!(avatar.content_type.as_deref(), Some("image/png"));
+        assert_eq!(avatar.size_bytes, Some(10));
+        assert_eq!(
+            avatar.library_relative_path.as_deref(),
+            Some("avatars/avatar1.png")
+        );
+        assert!(avatar
+            .preview_data_url
+            .as_deref()
+            .unwrap_or_default()
+            .starts_with("data:image/png;base64,"));
+        assert!(!app_data.path().join("settings/profile.json").exists());
+    }
+
+    #[test]
+    fn current_profile_avatar_takes_precedence_over_legacy_local_avatar() {
+        let app_data = tempdir().expect("app data dir");
+        select_profile_avatar_preset(
+            app_data.path(),
+            SelectProfileAvatarPresetRequest {
+                preset_id: "forest".to_owned(),
+            },
+        )
+        .expect("current preset selected");
+        write_legacy_global_settings_with_avatar(app_data.path(), Some("local:avatar1"));
+        write_legacy_avatar_library(app_data.path(), "avatar1", "avatar1.png");
+        write_legacy_avatar_file(app_data.path(), "avatar1.png", b"legacy png");
+
+        let profile =
+            get_profile_settings(app_data.path(), GetProfileSettingsRequest {}).expect("profile");
+        let avatar = profile.profile.avatar.as_ref().expect("avatar");
+
+        assert_eq!(avatar.kind, ProfileAvatarKind::Preset);
+        assert_eq!(avatar.preset_id.as_deref(), Some("forest"));
+        assert!(avatar.upload_id.is_none());
+        assert!(avatar.preview_data_url.is_none());
+    }
+
+    #[test]
+    fn unsafe_or_missing_legacy_local_profile_avatar_falls_back_to_placeholder() {
+        assert_legacy_local_avatar_falls_back("missing-entry.png", None, false);
+        assert_legacy_local_avatar_falls_back("../escape.png", None, true);
+        assert_legacy_local_avatar_falls_back("missing.png", None, true);
+        assert_legacy_local_avatar_falls_back("avatar.txt", Some(b"not image"), true);
+        assert_legacy_local_avatar_falls_back("empty.png", Some(b""), true);
+
+        let too_large = vec![0_u8; (PROFILE_AVATAR_MAX_BYTES + 1) as usize];
+        assert_legacy_local_avatar_falls_back("too-large.png", Some(&too_large), true);
     }
 
     #[test]
@@ -648,5 +1068,105 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("status"));
+    }
+
+    fn write_legacy_global_settings(app_data_dir: &std::path::Path) {
+        write_legacy_global_settings_with_avatar(app_data_dir, None);
+    }
+
+    fn write_legacy_global_settings_with_avatar(
+        app_data_dir: &std::path::Path,
+        avatar: Option<&str>,
+    ) {
+        let mut settings = serde_json::json!({
+            "appearance": { "theme": "light" },
+            "locale": "zh-CN",
+            "account": {
+                "displayName": "Legacy Dana",
+                "timezone": "utc",
+                "status": "dnd",
+                "statusMessage": "legacy focus"
+            },
+            "notifications": {
+                "desktop": false,
+                "sound": false,
+                "mentionsOnly": true,
+                "previews": false,
+                "quietHoursEnabled": true,
+                "quietHoursStart": "21:00",
+                "quietHoursEnd": "07:00"
+            },
+            "keybinds": {
+                "enabled": false,
+                "showHints": false,
+                "profile": "vscode",
+                "disabledActionIds": ["chat.send"]
+            },
+            "chat": { "streamOutput": false },
+            "members": {
+                "terminalPaths": { "codex": "/opt/codex" },
+                "customMembers": [
+                    { "id": "legacy-reviewer", "name": "Legacy Reviewer", "command": "legacy-reviewer --stdio" }
+                ],
+                "defaultTerminalName": "Ghostty",
+                "defaultTerminalPath": "/opt/ghostty"
+            }
+        });
+        if let Some(avatar) = avatar {
+            settings["account"]["avatar"] = serde_json::Value::String(avatar.to_owned());
+        }
+
+        fs::write(
+            legacy_global_settings_path(app_data_dir),
+            settings.to_string(),
+        )
+        .expect("legacy global settings");
+    }
+
+    fn write_legacy_avatar_library(app_data_dir: &std::path::Path, id: &str, filename: &str) {
+        fs::write(
+            app_data_dir.join("avatar-library.json"),
+            serde_json::json!([
+                {
+                    "id": id,
+                    "filename": filename,
+                    "createdAt": 1_760_000_000_000_u64
+                }
+            ])
+            .to_string(),
+        )
+        .expect("legacy avatar library");
+    }
+
+    fn write_legacy_avatar_file(app_data_dir: &std::path::Path, filename: &str, bytes: &[u8]) {
+        let avatar_dir = app_data_dir.join("avatars");
+        fs::create_dir_all(&avatar_dir).expect("legacy avatar dir");
+        fs::write(avatar_dir.join(filename), bytes).expect("legacy avatar file");
+    }
+
+    fn assert_legacy_local_avatar_falls_back(
+        filename: &str,
+        bytes: Option<&[u8]>,
+        include_library_entry: bool,
+    ) {
+        let app_data = tempdir().expect("app data dir");
+        write_legacy_global_settings_with_avatar(app_data.path(), Some("local:avatar1"));
+        if include_library_entry {
+            write_legacy_avatar_library(app_data.path(), "avatar1", filename);
+        } else {
+            fs::write(app_data.path().join("avatar-library.json"), "[]")
+                .expect("empty legacy avatar library");
+        }
+        if let Some(bytes) = bytes {
+            write_legacy_avatar_file(app_data.path(), filename, bytes);
+        }
+
+        let profile =
+            get_profile_settings(app_data.path(), GetProfileSettingsRequest {}).expect("profile");
+
+        assert_eq!(
+            profile.profile.avatar.as_ref().expect("avatar").kind,
+            ProfileAvatarKind::Placeholder
+        );
     }
 }

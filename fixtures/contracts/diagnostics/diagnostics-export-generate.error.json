@@ -1,0 +1,9 @@
+{
+  "code": "diagnostics.cursor.invalid",
+  "message": "诊断分页游标无效。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新诊断视图后重试。",
+  "details": "cursor=bad-cursor",
+  "correlationId": null
+}

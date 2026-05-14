@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::member::MemberProfile;
+use super::member::{MemberProfile, MemberStatus};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +25,8 @@ pub struct ContactProfile {
     pub contact_id: String,
     pub display_name: String,
     pub contact_kind: ContactKind,
+    pub avatar: String,
+    pub status: MemberStatus,
     pub invite_source: ContactInviteSource,
     pub notes: Option<String>,
     pub source_label: Option<String>,
@@ -73,6 +75,9 @@ pub struct UpdateContactRequest {
     pub contact_id: String,
     pub display_name: String,
     pub contact_kind: ContactKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub status: Option<MemberStatus>,
     pub notes: Option<String>,
     pub source_label: Option<String>,
 }

@@ -1,6 +1,7 @@
 export { chatApi } from "./chat-api";
 export { contactApi } from "./contact-api";
 export { dataIntegrityApi } from "./data-integrity-api";
+export { diagnosticsApi } from "./diagnostics-api";
 export { memberApi } from "./member-api";
 export { notificationApi } from "./notification-api";
 export { normalizeAppError } from "./errors";

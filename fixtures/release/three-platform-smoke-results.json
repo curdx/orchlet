@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-05-13",
+  "overallStatus": "blocked",
+  "sourceMatrix": "fixtures/smoke/desktop-smoke-matrix.json",
+  "statusValues": ["pass", "notRun", "blocked", "fail"],
+  "requiredFlows": [
+    "launch",
+    "openWorkspace",
+    "startShell",
+    "sendMessage",
+    "terminalOutput",
+    "notificationJump",
+    "restartRecovery"
+  ],
+  "platforms": [
+    {
+      "platform": "windows",
+      "runner": "windows-latest",
+      "coverageStatus": "blocked",
+      "knownIssues": [
+        "Packaged Windows smoke has not been executed for this MVP readiness record."
+      ],
+      "blockingFailures": [
+        "Missing Windows evidence for launch, workspace open, shell start, message dispatch, terminal output, notification jump and restart recovery."
+      ],
+      "flows": [
+        { "id": "launch", "status": "notRun", "evidence": [], "knownIssues": ["Packaged app launch not run on Windows."], "blockingFailures": ["No Windows launch evidence recorded."] },
+        { "id": "openWorkspace", "status": "notRun", "evidence": [], "knownIssues": ["Workspace open smoke not run on Windows."], "blockingFailures": ["No Windows workspace-open evidence recorded."] },
+        { "id": "startShell", "status": "notRun", "evidence": [], "knownIssues": ["Shell start smoke not run on Windows."], "blockingFailures": ["No Windows shell-start evidence recorded."] },
+        { "id": "sendMessage", "status": "notRun", "evidence": [], "knownIssues": ["Message dispatch smoke not run on Windows."], "blockingFailures": ["No Windows message dispatch evidence recorded."] },
+        { "id": "terminalOutput", "status": "notRun", "evidence": [], "knownIssues": ["Terminal output smoke not run on Windows."], "blockingFailures": ["No Windows terminal output evidence recorded."] },
+        { "id": "notificationJump", "status": "notRun", "evidence": [], "knownIssues": ["Notification jump smoke not run on Windows."], "blockingFailures": ["No Windows notification jump evidence recorded."] },
+        { "id": "restartRecovery", "status": "notRun", "evidence": [], "knownIssues": ["Restart recovery smoke not run on Windows."], "blockingFailures": ["No Windows restart recovery evidence recorded."] }
+      ]
+    },
+    {
+      "platform": "macos",
+      "runner": "macos-latest",
+      "coverageStatus": "blocked",
+      "knownIssues": [
+        "Packaged macOS smoke has not been executed for this MVP readiness record."
+      ],
+      "blockingFailures": [
+        "Missing macOS evidence for launch, workspace open, shell start, message dispatch, terminal output, notification jump and restart recovery."
+      ],
+      "flows": [
+        { "id": "launch", "status": "notRun", "evidence": [], "knownIssues": ["Packaged app launch not run on macOS after the full MVP implementation."], "blockingFailures": ["No current macOS launch evidence recorded."] },
+        { "id": "openWorkspace", "status": "notRun", "evidence": [], "knownIssues": ["Workspace open smoke not run on macOS after the full MVP implementation."], "blockingFailures": ["No current macOS workspace-open evidence recorded."] },
+        { "id": "startShell", "status": "notRun", "evidence": [], "knownIssues": ["Shell start smoke not run on macOS after the full MVP implementation."], "blockingFailures": ["No current macOS shell-start evidence recorded."] },
+        { "id": "sendMessage", "status": "notRun", "evidence": [], "knownIssues": ["Message dispatch smoke not run on macOS after the full MVP implementation."], "blockingFailures": ["No current macOS message dispatch evidence recorded."] },
+        { "id": "terminalOutput", "status": "notRun", "evidence": [], "knownIssues": ["Terminal output smoke not run on macOS after the full MVP implementation."], "blockingFailures": ["No current macOS terminal output evidence recorded."] },
+        { "id": "notificationJump", "status": "notRun", "evidence": [], "knownIssues": ["Notification jump smoke not run on macOS after the full MVP implementation."], "blockingFailures": ["No current macOS notification jump evidence recorded."] },
+        { "id": "restartRecovery", "status": "notRun", "evidence": [], "knownIssues": ["Restart recovery smoke not run on macOS after the full MVP implementation."], "blockingFailures": ["No current macOS restart recovery evidence recorded."] }
+      ]
+    },
+    {
+      "platform": "linux",
+      "runner": "ubuntu-latest",
+      "coverageStatus": "blocked",
+      "knownIssues": [
+        "Packaged Linux smoke has not been executed for this MVP readiness record."
+      ],
+      "blockingFailures": [
+        "Missing Linux evidence for launch, workspace open, shell start, message dispatch, terminal output, notification jump and restart recovery."
+      ],
+      "flows": [
+        { "id": "launch", "status": "notRun", "evidence": [], "knownIssues": ["Packaged app launch not run on Linux."], "blockingFailures": ["No Linux launch evidence recorded."] },
+        { "id": "openWorkspace", "status": "notRun", "evidence": [], "knownIssues": ["Workspace open smoke not run on Linux."], "blockingFailures": ["No Linux workspace-open evidence recorded."] },
+        { "id": "startShell", "status": "notRun", "evidence": [], "knownIssues": ["Shell start smoke not run on Linux."], "blockingFailures": ["No Linux shell-start evidence recorded."] },
+        { "id": "sendMessage", "status": "notRun", "evidence": [], "knownIssues": ["Message dispatch smoke not run on Linux."], "blockingFailures": ["No Linux message dispatch evidence recorded."] },
+        { "id": "terminalOutput", "status": "notRun", "evidence": [], "knownIssues": ["Terminal output smoke not run on Linux."], "blockingFailures": ["No Linux terminal output evidence recorded."] },
+        { "id": "notificationJump", "status": "notRun", "evidence": [], "knownIssues": ["Notification jump smoke not run on Linux."], "blockingFailures": ["No Linux notification jump evidence recorded."] },
+        { "id": "restartRecovery", "status": "notRun", "evidence": [], "knownIssues": ["Restart recovery smoke not run on Linux."], "blockingFailures": ["No Linux restart recovery evidence recorded."] }
+      ]
+    }
+  ]
+}

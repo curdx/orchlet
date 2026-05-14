@@ -9,7 +9,9 @@ use ulid::Ulid;
 
 use crate::{
     contracts::{AppError, WorkspaceMetadata},
-    domain::workspace::WORKSPACE_SCHEMA_VERSION,
+    domain::workspace::{
+        is_valid_workspace_project_id, project_id_validation_message, WORKSPACE_SCHEMA_VERSION,
+    },
     infrastructure::persistence::json_store::workspace_registry_store::now_ms,
 };
 
@@ -236,15 +238,12 @@ fn validate_workspace_fallbacks(fallbacks: &WorkspaceFallbackDocument) -> Result
             ));
         }
 
-        if entry.project_id.parse::<Ulid>().is_err() {
+        if !is_valid_workspace_project_id(&entry.project_id) {
             return Err(AppError::recoverable_error(
                 "workspace.fallback.invalidProjectId",
                 "只读工作区 fallback 项目标识无效。",
                 "工作区未打开；请修复 fallback 状态中的 projectId 后重试。",
-                Some(format!(
-                    "projectId must be a ULID string: {}",
-                    entry.project_id
-                )),
+                Some(project_id_validation_message(&entry.project_id)),
             ));
         }
 

@@ -6,17 +6,20 @@ use crate::{
     domain::{
         notification::NOTIFICATION_PREFERENCES_FILE_NAME,
         settings::{
-            APP_PREFERENCES_FILE_NAME, AVATAR_LIBRARY_DIR_NAME, PROFILE_SETTINGS_FILE_NAME,
-            SHORTCUT_PREFERENCES_FILE_NAME,
+            APP_PREFERENCES_FILE_NAME, AVATAR_LIBRARY_DIR_NAME,
+            CHAT_TERMINAL_OUTPUT_PREFERENCES_FILE_NAME, PROFILE_SETTINGS_FILE_NAME,
+            SHORTCUT_PREFERENCES_FILE_NAME, TERMINAL_CONFIGURATION_FILE_NAME,
         },
         workspace::{WORKSPACE_DIR_NAME, WORKSPACE_METADATA_FILE_NAME, WORKSPACE_SCHEMA_VERSION},
     },
     infrastructure::persistence::json_store::{
         app_preferences_store::APP_PREFERENCES_STORE_SCHEMA_VERSION,
+        chat_terminal_output_preferences_store::CHAT_TERMINAL_OUTPUT_PREFERENCES_STORE_SCHEMA_VERSION,
         notification_preferences_store::NOTIFICATION_PREFERENCES_STORE_SCHEMA_VERSION,
         profile_settings_store::PROFILE_SETTINGS_STORE_SCHEMA_VERSION,
         shortcut_preferences_store::SHORTCUT_PREFERENCES_STORE_SCHEMA_VERSION,
         skill_library_store::{SKILL_LIBRARY_FILE_NAME, SKILL_LIBRARY_SCHEMA_VERSION},
+        terminal_configuration_store::TERMINAL_CONFIGURATION_STORE_SCHEMA_VERSION,
         workspace_fallback_store::{
             WORKSPACE_FALLBACK_FILE_NAME, WORKSPACE_FALLBACK_SCHEMA_VERSION,
         },
@@ -187,6 +190,58 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "settings.shortcuts.load_validate".to_owned(),
             notes: "Shortcut preferences are local app settings; OS-global shortcuts remain unavailable until a platform adapter is added."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "settings.chatTerminalOutput".to_owned(),
+            owner: StorageOwner::Settings,
+            category: StorageCategory::ChatTerminalOutputPreferences,
+            description: "App-data chat terminal output display mode preference.".to_owned(),
+            path_policy: StoragePathPolicy::AppDataFile,
+            relative_path: Some(format!(
+                "settings/{}",
+                CHAT_TERMINAL_OUTPUT_PREFERENCES_FILE_NAME
+            )),
+            file_name: Some(CHAT_TERMINAL_OUTPUT_PREFERENCES_FILE_NAME.to_owned()),
+            format: StorageFormat::Json,
+            schema_version: CHAT_TERMINAL_OUTPUT_PREFERENCES_STORE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/chat_terminal_output_preferences_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/chat_terminal_output_preferences_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::AppState,
+            fixture_required: true,
+            validation_check_id: "settings.chatTerminalOutput.load_validate".to_owned(),
+            notes: "Chat terminal output display mode is a local preference; terminal output content remains local and is not uploaded."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "settings.terminalConfiguration".to_owned(),
+            owner: StorageOwner::Settings,
+            category: StorageCategory::TerminalConfiguration,
+            description: "App-data CLI path overrides, custom CLI entries and default terminal preferences."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataFile,
+            relative_path: Some(format!("settings/{}", TERMINAL_CONFIGURATION_FILE_NAME)),
+            file_name: Some(TERMINAL_CONFIGURATION_FILE_NAME.to_owned()),
+            format: StorageFormat::Json,
+            schema_version: TERMINAL_CONFIGURATION_STORE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/terminal_configuration_store.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/json_store/terminal_configuration_store.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::AppState,
+            fixture_required: true,
+            validation_check_id: "settings.terminalConfiguration.load_validate".to_owned(),
+            notes: "CLI and terminal commands are local preferences; custom CLI launch treats commands generically and does not parse vendor output."
                 .to_owned(),
         },
         StorageManifestEntry {
@@ -530,6 +585,55 @@ pub fn storage_manifest_entries() -> Vec<StorageManifestEntry> {
             fixture_required: true,
             validation_check_id: "roadmap.goals.load_validate".to_owned(),
             notes: "Contains goal title, related roadmap task IDs and ordering metadata only; progress is derived from task status at runtime."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "diagnostics.runs".to_owned(),
+            owner: StorageOwner::Diagnostics,
+            category: StorageCategory::DiagnosticsRuns,
+            description: "Workspace-scoped diagnostics run lifecycle records.".to_owned(),
+            path_policy: StoragePathPolicy::AppDataWorkspaceFile,
+            relative_path: Some(WORKSPACE_SQLITE_RELATIVE_PATH.to_owned()),
+            file_name: Some(WORKSPACE_SQLITE_FILE_NAME.to_owned()),
+            format: StorageFormat::Sqlite,
+            schema_version: WORKSPACE_SQLITE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/diagnostics_repository.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/diagnostics_repository.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "diagnostics.runs.schema_validate".to_owned(),
+            notes: "Contains run ids, workspace id, lifecycle status, reason, outcome and timestamps only; diagnostics are disabled until a run is explicitly started."
+                .to_owned(),
+        },
+        StorageManifestEntry {
+            id: "diagnostics.events".to_owned(),
+            owner: StorageOwner::Diagnostics,
+            category: StorageCategory::DiagnosticsEvents,
+            description: "Workspace-scoped diagnostics timeline events with correlation ids."
+                .to_owned(),
+            path_policy: StoragePathPolicy::AppDataWorkspaceFile,
+            relative_path: Some(WORKSPACE_SQLITE_RELATIVE_PATH.to_owned()),
+            file_name: Some(WORKSPACE_SQLITE_FILE_NAME.to_owned()),
+            format: StorageFormat::Sqlite,
+            schema_version: WORKSPACE_SQLITE_SCHEMA_VERSION,
+            readers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/diagnostics_repository.rs"
+                    .to_owned(),
+            ],
+            writers: vec![
+                "src-tauri/src/infrastructure/persistence/sqlite/diagnostics_repository.rs"
+                    .to_owned(),
+            ],
+            privacy_class: StoragePrivacyClass::WorkspaceData,
+            fixture_required: true,
+            validation_check_id: "diagnostics.events.schema_validate".to_owned(),
+            notes: "Contains event names, severity, IDs and allowlisted metadata only; raw terminal output, chat bodies, paths, environment variables and tokens are not stored."
                 .to_owned(),
         },
     ]

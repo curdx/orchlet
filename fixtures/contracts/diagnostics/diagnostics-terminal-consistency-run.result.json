@@ -1,0 +1,64 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "runId": null,
+  "checkedAtMs": 1760000008400,
+  "checkedSessionCount": 1,
+  "issueCount": 2,
+  "eventsRecorded": 0,
+  "issues": [
+    {
+      "issueId": "01K00000000000000000000810",
+      "scope": "terminal",
+      "code": "terminal.sequence.missing",
+      "severity": "error",
+      "message": "终端输出序列不连续，恢复时可能丢失片段。",
+      "affectedEntities": {
+        "workspaceId": "01K00000000000000000000000",
+        "conversationId": null,
+        "messageId": null,
+        "memberId": null,
+        "terminalSessionId": "01K000000000000000000000AA",
+        "terminalTabId": "01K000000000000000000000AB",
+        "dispatchId": null
+      },
+      "recommendedNextAction": "重新 attach 该终端会话；如果问题持续，请关闭并重建会话。",
+      "metadata": [
+        {
+          "key": "firstMissingSeq",
+          "value": "2"
+        },
+        {
+          "key": "missingCount",
+          "value": "1"
+        }
+      ]
+    },
+    {
+      "issueId": "01K00000000000000000000811",
+      "scope": "terminal",
+      "code": "terminal.snapshot.stale",
+      "severity": "warning",
+      "message": "终端快照落后于已观察到的流序列。",
+      "affectedEntities": {
+        "workspaceId": "01K00000000000000000000000",
+        "conversationId": null,
+        "messageId": null,
+        "memberId": null,
+        "terminalSessionId": "01K000000000000000000000AA",
+        "terminalTabId": "01K000000000000000000000AB",
+        "dispatchId": null
+      },
+      "recommendedNextAction": "重新 attach 该会话并刷新快照；如果快照仍落后，请重启终端会话。",
+      "metadata": [
+        {
+          "key": "snapshotSeq",
+          "value": "1"
+        },
+        {
+          "key": "latestSeq",
+          "value": "3"
+        }
+      ]
+    }
+  ]
+}

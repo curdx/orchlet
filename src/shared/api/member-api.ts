@@ -5,6 +5,8 @@ import type {
   ListMembersResult,
   RemoveMemberRequest,
   RemoveMemberResult,
+  UpdateMemberProfileRequest,
+  UpdateMemberProfileResult,
   UpdateMemberStatusRequest,
   UpdateMemberStatusResult,
 } from "../../contracts/generated/member";
@@ -14,6 +16,9 @@ export type MemberApi = {
   listMembers: (request: ListMembersRequest) => Promise<ListMembersResult>;
   inviteMember: (request: InviteMemberRequest) => Promise<InviteMemberResult>;
   removeMember: (request: RemoveMemberRequest) => Promise<RemoveMemberResult>;
+  updateMemberProfile: (
+    request: UpdateMemberProfileRequest,
+  ) => Promise<UpdateMemberProfileResult>;
   updateMemberStatus: (
     request: UpdateMemberStatusRequest,
   ) => Promise<UpdateMemberStatusResult>;
@@ -30,6 +35,10 @@ export const memberApi: MemberApi = {
 
   removeMember(request) {
     return invokeCommand<RemoveMemberResult>("member_remove", { request });
+  },
+
+  updateMemberProfile(request) {
+    return invokeCommand<UpdateMemberProfileResult>("member_profile_update", { request });
   },
 
   updateMemberStatus(request) {

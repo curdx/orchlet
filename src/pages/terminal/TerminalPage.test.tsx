@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -239,6 +239,34 @@ function terminalPageHarness(
           },
           {
             schemaVersion: 1,
+            environmentId: "settings:built-in:codex",
+            label: "Codex CLI",
+            kind: "builtInAiCli" as const,
+            source: "settings" as const,
+            command: "/opt/homebrew/bin/codex",
+            resolvedPath: "/opt/homebrew/bin/codex",
+            memberId: null,
+            status: "available" as const,
+            message: "配置的终端环境可用。",
+            userAction: "可以直接启动该终端环境。",
+            details: null,
+          },
+          {
+            schemaVersion: 1,
+            environmentId: "settings:custom-cli:local-reviewer",
+            label: "Local Reviewer",
+            kind: "customCli" as const,
+            source: "settings" as const,
+            command: "missing-reviewer",
+            resolvedPath: null,
+            memberId: null,
+            status: "missing" as const,
+            message: "未在 PATH 中找到配置的终端命令。",
+            userAction: "请在设置中更新该 CLI 命令，或安装缺失的可执行文件后重试。",
+            details: "executable=missing-reviewer",
+          },
+          {
+            schemaVersion: 1,
             environmentId: "member:01K00000000000000000000031",
             label: "Missing CLI",
             kind: "customCli" as const,
@@ -413,6 +441,33 @@ function rendererForPane(renderers: HarnessRenderer[], paneLabel: string) {
   return renderer;
 }
 
+function mockElementRect(
+  element: Element,
+  rect: Pick<DOMRect, "left" | "top" | "width" | "height">,
+) {
+  const domRect = {
+    ...rect,
+    right: rect.left + rect.width,
+    bottom: rect.top + rect.height,
+    x: rect.left,
+    y: rect.top,
+    toJSON: () => ({}),
+  } as DOMRect;
+
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue(domRect);
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((innerResolve, innerReject) => {
+    resolve = innerResolve;
+    reject = innerReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 describe("TerminalPage", () => {
   it("shows terminal environment diagnostics with actionable statuses", async () => {
     terminalPageHarness();
@@ -420,9 +475,11 @@ describe("TerminalPage", () => {
     expect(await screen.findByLabelText("终端环境诊断")).toBeInTheDocument();
     expect(screen.getByText("终端环境")).toBeInTheDocument();
     expect(screen.getByText("zsh")).toBeInTheDocument();
+    expect(screen.getByText("Codex CLI")).toBeInTheDocument();
+    expect(screen.getByText("Local Reviewer")).toBeInTheDocument();
     expect(screen.getByText("Missing CLI")).toBeInTheDocument();
-    expect(screen.getByText("可用")).toBeInTheDocument();
-    expect(screen.getByText("缺失")).toBeInTheDocument();
+    expect(screen.getAllByText("可用").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("缺失").length).toBeGreaterThanOrEqual(2);
   });
 
   it("lists tabs, attaches the active session and streams only active output", async () => {
@@ -576,6 +633,53 @@ describe("TerminalPage", () => {
     );
   });
 
+  it("shows Golutra-style attach, reconnect and fatal overlays inside the pane", async () => {
+    const user = userEvent.setup();
+    const { api } = terminalPageHarness();
+
+    await screen.findAllByText("orchlet-demo");
+
+    const createDeferredResult = createDeferred<Awaited<ReturnType<typeof api.createTab>>>();
+    api.createTab.mockReturnValueOnce(createDeferredResult.promise);
+    await user.click(screen.getByRole("button", { name: "新标签" }));
+    expect(await screen.findByText("Connecting...")).toBeInTheDocument();
+    const createdTab = terminalTab({
+      tabId: "01K00000000000000000000082",
+      terminalSessionId: "01K00000000000000000000092",
+      label: "Build",
+      shell: "bash",
+      sortIndex: 1,
+    });
+    createDeferredResult.resolve({
+      tab: createdTab,
+      session: terminalSession({
+        terminalSessionId: createdTab.terminalSessionId,
+        title: createdTab.label,
+      }),
+      tabs: [terminalTab(), createdTab],
+    });
+    await waitFor(() => {
+      expect(screen.queryByText("Connecting...")).not.toBeInTheDocument();
+    });
+
+    const reconnectDeferredResult =
+      createDeferred<Awaited<ReturnType<typeof api.attachTerminal>>>();
+    api.attachTerminal.mockReturnValueOnce(reconnectDeferredResult.promise);
+    await user.click(screen.getByRole("button", { name: "Build" }));
+    expect(await screen.findByText("Reconnecting...")).toBeInTheDocument();
+    reconnectDeferredResult.reject({
+      code: "terminal.renderer.crashed",
+      message: "终端渲染器崩溃。",
+      severity: "error",
+      recoverable: true,
+      userAction: "请重新打开终端。",
+      details: null,
+      correlationId: null,
+    });
+
+    expect(await screen.findByText("Terminal crashed. Please reopen.")).toBeInTheDocument();
+  });
+
   it("closes and restores the active terminal tab through tab APIs", async () => {
     const user = userEvent.setup();
     const { api } = terminalPageHarness();
@@ -727,6 +831,165 @@ describe("TerminalPage", () => {
         isPinned: true,
         sortIndex: null,
       });
+    });
+  });
+
+  it("shows the Golutra-style terminal tab context menu and routes menu actions", async () => {
+    const user = userEvent.setup();
+    const secondTab = terminalTab({
+      tabId: "01K00000000000000000000081",
+      terminalSessionId: "01K00000000000000000000091",
+      label: "Logs",
+      shell: "fish",
+      sortIndex: 1,
+    });
+    const { api } = terminalPageHarness([terminalTab(), secondTab]);
+
+    await screen.findAllByText("orchlet-demo");
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Logs" }), {
+      clientX: 140,
+      clientY: 48,
+    });
+
+    const menu = await screen.findByRole("menu", { name: "终端标签菜单" });
+    expect(menu).toHaveTextContent("关闭标签");
+    expect(menu).toHaveTextContent("关闭其他标签");
+    expect(menu).toHaveTextContent("关闭右侧标签");
+    expect(menu).toHaveTextContent("置顶标签");
+    expect(menu).toHaveTextContent("左右分屏");
+
+    await user.click(screen.getByRole("menuitem", { name: "置顶标签" }));
+    await waitFor(() => {
+      expect(api.updateTab).toHaveBeenCalledWith({
+        tabId: "01K00000000000000000000081",
+        label: null,
+        isPinned: true,
+        sortIndex: null,
+      });
+    });
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "Logs" }), {
+      clientX: 140,
+      clientY: 48,
+    });
+    await user.click(await screen.findByRole("menuitem", { name: "左右分屏" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByLabelText(/窗格 \d 终端窗格/)).toHaveLength(2);
+    });
+    await waitFor(() => {
+      expect(api.attachTerminal).toHaveBeenLastCalledWith({
+        terminalSessionId: "01K00000000000000000000091",
+      });
+    });
+  });
+
+  it("reorders terminal tabs by pointer drag and drops tabs onto panes", async () => {
+    const user = userEvent.setup();
+    const secondTab = terminalTab({
+      tabId: "01K00000000000000000000081",
+      terminalSessionId: "01K00000000000000000000091",
+      label: "Logs",
+      shell: "fish",
+      sortIndex: 1,
+    });
+    const { api } = terminalPageHarness([terminalTab(), secondTab]);
+
+    await screen.findAllByText("orchlet-demo");
+
+    const tabList = screen.getByLabelText("终端标签");
+    const tabBar = tabList.parentElement;
+    const firstTabButton = tabList.querySelector<HTMLElement>(
+      '[data-terminal-tab-id="01K00000000000000000000080"]',
+    );
+    const logsTabButton = tabList.querySelector<HTMLElement>(
+      '[data-terminal-tab-id="01K00000000000000000000081"]',
+    );
+
+    if (!tabBar || !firstTabButton || !logsTabButton) {
+      throw new Error("terminal tab buttons were not rendered");
+    }
+
+    mockElementRect(tabBar, { left: 0, top: 0, width: 640, height: 38 });
+    mockElementRect(firstTabButton, { left: 0, top: 0, width: 96, height: 28 });
+    mockElementRect(logsTabButton, { left: 104, top: 0, width: 96, height: 28 });
+
+    fireEvent.pointerDown(logsTabButton, {
+      button: 0,
+      pointerId: 1,
+      clientX: 128,
+      clientY: 14,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      clientX: 12,
+      clientY: 14,
+    });
+    fireEvent.pointerUp(window, {
+      pointerId: 1,
+      clientX: 12,
+      clientY: 14,
+    });
+
+    await waitFor(() => {
+      expect(api.updateTab).toHaveBeenCalledWith({
+        tabId: "01K00000000000000000000081",
+        label: null,
+        isPinned: null,
+        sortIndex: 0,
+      });
+    });
+    expect(api.updateTab).toHaveBeenCalledWith({
+      tabId: "01K00000000000000000000080",
+      label: null,
+      isPinned: null,
+      sortIndex: 1,
+    });
+
+    await user.click(screen.getByRole("button", { name: "左右分屏布局" }));
+    const paneTwo = await screen.findByLabelText("窗格 2 终端窗格");
+    const elementFromPoint = vi.fn(() => paneTwo);
+    const originalElementFromPoint = document.elementFromPoint;
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: elementFromPoint,
+    });
+
+    const latestLogsTabButton = screen
+      .getByLabelText("终端标签")
+      .querySelector<HTMLElement>('[data-terminal-tab-id="01K00000000000000000000081"]');
+
+    if (!latestLogsTabButton) {
+      throw new Error("logs tab button was not rendered after reorder");
+    }
+
+    mockElementRect(latestLogsTabButton, { left: 0, top: 0, width: 96, height: 28 });
+    fireEvent.pointerDown(latestLogsTabButton, {
+      button: 0,
+      pointerId: 2,
+      clientX: 16,
+      clientY: 14,
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 2,
+      clientX: 420,
+      clientY: 240,
+    });
+    fireEvent.pointerUp(window, {
+      pointerId: 2,
+      clientX: 420,
+      clientY: 240,
+    });
+
+    await waitFor(() => {
+      expect(api.attachTerminal).toHaveBeenLastCalledWith({
+        terminalSessionId: "01K00000000000000000000091",
+      });
+    });
+
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: originalElementFromPoint,
     });
   });
 

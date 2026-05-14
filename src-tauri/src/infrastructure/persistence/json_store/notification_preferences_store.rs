@@ -60,6 +60,11 @@ pub fn load_notification_preferences(
     let path = notification_preferences_path(app_data_dir);
 
     if !path.exists() {
+        if let Some(preferences) =
+            crate::infrastructure::persistence::json_store::legacy_global_settings_store::load_legacy_notification_preferences(app_data_dir)?
+        {
+            return Ok(preferences);
+        }
         return Ok(default_notification_preferences());
     }
 

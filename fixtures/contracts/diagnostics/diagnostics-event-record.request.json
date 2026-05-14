@@ -1,0 +1,23 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "runId": null,
+  "scope": "frontend",
+  "eventName": "frontend.window.focused",
+  "severity": "info",
+  "correlations": {
+    "workspaceId": "01K00000000000000000000000",
+    "conversationId": null,
+    "messageId": null,
+    "memberId": null,
+    "terminalSessionId": null,
+    "terminalTabId": null,
+    "windowLabel": "main",
+    "dispatchId": null
+  },
+  "metadata": [
+    {
+      "key": "surface",
+      "value": "main"
+    }
+  ]
+}

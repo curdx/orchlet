@@ -24,6 +24,94 @@
       "requirements": ["NFR35", "NFR36"]
     },
     {
+      "domain": "diagnostics",
+      "command": "diagnostics_run_start",
+      "requestFixture": "fixtures/contracts/diagnostics/diagnostics-run-start.request.json",
+      "successResultFixture": "fixtures/contracts/diagnostics/diagnostics-run-start.result.json",
+      "errorFixture": "fixtures/contracts/diagnostics/diagnostics-run-start.error.json",
+      "rustRequestDto": "StartDiagnosticsRunRequest",
+      "rustSuccessDto": "StartDiagnosticsRunResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR76", "NFR35", "NFR36", "NFR39", "NFR40"]
+    },
+    {
+      "domain": "diagnostics",
+      "command": "diagnostics_run_complete",
+      "requestFixture": "fixtures/contracts/diagnostics/diagnostics-run-complete.request.json",
+      "successResultFixture": "fixtures/contracts/diagnostics/diagnostics-run-complete.result.json",
+      "errorFixture": "fixtures/contracts/diagnostics/diagnostics-run-complete.error.json",
+      "rustRequestDto": "CompleteDiagnosticsRunRequest",
+      "rustSuccessDto": "CompleteDiagnosticsRunResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR76", "NFR35", "NFR36", "NFR39", "NFR40"]
+    },
+    {
+      "domain": "diagnostics",
+      "command": "diagnostics_event_record",
+      "requestFixture": "fixtures/contracts/diagnostics/diagnostics-event-record.request.json",
+      "successResultFixture": "fixtures/contracts/diagnostics/diagnostics-event-record.result.json",
+      "errorFixture": "fixtures/contracts/diagnostics/diagnostics-event-record.error.json",
+      "rustRequestDto": "RecordDiagnosticsEventRequest",
+      "rustSuccessDto": "RecordDiagnosticsEventResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR76", "NFR35", "NFR36", "NFR39", "NFR40"]
+    },
+    {
+      "domain": "diagnostics",
+      "command": "diagnostics_events_list",
+      "requestFixture": "fixtures/contracts/diagnostics/diagnostics-events-list.request.json",
+      "successResultFixture": "fixtures/contracts/diagnostics/diagnostics-events-list.result.json",
+      "errorFixture": "fixtures/contracts/diagnostics/diagnostics-events-list.error.json",
+      "rustRequestDto": "ListDiagnosticsEventsRequest",
+      "rustSuccessDto": "ListDiagnosticsEventsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR76", "NFR35", "NFR36", "NFR39", "NFR40"]
+    },
+    {
+      "domain": "diagnostics",
+      "command": "diagnostics_terminal_consistency_run",
+      "requestFixture": "fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.request.json",
+      "successResultFixture": "fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.result.json",
+      "errorFixture": "fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.error.json",
+      "rustRequestDto": "RunTerminalConsistencyDiagnosticsRequest",
+      "rustSuccessDto": "RunTerminalConsistencyDiagnosticsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR77", "NFR35", "NFR36", "NFR39", "NFR40", "NFR41"]
+    },
+    {
+      "domain": "diagnostics",
+      "command": "diagnostics_chat_consistency_run",
+      "requestFixture": "fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.request.json",
+      "successResultFixture": "fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.result.json",
+      "errorFixture": "fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.error.json",
+      "rustRequestDto": "RunChatConsistencyDiagnosticsRequest",
+      "rustSuccessDto": "RunChatConsistencyDiagnosticsResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR77", "NFR35", "NFR36", "NFR39", "NFR40", "NFR41"]
+    },
+    {
+      "domain": "diagnostics",
+      "command": "diagnostics_overview_get",
+      "requestFixture": "fixtures/contracts/diagnostics/diagnostics-overview-get.request.json",
+      "successResultFixture": "fixtures/contracts/diagnostics/diagnostics-overview-get.result.json",
+      "errorFixture": "fixtures/contracts/diagnostics/diagnostics-overview-get.error.json",
+      "rustRequestDto": "DiagnosticsOverviewRequest",
+      "rustSuccessDto": "DiagnosticsOverviewResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR78", "NFR35", "NFR36", "NFR39", "NFR40", "NFR42"]
+    },
+    {
+      "domain": "diagnostics",
+      "command": "diagnostics_export_generate",
+      "requestFixture": "fixtures/contracts/diagnostics/diagnostics-export-generate.request.json",
+      "successResultFixture": "fixtures/contracts/diagnostics/diagnostics-export-generate.result.json",
+      "errorFixture": "fixtures/contracts/diagnostics/diagnostics-export-generate.error.json",
+      "rustRequestDto": "DiagnosticsExportRequest",
+      "rustSuccessDto": "DiagnosticsExportResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR78", "NFR7", "NFR18", "NFR35", "NFR36", "NFR42"]
+    },
+    {
       "domain": "member",
       "command": "members_list",
       "requestFixture": "fixtures/contracts/member/members-list.request.json",
@@ -564,6 +652,72 @@
       "requirements": ["FR67", "UX-DR2", "NFR8", "NFR14", "NFR17", "NFR29", "NFR35", "NFR36"]
     },
     {
+      "domain": "settings",
+      "command": "chat_terminal_output_preferences_get",
+      "requestFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-get.request.json",
+      "successResultFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-get.result.json",
+      "errorFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-get.error.json",
+      "rustRequestDto": "GetChatTerminalOutputPreferencesRequest",
+      "rustSuccessDto": "GetChatTerminalOutputPreferencesResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR69", "NFR8", "NFR14", "NFR31", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "chat_terminal_output_preferences_update",
+      "requestFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-update.request.json",
+      "successResultFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-update.result.json",
+      "errorFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-update.error.json",
+      "rustRequestDto": "UpdateChatTerminalOutputPreferencesRequest",
+      "rustSuccessDto": "UpdateChatTerminalOutputPreferencesResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR69", "NFR8", "NFR14", "NFR31", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "chat_terminal_output_preferences_reset",
+      "requestFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-reset.request.json",
+      "successResultFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-reset.result.json",
+      "errorFixture": "fixtures/contracts/settings/chat-terminal-output-preferences-reset.error.json",
+      "rustRequestDto": "ResetChatTerminalOutputPreferencesRequest",
+      "rustSuccessDto": "ResetChatTerminalOutputPreferencesResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR69", "NFR8", "NFR14", "NFR31", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "terminal_configuration_get",
+      "requestFixture": "fixtures/contracts/settings/terminal-configuration-get.request.json",
+      "successResultFixture": "fixtures/contracts/settings/terminal-configuration-get.result.json",
+      "errorFixture": "fixtures/contracts/settings/terminal-configuration-get.error.json",
+      "rustRequestDto": "GetTerminalConfigurationRequest",
+      "rustSuccessDto": "GetTerminalConfigurationResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR68", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "terminal_configuration_update",
+      "requestFixture": "fixtures/contracts/settings/terminal-configuration-update.request.json",
+      "successResultFixture": "fixtures/contracts/settings/terminal-configuration-update.result.json",
+      "errorFixture": "fixtures/contracts/settings/terminal-configuration-update.error.json",
+      "rustRequestDto": "UpdateTerminalConfigurationRequest",
+      "rustSuccessDto": "UpdateTerminalConfigurationResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR68", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "settings",
+      "command": "terminal_configuration_reset",
+      "requestFixture": "fixtures/contracts/settings/terminal-configuration-reset.request.json",
+      "successResultFixture": "fixtures/contracts/settings/terminal-configuration-reset.result.json",
+      "errorFixture": "fixtures/contracts/settings/terminal-configuration-reset.error.json",
+      "rustRequestDto": "ResetTerminalConfigurationRequest",
+      "rustSuccessDto": "ResetTerminalConfigurationResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR68", "NFR8", "NFR14", "NFR17", "NFR35", "NFR36"]
+    },
+    {
       "domain": "contact",
       "command": "contacts_list",
       "requestFixture": "fixtures/contracts/contact/contacts-list.request.json",
@@ -650,6 +804,28 @@
       "rustSuccessDto": "ClearConversationResult",
       "rustErrorDto": "AppError",
       "requirements": ["FR25", "FR26", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_data_repair",
+      "requestFixture": "fixtures/contracts/chat/chat-data-repair.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-data-repair.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-data-repair.error.json",
+      "rustRequestDto": "RepairWorkspaceChatDataRequest",
+      "rustSuccessDto": "RepairWorkspaceChatDataResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR70", "NFR35", "NFR36"]
+    },
+    {
+      "domain": "chat",
+      "command": "chat_data_clear",
+      "requestFixture": "fixtures/contracts/chat/chat-data-clear.request.json",
+      "successResultFixture": "fixtures/contracts/chat/chat-data-clear.result.json",
+      "errorFixture": "fixtures/contracts/chat/chat-data-clear.error.json",
+      "rustRequestDto": "ClearWorkspaceChatDataRequest",
+      "rustSuccessDto": "ClearWorkspaceChatDataResult",
+      "rustErrorDto": "AppError",
+      "requirements": ["FR71", "NFR35", "NFR36"]
     },
     {
       "domain": "chat",

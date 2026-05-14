@@ -444,10 +444,6 @@ fn manifest_artifact(link_path: PathBuf, reason: String) -> WorkspaceLinkArtifac
 }
 
 fn remove_workspace_link_artifact(link: &WorkspaceSkillLinkEntry) -> Result<(), AppError> {
-    if link.link_mode != WorkspaceSkillLinkMode::Symlink {
-        return Ok(());
-    }
-
     let link_path = PathBuf::from(&link.link_path);
     match fs::symlink_metadata(&link_path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
@@ -460,6 +456,7 @@ fn remove_workspace_link_artifact(link: &WorkspaceSkillLinkEntry) -> Result<(), 
                 )
             })
         }
+        Ok(_) if link.link_mode != WorkspaceSkillLinkMode::Symlink => Ok(()),
         Ok(_) => Err(AppError::recoverable_error(
             "skill.workspaceLink.removeUnsafePath",
             "技能链接路径不是 symlink，已拒绝删除。",
@@ -910,5 +907,74 @@ mod tests {
         .expect("links")
         .skills
         .is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unlinking_legacy_golutra_workspace_skill_removes_symlink_and_writes_current_store() {
+        let workspace = tempdir().expect("workspace");
+        let skill = tempdir().expect("skill");
+        fs::write(
+            skill.path().join("SKILL.md"),
+            "---\nname: Legacy Review\n---\n# Legacy Review",
+        )
+        .expect("manifest");
+        let legacy_dir = workspace.path().join(".golutra/skills");
+        fs::create_dir_all(&legacy_dir).expect("legacy skills dir");
+        let legacy_link = legacy_dir.join("legacy-review");
+        std::os::unix::fs::symlink(skill.path(), &legacy_link).expect("legacy symlink");
+
+        let listed = list_workspace_skill_links(ListWorkspaceSkillLinksRequest {
+            workspace_root: workspace.path().to_string_lossy().into_owned(),
+        })
+        .expect("legacy links");
+        assert_eq!(listed.skills.len(), 1);
+        assert_eq!(listed.skills[0].name, "legacy-review");
+        assert!(legacy_link.exists());
+
+        let unlinked = unlink_workspace_skill(UnlinkWorkspaceSkillRequest {
+            workspace_root: workspace.path().to_string_lossy().into_owned(),
+            skill_id: listed.skills[0].skill_id.clone(),
+        })
+        .expect("unlink legacy");
+
+        assert_eq!(unlinked.removed_skill_id, listed.skills[0].skill_id);
+        assert!(unlinked.skills.is_empty());
+        assert!(!legacy_link.exists());
+        assert!(workspace
+            .path()
+            .join(".orchlet/skills/skill-links.json")
+            .exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unlinking_broken_legacy_golutra_workspace_skill_removes_stale_symlink() {
+        let workspace = tempdir().expect("workspace");
+        let legacy_dir = workspace.path().join(".golutra/skills");
+        fs::create_dir_all(&legacy_dir).expect("legacy skills dir");
+        let missing_target = workspace.path().join("missing-skill");
+        let legacy_link = legacy_dir.join("missing-review");
+        std::os::unix::fs::symlink(&missing_target, &legacy_link).expect("legacy symlink");
+
+        let listed = list_workspace_skill_links(ListWorkspaceSkillLinksRequest {
+            workspace_root: workspace.path().to_string_lossy().into_owned(),
+        })
+        .expect("legacy links");
+        assert_eq!(listed.skills.len(), 1);
+        assert_eq!(listed.skills[0].link_mode, WorkspaceSkillLinkMode::Manifest);
+        assert!(fs::symlink_metadata(&legacy_link).is_ok());
+
+        unlink_workspace_skill(UnlinkWorkspaceSkillRequest {
+            workspace_root: workspace.path().to_string_lossy().into_owned(),
+            skill_id: listed.skills[0].skill_id.clone(),
+        })
+        .expect("unlink broken legacy");
+
+        assert!(fs::symlink_metadata(&legacy_link).is_err());
+        assert!(workspace
+            .path()
+            .join(".orchlet/skills/skill-links.json")
+            .exists());
     }
 }

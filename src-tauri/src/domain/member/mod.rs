@@ -1,6 +1,9 @@
 use ulid::Ulid;
 
-use crate::contracts::{AppError, MemberRuntimeKind, MemberRuntimeProfile};
+use crate::{
+    contracts::{AppError, MemberRuntimeKind, MemberRuntimeProfile},
+    domain::workspace::{is_valid_workspace_project_id, project_id_validation_message},
+};
 
 pub const MEMBER_SCHEMA_VERSION: u32 = 1;
 pub const MEMBER_OWNER_DISPLAY_NAME: &str = "Owner";
@@ -8,15 +11,12 @@ pub const MEMBER_MIN_INSTANCE_COUNT: u32 = 1;
 pub const MEMBER_MAX_INSTANCE_COUNT: u32 = 20;
 
 pub fn validate_workspace_id(workspace_id: &str) -> Result<(), AppError> {
-    if workspace_id.parse::<Ulid>().is_err() {
+    if !is_valid_workspace_project_id(workspace_id) {
         return Err(AppError::recoverable_error(
             "member.workspace.invalidId",
             "工作区标识无效，无法加载成员。",
             "请重新打开工作区；如果问题持续，请运行数据验证。",
-            Some(format!(
-                "workspaceId must be a ULID string: {}",
-                workspace_id
-            )),
+            Some(project_id_validation_message(workspace_id).replace("projectId", "workspaceId")),
         ));
     }
 

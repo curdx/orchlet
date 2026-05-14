@@ -13,14 +13,14 @@ use ulid::Ulid;
 use crate::{
     contracts::{
         AppError, MemberProfile, MemberRuntimeKind, OpenedWorkspace, TerminalAttachRequest,
-        TerminalCloseRequest, TerminalEnvironmentKind, TerminalEnvironmentProfile,
-        TerminalEnvironmentSource, TerminalEnvironmentStatus, TerminalEnvironmentsListResult,
-        TerminalInputRequest, TerminalOpenRequest, TerminalOutputEventPayload,
-        TerminalResizeRequest, TerminalSessionExitReason, TerminalSessionProfile,
-        TerminalSessionSnapshot, TerminalSessionStatus, TerminalStatusEventPayload,
-        TerminalStreamKind, TerminalTabCloseRequest, TerminalTabCloseResult,
-        TerminalTabCreateRequest, TerminalTabCreateResult, TerminalTabProfile,
-        TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
+        TerminalCloseRequest, TerminalConfigurationSnapshot, TerminalEnvironmentKind,
+        TerminalEnvironmentProfile, TerminalEnvironmentSource, TerminalEnvironmentStatus,
+        TerminalEnvironmentsListResult, TerminalInputRequest, TerminalOpenRequest,
+        TerminalOutputEventPayload, TerminalResizeRequest, TerminalSessionExitReason,
+        TerminalSessionProfile, TerminalSessionSnapshot, TerminalSessionStatus,
+        TerminalStatusEventPayload, TerminalStreamKind, TerminalTabCloseRequest,
+        TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
+        TerminalTabProfile, TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabStatus,
         TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListResult,
     },
     domain::{
@@ -43,6 +43,7 @@ use crate::{
     },
 };
 
+use crate::infrastructure::persistence::json_store::terminal_configuration_store::load_terminal_configuration;
 use crate::infrastructure::terminal::{
     resolve_terminal_command, shell_command_candidates, terminal_command_unavailable_error,
     TerminalCommandResolution, TerminalCommandResolutionStatus,
@@ -105,7 +106,11 @@ impl TerminalRuntimeState {
         status_sink: TerminalStatusSink,
     ) -> Result<(TerminalSessionProfile, bool), AppError> {
         validate_workspace_id(&workspace.metadata.project_id)?;
-        let member = resolve_member(app_data_dir, &workspace.metadata.project_id, &request)?;
+        let member = resolve_member(
+            app_data_dir.clone(),
+            &workspace.metadata.project_id,
+            &request,
+        )?;
         let mut key = TerminalSessionKey {
             workspace_id: workspace.metadata.project_id.clone(),
             member_id: member.as_ref().map(|member| member.member_id.clone()),
@@ -131,14 +136,9 @@ impl TerminalRuntimeState {
             .as_ref()
             .map(|member| member.instance_label.clone())
             .unwrap_or_else(|| workspace.metadata.name.clone());
-        let command = member
-            .as_ref()
-            .and_then(|member| member.runtime.command.as_deref())
-            .map(str::trim)
-            .filter(|command| !command.is_empty())
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(default_shell_command);
-        ensure_launch_command_available(&command)?;
+        let configuration = load_terminal_configuration(&app_data_dir)?;
+        let launch_command = terminal_launch_command(member.as_ref(), &configuration);
+        ensure_launch_command_available(&launch_command.command)?;
         let profile = TerminalSessionProfile {
             schema_version: TERMINAL_SCHEMA_VERSION,
             terminal_session_id: session_id.clone(),
@@ -164,8 +164,8 @@ impl TerminalRuntimeState {
         let handle = self.launcher.spawn(
             TerminalLaunchProfile {
                 cwd: PathBuf::from(&workspace.root_path),
-                command,
-                use_shell_wrapper: key.member_id.is_some(),
+                command: launch_command.command,
+                use_shell_wrapper: launch_command.use_shell_wrapper,
                 cols: TERMINAL_DEFAULT_COLS,
                 rows: TERMINAL_DEFAULT_ROWS,
             },
@@ -198,7 +198,11 @@ impl TerminalRuntimeState {
         status_sink: TerminalStatusSink,
     ) -> Result<(TerminalSessionProfile, String), AppError> {
         validate_workspace_id(&workspace.metadata.project_id)?;
-        let member = resolve_member(app_data_dir, &workspace.metadata.project_id, &request)?;
+        let member = resolve_member(
+            app_data_dir.clone(),
+            &workspace.metadata.project_id,
+            &request,
+        )?;
         let key = TerminalSessionKey {
             workspace_id: workspace.metadata.project_id.clone(),
             member_id: member.as_ref().map(|member| member.member_id.clone()),
@@ -209,14 +213,9 @@ impl TerminalRuntimeState {
             .as_ref()
             .map(|member| member.instance_label.clone())
             .unwrap_or_else(|| workspace.metadata.name.clone());
-        let command = member
-            .as_ref()
-            .and_then(|member| member.runtime.command.as_deref())
-            .map(str::trim)
-            .filter(|command| !command.is_empty())
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(default_shell_command);
-        ensure_launch_command_available(&command)?;
+        let configuration = load_terminal_configuration(&app_data_dir)?;
+        let launch_command = terminal_launch_command(member.as_ref(), &configuration);
+        ensure_launch_command_available(&launch_command.command)?;
         let profile = TerminalSessionProfile {
             schema_version: TERMINAL_SCHEMA_VERSION,
             terminal_session_id: session_id.clone(),
@@ -242,8 +241,8 @@ impl TerminalRuntimeState {
         let handle = self.launcher.spawn(
             TerminalLaunchProfile {
                 cwd: PathBuf::from(&workspace.root_path),
-                command: command.clone(),
-                use_shell_wrapper: key.member_id.is_some(),
+                command: launch_command.command.clone(),
+                use_shell_wrapper: launch_command.use_shell_wrapper,
                 cols: TERMINAL_DEFAULT_COLS,
                 rows: TERMINAL_DEFAULT_ROWS,
             },
@@ -264,7 +263,7 @@ impl TerminalRuntimeState {
         );
         emit_status(&running_profile, status_sink);
 
-        Ok((running_profile, command))
+        Ok((running_profile, launch_command.command))
     }
 
     pub fn attach_session(
@@ -416,6 +415,7 @@ impl TerminalRuntimeState {
     ) -> Result<TerminalEnvironmentsListResult, AppError> {
         validate_workspace_id(&workspace.metadata.project_id)?;
 
+        let configuration = load_terminal_configuration(&app_data_dir)?;
         let mut environments = Vec::new();
         for shell in shell_command_candidates() {
             let resolution = resolve_terminal_command(&shell.command);
@@ -430,18 +430,50 @@ impl TerminalRuntimeState {
             ));
         }
 
+        for entry in &configuration.built_in_cli_entries {
+            environments.push(environment_profile(
+                format!("settings:builtInCli:{}", entry.runtime_id),
+                entry.label.clone(),
+                TerminalEnvironmentKind::BuiltInAiCli,
+                TerminalEnvironmentSource::Settings,
+                entry.command.clone(),
+                None,
+                settings_cli_resolution(&entry.command),
+            ));
+        }
+
+        for entry in &configuration.custom_cli_entries {
+            environments.push(environment_profile(
+                format!("settings:customCli:{}", entry.cli_id),
+                entry.label.clone(),
+                TerminalEnvironmentKind::CustomCli,
+                TerminalEnvironmentSource::Settings,
+                entry.command.clone(),
+                None,
+                settings_cli_resolution(&entry.command),
+            ));
+        }
+
+        for entry in &configuration.custom_terminal_entries {
+            environments.push(environment_profile(
+                format!("settings:terminal:{}", entry.terminal_id),
+                entry.label.clone(),
+                TerminalEnvironmentKind::Shell,
+                TerminalEnvironmentSource::Settings,
+                entry.command.clone(),
+                None,
+                settings_terminal_resolution(&entry.command),
+            ));
+        }
+
         let members = initialize_member_store(&app_data_dir, &workspace.metadata.project_id)?;
         for member in members
             .members
             .into_iter()
             .filter(|member| member.runtime.kind != MemberRuntimeKind::None)
         {
-            let command = member.runtime.command.clone().unwrap_or_default();
-            let label = member
-                .runtime
-                .label
-                .clone()
-                .unwrap_or_else(|| member.instance_label.clone());
+            let command = configured_member_runtime_command(&member, &configuration);
+            let label = configured_member_runtime_label(&member, &configuration);
             let resolution = resolve_terminal_command(&command);
             environments.push(environment_profile(
                 format!("member:{}", member.member_id),
@@ -734,6 +766,11 @@ impl TerminalRuntimeState {
     }
 }
 
+struct ResolvedTerminalCommand {
+    command: String,
+    use_shell_wrapper: bool,
+}
+
 #[derive(Default)]
 struct TerminalState {
     sessions_by_id: HashMap<String, TerminalSessionEntry>,
@@ -795,6 +832,126 @@ fn resolve_member(
     Ok(Some(member))
 }
 
+fn terminal_launch_command(
+    member: Option<&MemberProfile>,
+    configuration: &TerminalConfigurationSnapshot,
+) -> ResolvedTerminalCommand {
+    match member {
+        Some(member) => ResolvedTerminalCommand {
+            command: configured_member_runtime_command(member, configuration),
+            use_shell_wrapper: true,
+        },
+        None => workspace_terminal_command(configuration),
+    }
+}
+
+fn workspace_terminal_command(
+    configuration: &TerminalConfigurationSnapshot,
+) -> ResolvedTerminalCommand {
+    if let Some(default_terminal_id) = configuration.default_terminal_id.as_deref() {
+        if let Some(entry) = configuration
+            .custom_terminal_entries
+            .iter()
+            .find(|entry| entry.terminal_id == default_terminal_id)
+        {
+            return ResolvedTerminalCommand {
+                command: entry.command.trim().to_owned(),
+                use_shell_wrapper: true,
+            };
+        }
+    }
+
+    ResolvedTerminalCommand {
+        command: default_shell_command(),
+        use_shell_wrapper: false,
+    }
+}
+
+fn configured_member_runtime_command(
+    member: &MemberProfile,
+    configuration: &TerminalConfigurationSnapshot,
+) -> String {
+    match member.runtime.kind {
+        MemberRuntimeKind::BuiltInAiCli => member
+            .runtime
+            .runtime_id
+            .as_deref()
+            .and_then(|runtime_id| {
+                configuration
+                    .built_in_cli_entries
+                    .iter()
+                    .find(|entry| entry.runtime_id == runtime_id)
+            })
+            .map(|entry| entry.command.trim().to_owned())
+            .or_else(|| trimmed_runtime_command(member))
+            .unwrap_or_default(),
+        MemberRuntimeKind::CustomCli => member
+            .runtime
+            .runtime_id
+            .as_deref()
+            .and_then(|cli_id| {
+                configuration
+                    .custom_cli_entries
+                    .iter()
+                    .find(|entry| entry.cli_id == cli_id)
+            })
+            .map(|entry| entry.command.trim().to_owned())
+            .or_else(|| trimmed_runtime_command(member))
+            .unwrap_or_default(),
+        MemberRuntimeKind::Shell => trimmed_runtime_command(member).unwrap_or_default(),
+        MemberRuntimeKind::None => String::new(),
+    }
+}
+
+fn configured_member_runtime_label(
+    member: &MemberProfile,
+    configuration: &TerminalConfigurationSnapshot,
+) -> String {
+    match member.runtime.kind {
+        MemberRuntimeKind::BuiltInAiCli => member
+            .runtime
+            .runtime_id
+            .as_deref()
+            .and_then(|runtime_id| {
+                configuration
+                    .built_in_cli_entries
+                    .iter()
+                    .find(|entry| entry.runtime_id == runtime_id)
+            })
+            .map(|entry| entry.label.clone())
+            .or_else(|| member.runtime.label.clone())
+            .unwrap_or_else(|| member.instance_label.clone()),
+        MemberRuntimeKind::CustomCli => member
+            .runtime
+            .runtime_id
+            .as_deref()
+            .and_then(|cli_id| {
+                configuration
+                    .custom_cli_entries
+                    .iter()
+                    .find(|entry| entry.cli_id == cli_id)
+            })
+            .map(|entry| entry.label.clone())
+            .or_else(|| member.runtime.label.clone())
+            .unwrap_or_else(|| member.instance_label.clone()),
+        MemberRuntimeKind::Shell | MemberRuntimeKind::None => member
+            .runtime
+            .label
+            .clone()
+            .unwrap_or_else(|| member.instance_label.clone()),
+    }
+}
+
+fn trimmed_runtime_command(member: &MemberProfile) -> Option<String> {
+    member
+        .runtime
+        .command
+        .as_deref()
+        .map(str::trim)
+        .filter(|command| !command.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 fn ensure_launch_command_available(command: &str) -> Result<(), AppError> {
     let resolution = resolve_terminal_command(command);
 
@@ -803,6 +960,24 @@ fn ensure_launch_command_available(command: &str) -> Result<(), AppError> {
     }
 
     Err(terminal_command_unavailable_error(command, &resolution))
+}
+
+fn settings_cli_resolution(command: &str) -> TerminalCommandResolution {
+    let mut resolution = resolve_terminal_command(command);
+    if !resolution.is_available() {
+        resolution.user_action =
+            "请在设置中更新该 CLI 命令，或安装缺失的可执行文件后重试。".to_owned();
+    }
+    resolution
+}
+
+fn settings_terminal_resolution(command: &str) -> TerminalCommandResolution {
+    let mut resolution = resolve_terminal_command(command);
+    if !resolution.is_available() {
+        resolution.user_action =
+            "请在设置中更新该终端命令，或恢复系统默认 shell 后重试。".to_owned();
+    }
+    resolution
 }
 
 fn environment_profile(
@@ -996,10 +1171,11 @@ mod tests {
         contracts::{
             AppError, InviteMemberRequest, InvitedMemberType, MemberIsolation, MemberPermissions,
             MemberRuntimeKind, MemberRuntimeProfile, OpenedWorkspace, TerminalAttachRequest,
-            TerminalCloseRequest, TerminalEnvironmentStatus, TerminalInputRequest,
-            TerminalOpenRequest, TerminalResizeRequest, TerminalSessionStatus, TerminalStreamKind,
-            TerminalTabCloseRequest, TerminalTabCreateRequest, TerminalTabRestoreRequest,
-            TerminalTabStatus, TerminalTabUpdateRequest, WorkspaceAccessMode, WorkspaceMetadata,
+            TerminalCloseRequest, TerminalEnvironmentSource, TerminalEnvironmentStatus,
+            TerminalInputRequest, TerminalOpenRequest, TerminalResizeRequest,
+            TerminalSessionStatus, TerminalStreamKind, TerminalTabCloseRequest,
+            TerminalTabCreateRequest, TerminalTabRestoreRequest, TerminalTabStatus,
+            TerminalTabUpdateRequest, WorkspaceAccessMode, WorkspaceMetadata,
             WorkspaceRegistryAction, WorkspaceRegistryEntry,
         },
     };
@@ -1110,6 +1286,22 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let workspace = workspace();
         let cli_command = available_command(app_data.path(), "codex");
+        let mut configuration =
+            crate::infrastructure::persistence::json_store::terminal_configuration_store::default_terminal_configuration();
+        configuration
+            .built_in_cli_entries
+            .iter_mut()
+            .find(|entry| entry.runtime_id == "codex")
+            .expect("codex entry")
+            .command = cli_command.clone();
+        configuration.updated_at_ms = configuration.created_at_ms + 1;
+        crate::domain::settings::normalize_terminal_configuration(&mut configuration)
+            .expect("normalized");
+        crate::infrastructure::persistence::json_store::terminal_configuration_store::save_terminal_configuration(
+            app_data.path(),
+            &configuration,
+        )
+        .expect("terminal configuration saved");
         let member = invite_workspace_member(
             app_data.path(),
             InviteMemberRequest {
@@ -1303,6 +1495,246 @@ mod tests {
         );
         assert_eq!(missing_environment.command, missing_command);
         assert!(!missing_environment.user_action.is_empty());
+    }
+
+    #[test]
+    fn settings_environment_diagnostics_point_back_to_settings() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let missing_command = "orchlet-missing-settings-cli-for-test";
+        let mut configuration =
+            crate::infrastructure::persistence::json_store::terminal_configuration_store::default_terminal_configuration();
+        configuration
+            .built_in_cli_entries
+            .iter_mut()
+            .find(|entry| entry.runtime_id == "codex")
+            .expect("codex entry")
+            .command = missing_command.to_owned();
+        configuration.updated_at_ms = configuration.created_at_ms + 1;
+        crate::domain::settings::normalize_terminal_configuration(&mut configuration)
+            .expect("normalized");
+        crate::infrastructure::persistence::json_store::terminal_configuration_store::save_terminal_configuration(
+            app_data.path(),
+            &configuration,
+        )
+        .expect("terminal configuration saved");
+        let state = TerminalRuntimeState::with_launcher(Arc::new(MockLauncher::default()));
+
+        let result = state
+            .list_environments(app_data.path().to_path_buf(), &workspace)
+            .expect("environment diagnostics");
+        let settings_environment = result
+            .environments
+            .iter()
+            .find(|environment| environment.environment_id == "settings:builtInCli:codex")
+            .expect("settings environment");
+
+        assert_eq!(
+            settings_environment.status,
+            TerminalEnvironmentStatus::Missing
+        );
+        assert_eq!(settings_environment.command, missing_command);
+        assert!(settings_environment.user_action.contains("设置"));
+        assert!(!settings_environment.user_action.contains("成员运行时"));
+    }
+
+    #[test]
+    fn uses_configured_default_terminal_for_workspace_launches() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let configured_shell = available_command(app_data.path(), "workspace-shell");
+        let mut configuration =
+            crate::infrastructure::persistence::json_store::terminal_configuration_store::default_terminal_configuration();
+        configuration
+            .custom_terminal_entries
+            .push(crate::contracts::TerminalCustomTerminalEntry {
+                terminal_id: "workspace-shell".to_owned(),
+                label: "Workspace Shell".to_owned(),
+                command: configured_shell.clone(),
+            });
+        configuration.default_terminal_id = Some("workspace-shell".to_owned());
+        configuration.updated_at_ms = configuration.created_at_ms + 1;
+        crate::domain::settings::normalize_terminal_configuration(&mut configuration)
+            .expect("normalized");
+        crate::infrastructure::persistence::json_store::terminal_configuration_store::save_terminal_configuration(
+            app_data.path(),
+            &configuration,
+        )
+        .expect("terminal configuration saved");
+
+        let launcher = Arc::new(MockLauncher::default());
+        let state = TerminalRuntimeState::with_launcher(launcher.clone());
+        state
+            .open_or_create_session(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalOpenRequest {
+                    member_id: None,
+                    attach_current: false,
+                },
+                Arc::new(|_| {}),
+                Arc::new(|_| {}),
+            )
+            .expect("workspace terminal");
+
+        let launches = launcher.launches.lock().expect("launches");
+        assert_eq!(launches[0].command, configured_shell);
+        assert!(launches[0].use_shell_wrapper);
+    }
+
+    #[test]
+    fn resolves_built_in_member_runtime_through_terminal_configuration() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let stored_command = available_command(app_data.path(), "legacy-codex");
+        let configured_command = available_command(app_data.path(), "configured-codex");
+        let mut configuration =
+            crate::infrastructure::persistence::json_store::terminal_configuration_store::default_terminal_configuration();
+        let codex = configuration
+            .built_in_cli_entries
+            .iter_mut()
+            .find(|entry| entry.runtime_id == "codex")
+            .expect("codex entry");
+        codex.command = configured_command.clone();
+        codex.label = "Configured Codex".to_owned();
+        configuration.updated_at_ms = configuration.created_at_ms + 1;
+        crate::domain::settings::normalize_terminal_configuration(&mut configuration)
+            .expect("normalized");
+        crate::infrastructure::persistence::json_store::terminal_configuration_store::save_terminal_configuration(
+            app_data.path(),
+            &configuration,
+        )
+        .expect("terminal configuration saved");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(stored_command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let launcher = Arc::new(MockLauncher::default());
+        let state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        state
+            .open_or_create_session(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalOpenRequest {
+                    member_id: Some(member.member_id.clone()),
+                    attach_current: false,
+                },
+                Arc::new(|_| {}),
+                Arc::new(|_| {}),
+            )
+            .expect("member terminal");
+        let environments = state
+            .list_environments(app_data.path().to_path_buf(), &workspace)
+            .expect("environment diagnostics")
+            .environments;
+
+        assert_eq!(
+            launcher.launches.lock().expect("launches")[0].command,
+            configured_command
+        );
+        assert!(environments.iter().any(|environment| {
+            environment.environment_id == "settings:builtInCli:codex"
+                && environment.source == TerminalEnvironmentSource::Settings
+                && environment.command == configured_command
+        }));
+        assert!(environments.iter().any(|environment| {
+            environment.member_id.as_deref() == Some(member.member_id.as_str())
+                && environment.label == "Configured Codex"
+                && environment.command == configured_command
+        }));
+    }
+
+    #[test]
+    fn resolves_custom_cli_member_runtime_through_terminal_configuration() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let configured_command = available_command(app_data.path(), "local-reviewer");
+        let mut configuration =
+            crate::infrastructure::persistence::json_store::terminal_configuration_store::default_terminal_configuration();
+        configuration
+            .custom_cli_entries
+            .push(crate::contracts::TerminalCustomCliEntry {
+                cli_id: "local-reviewer".to_owned(),
+                label: "Local Reviewer".to_owned(),
+                command: configured_command.clone(),
+            });
+        configuration.updated_at_ms = configuration.created_at_ms + 1;
+        crate::domain::settings::normalize_terminal_configuration(&mut configuration)
+            .expect("normalized");
+        crate::infrastructure::persistence::json_store::terminal_configuration_store::save_terminal_configuration(
+            app_data.path(),
+            &configuration,
+        )
+        .expect("terminal configuration saved");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Local Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::CustomCli,
+                    runtime_id: Some("local-reviewer".to_owned()),
+                    label: Some("Old Reviewer".to_owned()),
+                    command: Some("old-reviewer".to_owned()),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let launcher = Arc::new(MockLauncher::default());
+        let state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        state
+            .open_or_create_session(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalOpenRequest {
+                    member_id: Some(member.member_id.clone()),
+                    attach_current: false,
+                },
+                Arc::new(|_| {}),
+                Arc::new(|_| {}),
+            )
+            .expect("custom cli terminal");
+        let environments = state
+            .list_environments(app_data.path().to_path_buf(), &workspace)
+            .expect("environment diagnostics")
+            .environments;
+
+        assert_eq!(
+            launcher.launches.lock().expect("launches")[0].command,
+            configured_command
+        );
+        assert!(environments.iter().any(|environment| {
+            environment.environment_id == "settings:customCli:local-reviewer"
+                && environment.source == TerminalEnvironmentSource::Settings
+                && environment.command == configured_command
+        }));
+        assert!(environments.iter().any(|environment| {
+            environment.member_id.as_deref() == Some(member.member_id.as_str())
+                && environment.label == "Local Reviewer"
+                && environment.command == configured_command
+        }));
     }
 
     #[test]

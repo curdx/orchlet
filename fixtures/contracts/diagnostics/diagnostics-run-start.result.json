@@ -1,0 +1,39 @@
+{
+  "run": {
+    "runId": "01K00000000000000000000800",
+    "workspaceId": "01K00000000000000000000000",
+    "status": "active",
+    "reason": "Investigate chat dispatch",
+    "initiatedBy": "test-harness",
+    "outcome": null,
+    "summary": null,
+    "startedAtMs": 1760000008000,
+    "completedAtMs": null,
+    "updatedAtMs": 1760000008000
+  },
+  "startEvent": {
+    "eventId": "01K00000000000000000000801",
+    "runId": "01K00000000000000000000800",
+    "workspaceId": "01K00000000000000000000000",
+    "scope": "backend",
+    "eventName": "diagnostics.run.started",
+    "severity": "info",
+    "correlations": {
+      "workspaceId": "01K00000000000000000000000",
+      "conversationId": null,
+      "messageId": null,
+      "memberId": null,
+      "terminalSessionId": null,
+      "terminalTabId": null,
+      "windowLabel": null,
+      "dispatchId": null
+    },
+    "metadata": [
+      {
+        "key": "status",
+        "value": "active"
+      }
+    ],
+    "recordedAtMs": 1760000008000
+  }
+}

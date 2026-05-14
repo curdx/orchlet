@@ -12,7 +12,7 @@
       "message": "Storage manifest covers all currently implemented stores.",
       "affectedPaths": [],
       "userAction": null,
-      "details": "entries=20"
+      "details": "entries=24"
     },
     {
       "checkId": "workspace.registry.load_validate",
@@ -22,7 +22,7 @@
       "message": "工作区 registry 项目标识无效。",
       "affectedPaths": ["/fixtures/app-data/workspace-registry.json"],
       "userAction": "最近工作区未更新；请修复 registry 中的 projectId 后重试。",
-      "details": "projectId must be a ULID string: not-a-ulid"
+      "details": "projectId must be a ULID string or legacy 64-character SHA-256 hex string: not-a-ulid"
     },
     {
       "checkId": "workspace.fallbacks.load_validate",
@@ -51,6 +51,26 @@
       "severity": "info",
       "message": "Shortcut preferences are readable when initialized.",
       "affectedPaths": ["/fixtures/app-data/settings/shortcuts.json"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "settings.chatTerminalOutput.load_validate",
+      "category": "chatTerminalOutputPreferences",
+      "status": "passed",
+      "severity": "info",
+      "message": "Chat terminal output preferences are readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/settings/chat-terminal-output.json"],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "settings.terminalConfiguration.load_validate",
+      "category": "terminalConfiguration",
+      "status": "passed",
+      "severity": "info",
+      "message": "Terminal configuration is readable when initialized.",
+      "affectedPaths": ["/fixtures/app-data/settings/terminal-config.json"],
       "userAction": null,
       "details": null
     },
@@ -175,6 +195,26 @@
       "details": null
     },
     {
+      "checkId": "diagnostics.runs.schema_validate",
+      "category": "diagnosticsRuns",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace id is available for diagnostics run validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
+    },
+    {
+      "checkId": "diagnostics.events.schema_validate",
+      "category": "diagnosticsEvents",
+      "status": "skipped",
+      "severity": "info",
+      "message": "No active workspace id is available for diagnostics event validation.",
+      "affectedPaths": [],
+      "userAction": null,
+      "details": null
+    },
+    {
       "checkId": "skill.library.load_validate",
       "category": "skillLibrary",
       "status": "passed",
@@ -215,10 +255,10 @@
       "details": null
     }
   ],
-  "totalChecks": 21,
-  "passedChecks": 9,
+  "totalChecks": 25,
+  "passedChecks": 11,
   "failedChecks": 1,
-  "skippedChecks": 11,
+  "skippedChecks": 13,
   "hasFailures": true,
   "batched": true
 }

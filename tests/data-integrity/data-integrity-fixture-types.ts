@@ -44,6 +44,8 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceFallbacks":
     case "appPreferences":
     case "shortcutPreferences":
+    case "chatTerminalOutputPreferences":
+    case "terminalConfiguration":
     case "notificationPreferences":
     case "profileSettings":
     case "avatarLibrary":
@@ -60,6 +62,8 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceSkillLinks":
     case "roadmapTasks":
     case "roadmapGoals":
+    case "diagnosticsRuns":
+    case "diagnosticsEvents":
       return value;
     default:
       throw new Error(`Unknown storage category: ${value}`);

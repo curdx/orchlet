@@ -8,7 +8,8 @@ use crate::{
         AppError, InviteMemberRequest, InviteMemberResult, InvitedMemberType, ListMembersResult,
         MemberIsolation, MemberPermissions, MemberProfile, MemberRole, MemberRuntimeKind,
         MemberRuntimeProfile, MemberStatus, RemoveMemberRequest, RemoveMemberResult,
-        UpdateMemberStatusRequest, UpdateMemberStatusResult,
+        UpdateMemberProfileRequest, UpdateMemberProfileResult, UpdateMemberStatusRequest,
+        UpdateMemberStatusResult,
     },
     domain::member::{
         normalize_member_display_name, validate_instance_count, validate_member_id,
@@ -26,6 +27,10 @@ const MEMBER_BASE_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/workspace/202605112300__members.sql");
 const MEMBER_PERMISSIONS_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/workspace/202605120930__member_permissions.sql");
+const MEMBER_AVATAR_MIGRATION_SQL: &str =
+    include_str!("../../../../migrations/workspace/202605130930__member_avatar.sql");
+const AVATAR_PRESET_IDS: [&str; 5] = ["orbit", "ember", "mint", "canyon", "storm"];
+const CSS_AVATAR_PREFIX: &str = "css:";
 
 pub fn initialize_member_store(
     app_data_dir: &Path,
@@ -65,6 +70,11 @@ pub fn invite_member(
             workspace_id: request.workspace_id.clone(),
             role: role.clone(),
             display_name: display_name.clone(),
+            avatar: build_seeded_avatar(&format!(
+                "{}:{}",
+                avatar_seed_prefix(&role),
+                instance_label(&display_name, instance_count, instance_index)
+            )),
             instance_index,
             instance_label: instance_label(&display_name, instance_count, instance_index),
             status: MemberStatus::Offline,
@@ -97,7 +107,22 @@ pub fn create_local_admin_member(
     workspace_id: &str,
     display_name: &str,
 ) -> Result<MemberProfile, AppError> {
+    create_local_admin_member_with_id(
+        app_data_dir,
+        workspace_id,
+        &Ulid::new().to_string(),
+        display_name,
+    )
+}
+
+pub fn create_local_admin_member_with_id(
+    app_data_dir: &Path,
+    workspace_id: &str,
+    member_id: &str,
+    display_name: &str,
+) -> Result<MemberProfile, AppError> {
     validate_workspace_id(workspace_id)?;
+    validate_member_id(member_id)?;
     let display_name = normalize_member_display_name(display_name)?;
 
     let connection = open_workspace_database(app_data_dir, workspace_id)?;
@@ -106,10 +131,11 @@ pub fn create_local_admin_member(
 
     let timestamp = now_ms();
     let member = MemberProfile {
-        member_id: Ulid::new().to_string(),
+        member_id: member_id.to_owned(),
         workspace_id: workspace_id.to_owned(),
         role: MemberRole::Admin,
         display_name: display_name.clone(),
+        avatar: build_seeded_avatar(&format!("admin:{display_name}")),
         instance_index: 1,
         instance_label: display_name,
         status: MemberStatus::Offline,
@@ -221,6 +247,50 @@ pub fn update_member_status(
     Ok(UpdateMemberStatusResult { member, members })
 }
 
+pub fn update_member_profile(
+    app_data_dir: &Path,
+    request: UpdateMemberProfileRequest,
+) -> Result<UpdateMemberProfileResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    validate_member_id(&request.member_id)?;
+    let display_name = normalize_member_display_name(&request.display_name)?;
+
+    let connection = open_workspace_database(app_data_dir, &request.workspace_id)?;
+    apply_member_migration(&connection)?;
+    ensure_default_owner(&connection, &request.workspace_id)?;
+    member_by_id(&connection, &request.workspace_id, &request.member_id)?;
+
+    let timestamp = now_ms();
+    let updated = connection
+        .execute(
+            "UPDATE members
+             SET display_name = ?1, instance_label = ?2, updated_at_ms = ?3
+             WHERE workspace_id = ?4 AND id = ?5",
+            params![
+                display_name.as_str(),
+                display_name.as_str(),
+                timestamp as i64,
+                request.workspace_id,
+                request.member_id,
+            ],
+        )
+        .map_err(sqlite_error("member.profile.updateFailed"))?;
+
+    if updated == 0 {
+        return Err(AppError::recoverable_error(
+            "member.profile.notFound",
+            "未找到要更新资料的成员。",
+            "请刷新成员列表后重试。",
+            Some(format!("memberId={}", request.member_id)),
+        ));
+    }
+
+    let member = member_by_id(&connection, &request.workspace_id, &request.member_id)?;
+    let members = list_members_from_connection(&connection, &request.workspace_id)?.members;
+
+    Ok(UpdateMemberProfileResult { member, members })
+}
+
 pub fn validate_member_store(app_data_dir: &Path, workspace_id: &str) -> Result<(), AppError> {
     validate_workspace_id(workspace_id)?;
     let database_path = workspace_database_path(app_data_dir, workspace_id);
@@ -275,6 +345,14 @@ fn apply_member_migration(connection: &Connection) -> Result<(), AppError> {
         record_migration(connection, "202605120930__member_permissions")?;
     }
 
+    if !member_column_exists(connection, "avatar")? {
+        connection
+            .execute_batch(MEMBER_AVATAR_MIGRATION_SQL)
+            .map_err(sqlite_error("member.avatarMigration.failed"))?;
+    } else {
+        record_migration(connection, "202605130930__member_avatar")?;
+    }
+
     Ok(())
 }
 
@@ -309,6 +387,7 @@ fn ensure_default_owner(
         workspace_id: workspace_id.to_owned(),
         role: MemberRole::Owner,
         display_name: MEMBER_OWNER_DISPLAY_NAME.to_owned(),
+        avatar: default_avatar(),
         instance_index: 1,
         instance_label: MEMBER_OWNER_DISPLAY_NAME.to_owned(),
         status: MemberStatus::Online,
@@ -337,7 +416,7 @@ fn list_members_from_connection(
 
     let mut statement = connection
         .prepare(
-            "SELECT id, workspace_id, role, display_name, instance_index, instance_label, status, runtime_type, runtime_id, runtime_label, runtime_command, can_mention, can_remove, sandboxed, unlimited_access, created_at_ms, updated_at_ms
+            "SELECT id, workspace_id, role, display_name, avatar, instance_index, instance_label, status, runtime_type, runtime_id, runtime_label, runtime_command, can_mention, can_remove, sandboxed, unlimited_access, created_at_ms, updated_at_ms
              FROM members
              WHERE workspace_id = ?1
              ORDER BY CASE role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'assistant' THEN 2 ELSE 3 END, created_at_ms, instance_index, instance_label",
@@ -360,7 +439,7 @@ fn members_by_role(
     let role_value = role_to_str(&role);
     let mut statement = connection
         .prepare(
-            "SELECT id, workspace_id, role, display_name, instance_index, instance_label, status, runtime_type, runtime_id, runtime_label, runtime_command, can_mention, can_remove, sandboxed, unlimited_access, created_at_ms, updated_at_ms
+            "SELECT id, workspace_id, role, display_name, avatar, instance_index, instance_label, status, runtime_type, runtime_id, runtime_label, runtime_command, can_mention, can_remove, sandboxed, unlimited_access, created_at_ms, updated_at_ms
              FROM members
              WHERE workspace_id = ?1 AND role = ?2
              ORDER BY created_at_ms",
@@ -383,7 +462,7 @@ fn member_by_id(
 ) -> Result<MemberProfile, AppError> {
     let mut statement = connection
         .prepare(
-            "SELECT id, workspace_id, role, display_name, instance_index, instance_label, status, runtime_type, runtime_id, runtime_label, runtime_command, can_mention, can_remove, sandboxed, unlimited_access, created_at_ms, updated_at_ms
+            "SELECT id, workspace_id, role, display_name, avatar, instance_index, instance_label, status, runtime_type, runtime_id, runtime_label, runtime_command, can_mention, can_remove, sandboxed, unlimited_access, created_at_ms, updated_at_ms
              FROM members
              WHERE workspace_id = ?1 AND id = ?2",
         )
@@ -409,15 +488,16 @@ fn insert_member(connection: &Connection, member: &MemberProfile) -> Result<(), 
     connection
         .execute(
             "INSERT INTO members (
-                id, workspace_id, role, display_name, instance_index, instance_label, status,
+                id, workspace_id, role, display_name, avatar, instance_index, instance_label, status,
                 runtime_type, runtime_id, runtime_label, runtime_command, can_mention,
                 can_remove, sandboxed, unlimited_access, created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 member.member_id,
                 member.workspace_id,
                 role_to_str(&member.role),
                 member.display_name,
+                member.avatar,
                 member.instance_index as i64,
                 member.instance_label,
                 status_to_str(&member.status),
@@ -438,32 +518,33 @@ fn insert_member(connection: &Connection, member: &MemberProfile) -> Result<(), 
 }
 
 fn member_from_row(row: &rusqlite::Row<'_>) -> Result<MemberProfile, rusqlite::Error> {
-    let runtime_type: String = row.get(7)?;
+    let runtime_type: String = row.get(8)?;
 
     Ok(MemberProfile {
         member_id: row.get(0)?,
         workspace_id: row.get(1)?,
         role: role_from_str(row.get::<_, String>(2)?.as_str()),
         display_name: row.get(3)?,
-        instance_index: row.get::<_, i64>(4)? as u32,
-        instance_label: row.get(5)?,
-        status: status_from_str(row.get::<_, String>(6)?.as_str()),
+        avatar: row.get(4)?,
+        instance_index: row.get::<_, i64>(5)? as u32,
+        instance_label: row.get(6)?,
+        status: status_from_str(row.get::<_, String>(7)?.as_str()),
         runtime: MemberRuntimeProfile {
             kind: runtime_kind_from_str(&runtime_type),
-            runtime_id: row.get(8)?,
-            label: row.get(9)?,
-            command: row.get(10)?,
+            runtime_id: row.get(9)?,
+            label: row.get(10)?,
+            command: row.get(11)?,
         },
         permissions: MemberPermissions {
-            can_mention: sql_bool(row.get::<_, i64>(11)?),
-            can_remove: sql_bool(row.get::<_, i64>(12)?),
+            can_mention: sql_bool(row.get::<_, i64>(12)?),
+            can_remove: sql_bool(row.get::<_, i64>(13)?),
         },
         isolation: MemberIsolation {
-            sandboxed: sql_bool(row.get::<_, i64>(13)?),
-            unlimited_access: sql_bool(row.get::<_, i64>(14)?),
+            sandboxed: sql_bool(row.get::<_, i64>(14)?),
+            unlimited_access: sql_bool(row.get::<_, i64>(15)?),
         },
-        created_at_ms: row.get::<_, i64>(15)? as u64,
-        updated_at_ms: row.get::<_, i64>(16)? as u64,
+        created_at_ms: row.get::<_, i64>(16)? as u64,
+        updated_at_ms: row.get::<_, i64>(17)? as u64,
     })
 }
 
@@ -494,6 +575,14 @@ fn role_from_invited_type(member_type: &InvitedMemberType) -> MemberRole {
     match member_type {
         InvitedMemberType::Assistant => MemberRole::Assistant,
         InvitedMemberType::Member => MemberRole::Member,
+    }
+}
+
+fn avatar_seed_prefix(role: &MemberRole) -> &'static str {
+    match role {
+        MemberRole::Member => "member",
+        MemberRole::Admin => "admin",
+        _ => "assistant",
     }
 }
 
@@ -540,6 +629,38 @@ fn default_invited_isolation() -> MemberIsolation {
         sandboxed: true,
         unlimited_access: false,
     }
+}
+
+fn default_avatar() -> String {
+    format!("{CSS_AVATAR_PREFIX}{}", AVATAR_PRESET_IDS[0])
+}
+
+fn build_seeded_avatar(seed: &str) -> String {
+    let preset = pick_avatar_preset_id(seed);
+    format!("{CSS_AVATAR_PREFIX}{preset}")
+}
+
+fn pick_avatar_preset_id(seed: &str) -> &'static str {
+    if seed.is_empty() {
+        return AVATAR_PRESET_IDS[0];
+    }
+
+    let hash = hash_seed(seed);
+    let index = hash % AVATAR_PRESET_IDS.len();
+    AVATAR_PRESET_IDS[index]
+}
+
+fn hash_seed(seed: &str) -> usize {
+    let mut hash: i32 = 0;
+
+    for ch in seed.chars() {
+        hash = hash
+            .wrapping_shl(5)
+            .wrapping_sub(hash)
+            .wrapping_add(ch as i32);
+    }
+
+    hash.unsigned_abs() as usize
 }
 
 fn bool_to_sql(value: bool) -> i64 {

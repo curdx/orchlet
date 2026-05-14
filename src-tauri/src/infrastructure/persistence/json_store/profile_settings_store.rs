@@ -54,6 +54,14 @@ pub fn load_profile_settings(app_data_dir: &Path) -> Result<ProfileSettingsSnaps
     let path = profile_settings_path(app_data_dir);
 
     if !path.exists() {
+        if let Some(mut profile) =
+            crate::infrastructure::persistence::json_store::legacy_global_settings_store::load_legacy_profile_settings(app_data_dir)?
+        {
+            hydrate_profile_avatar_default(&mut profile);
+            validate_profile_settings(&profile)?;
+            hydrate_profile_avatar_preview(app_data_dir, &mut profile)?;
+            return Ok(profile);
+        }
         return Ok(default_profile_settings());
     }
 
@@ -376,11 +384,28 @@ fn uploaded_avatar_absolute_path(
     let path = Path::new(relative_path);
     let mut components = path.components();
 
-    if components.next() != Some(Component::Normal(OsStr::new(AVATAR_LIBRARY_DIR_NAME)))
-        || components.next() != Some(Component::Normal(OsStr::new(AVATAR_UPLOADS_DIR_NAME)))
-        || components.next().is_none()
-        || components.any(|component| !matches!(component, Component::Normal(_)))
-    {
+    if components.next() != Some(Component::Normal(OsStr::new(AVATAR_LIBRARY_DIR_NAME))) {
+        return Err(AppError::recoverable_error(
+            "settings.avatar.invalidPath",
+            "上传头像资产路径无效。",
+            "请重新上传头像后重试。",
+            Some(format!("field=avatar; path={}", relative_path)),
+        ));
+    }
+
+    let second = components.next();
+    let rest = components.collect::<Vec<_>>();
+    let valid_current_upload = second
+        == Some(Component::Normal(OsStr::new(AVATAR_UPLOADS_DIR_NAME)))
+        && !rest.is_empty()
+        && rest
+            .iter()
+            .all(|component| matches!(component, Component::Normal(_)));
+    let valid_legacy_upload = matches!(second, Some(Component::Normal(_)))
+        && second != Some(Component::Normal(OsStr::new(AVATAR_UPLOADS_DIR_NAME)))
+        && rest.is_empty();
+
+    if !valid_current_upload && !valid_legacy_upload {
         return Err(AppError::recoverable_error(
             "settings.avatar.invalidPath",
             "上传头像资产路径无效。",

@@ -73,6 +73,7 @@ pub struct MemberProfile {
     pub workspace_id: String,
     pub role: MemberRole,
     pub display_name: String,
+    pub avatar: String,
     pub instance_index: u32,
     pub instance_label: String,
     pub status: MemberStatus,
@@ -150,6 +151,23 @@ pub struct UpdateMemberStatusRequest {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "member.ts")]
 pub struct UpdateMemberStatusResult {
+    pub member: MemberProfile,
+    pub members: Vec<MemberProfile>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "member.ts")]
+pub struct UpdateMemberProfileRequest {
+    pub workspace_id: String,
+    pub member_id: String,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "member.ts")]
+pub struct UpdateMemberProfileResult {
     pub member: MemberProfile,
     pub members: Vec<MemberProfile>,
 }

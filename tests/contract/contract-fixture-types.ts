@@ -2,8 +2,12 @@ import type { AppError } from "../../src/contracts/generated/common";
 import type {
   ChatMessageProfile,
   ChatMessageStatus,
+  ChatDataMaintenanceItem,
+  ChatDataMaintenanceItemStatus,
   ClearConversationRequest,
   ClearConversationResult,
+  ClearWorkspaceChatDataRequest,
+  ClearWorkspaceChatDataResult,
   ConversationReadPositionProfile,
   ConversationKind,
   CreateGroupConversationRequest,
@@ -16,6 +20,8 @@ import type {
   ListMessagesResult,
   ConversationParticipantKind,
   ConversationProfile,
+  RepairWorkspaceChatDataRequest,
+  RepairWorkspaceChatDataResult,
   SendMessageRequest,
   SendMessageResult,
   StartPrivateConversationRequest,
@@ -52,6 +58,35 @@ import type {
   DataIntegrityValidateRequest,
   DataIntegrityValidateResult,
 } from "../../src/contracts/generated/data_integrity";
+import type {
+  CompleteDiagnosticsRunRequest,
+  CompleteDiagnosticsRunResult,
+  DiagnosticsConsistencyScope,
+  DiagnosticsEventProfile,
+  DiagnosticsEventScope,
+  DiagnosticsEventSeverity,
+  DiagnosticsExportRequest,
+  DiagnosticsExportResult,
+  DiagnosticsExportSection,
+  DiagnosticsIssueProfile,
+  DiagnosticsOverviewRequest,
+  DiagnosticsOverviewResult,
+  DiagnosticsRedactionReason,
+  DiagnosticsRunOutcome,
+  DiagnosticsRunProfile,
+  DiagnosticsRunStatus,
+  DiagnosticsValidationAvailability,
+  ListDiagnosticsEventsRequest,
+  ListDiagnosticsEventsResult,
+  RecordDiagnosticsEventRequest,
+  RecordDiagnosticsEventResult,
+  RunChatConsistencyDiagnosticsRequest,
+  RunChatConsistencyDiagnosticsResult,
+  RunTerminalConsistencyDiagnosticsRequest,
+  RunTerminalConsistencyDiagnosticsResult,
+  StartDiagnosticsRunRequest,
+  StartDiagnosticsRunResult,
+} from "../../src/contracts/generated/diagnostics";
 import type {
   InviteMemberRequest,
   InviteMemberResult,
@@ -121,26 +156,40 @@ import type {
 import type {
   DeleteUploadedProfileAvatarRequest,
   DeleteUploadedProfileAvatarResult,
+  GetChatTerminalOutputPreferencesRequest,
+  GetChatTerminalOutputPreferencesResult,
   GetProfileSettingsRequest,
   GetProfileSettingsResult,
   GetShortcutPreferencesRequest,
   GetShortcutPreferencesResult,
+  GetTerminalConfigurationRequest,
+  GetTerminalConfigurationResult,
   ProfileAvatarKind,
   ProfileAvatarSnapshot,
   ProfileSettingsSnapshot,
   ProfileStatus,
+  ResetChatTerminalOutputPreferencesRequest,
+  ResetChatTerminalOutputPreferencesResult,
   ResetProfileAvatarRequest,
   ResetProfileAvatarResult,
   ResetShortcutPreferencesRequest,
   ResetShortcutPreferencesResult,
+  ResetTerminalConfigurationRequest,
+  ResetTerminalConfigurationResult,
   SelectProfileAvatarPresetRequest,
   SelectProfileAvatarPresetResult,
   ShortcutKeymapProfile,
   ShortcutPreferencesSnapshot,
+  ChatTerminalOutputPreferencesSnapshot,
+  TerminalConfigurationSnapshot,
+  UpdateChatTerminalOutputPreferencesRequest,
+  UpdateChatTerminalOutputPreferencesResult,
   UpdateProfileSettingsRequest,
   UpdateProfileSettingsResult,
   UpdateShortcutPreferencesRequest,
   UpdateShortcutPreferencesResult,
+  UpdateTerminalConfigurationRequest,
+  UpdateTerminalConfigurationResult,
   UploadProfileAvatarRequest,
   UploadProfileAvatarResult,
 } from "../../src/contracts/generated/settings";
@@ -213,6 +262,30 @@ import type {
 import dataIntegrityError from "../../fixtures/contracts/data-integrity/data-integrity-validate.error.json";
 import dataIntegrityRequest from "../../fixtures/contracts/data-integrity/data-integrity-validate.request.json";
 import dataIntegrityResult from "../../fixtures/contracts/data-integrity/data-integrity-validate.result.json";
+import diagnosticsRunStartError from "../../fixtures/contracts/diagnostics/diagnostics-run-start.error.json";
+import diagnosticsRunStartRequest from "../../fixtures/contracts/diagnostics/diagnostics-run-start.request.json";
+import diagnosticsRunStartResult from "../../fixtures/contracts/diagnostics/diagnostics-run-start.result.json";
+import diagnosticsRunCompleteError from "../../fixtures/contracts/diagnostics/diagnostics-run-complete.error.json";
+import diagnosticsRunCompleteRequest from "../../fixtures/contracts/diagnostics/diagnostics-run-complete.request.json";
+import diagnosticsRunCompleteResult from "../../fixtures/contracts/diagnostics/diagnostics-run-complete.result.json";
+import diagnosticsEventRecordError from "../../fixtures/contracts/diagnostics/diagnostics-event-record.error.json";
+import diagnosticsEventRecordRequest from "../../fixtures/contracts/diagnostics/diagnostics-event-record.request.json";
+import diagnosticsEventRecordResult from "../../fixtures/contracts/diagnostics/diagnostics-event-record.result.json";
+import diagnosticsEventsListError from "../../fixtures/contracts/diagnostics/diagnostics-events-list.error.json";
+import diagnosticsEventsListRequest from "../../fixtures/contracts/diagnostics/diagnostics-events-list.request.json";
+import diagnosticsEventsListResult from "../../fixtures/contracts/diagnostics/diagnostics-events-list.result.json";
+import diagnosticsTerminalConsistencyError from "../../fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.error.json";
+import diagnosticsTerminalConsistencyRequest from "../../fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.request.json";
+import diagnosticsTerminalConsistencyResult from "../../fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.result.json";
+import diagnosticsChatConsistencyError from "../../fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.error.json";
+import diagnosticsChatConsistencyRequest from "../../fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.request.json";
+import diagnosticsChatConsistencyResult from "../../fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.result.json";
+import diagnosticsOverviewError from "../../fixtures/contracts/diagnostics/diagnostics-overview-get.error.json";
+import diagnosticsOverviewRequest from "../../fixtures/contracts/diagnostics/diagnostics-overview-get.request.json";
+import diagnosticsOverviewResult from "../../fixtures/contracts/diagnostics/diagnostics-overview-get.result.json";
+import diagnosticsExportError from "../../fixtures/contracts/diagnostics/diagnostics-export-generate.error.json";
+import diagnosticsExportRequest from "../../fixtures/contracts/diagnostics/diagnostics-export-generate.request.json";
+import diagnosticsExportResult from "../../fixtures/contracts/diagnostics/diagnostics-export-generate.result.json";
 import listConversationsError from "../../fixtures/contracts/chat/chat-conversations-list.error.json";
 import listConversationsRequest from "../../fixtures/contracts/chat/chat-conversations-list.request.json";
 import listConversationsResult from "../../fixtures/contracts/chat/chat-conversations-list.result.json";
@@ -225,6 +298,12 @@ import updateConversationSettingsResult from "../../fixtures/contracts/chat/chat
 import clearConversationError from "../../fixtures/contracts/chat/chat-conversation-clear.error.json";
 import clearConversationRequest from "../../fixtures/contracts/chat/chat-conversation-clear.request.json";
 import clearConversationResult from "../../fixtures/contracts/chat/chat-conversation-clear.result.json";
+import repairChatDataError from "../../fixtures/contracts/chat/chat-data-repair.error.json";
+import repairChatDataRequest from "../../fixtures/contracts/chat/chat-data-repair.request.json";
+import repairChatDataResult from "../../fixtures/contracts/chat/chat-data-repair.result.json";
+import clearChatDataError from "../../fixtures/contracts/chat/chat-data-clear.error.json";
+import clearChatDataRequest from "../../fixtures/contracts/chat/chat-data-clear.request.json";
+import clearChatDataResult from "../../fixtures/contracts/chat/chat-data-clear.result.json";
 import deleteConversationError from "../../fixtures/contracts/chat/chat-conversation-delete.error.json";
 import deleteConversationRequest from "../../fixtures/contracts/chat/chat-conversation-delete.request.json";
 import deleteConversationResult from "../../fixtures/contracts/chat/chat-conversation-delete.result.json";
@@ -370,6 +449,24 @@ import shortcutPreferencesUpdateResult from "../../fixtures/contracts/settings/s
 import shortcutPreferencesResetError from "../../fixtures/contracts/settings/shortcut-preferences-reset.error.json";
 import shortcutPreferencesResetRequest from "../../fixtures/contracts/settings/shortcut-preferences-reset.request.json";
 import shortcutPreferencesResetResult from "../../fixtures/contracts/settings/shortcut-preferences-reset.result.json";
+import chatTerminalOutputPreferencesGetError from "../../fixtures/contracts/settings/chat-terminal-output-preferences-get.error.json";
+import chatTerminalOutputPreferencesGetRequest from "../../fixtures/contracts/settings/chat-terminal-output-preferences-get.request.json";
+import chatTerminalOutputPreferencesGetResult from "../../fixtures/contracts/settings/chat-terminal-output-preferences-get.result.json";
+import chatTerminalOutputPreferencesUpdateError from "../../fixtures/contracts/settings/chat-terminal-output-preferences-update.error.json";
+import chatTerminalOutputPreferencesUpdateRequest from "../../fixtures/contracts/settings/chat-terminal-output-preferences-update.request.json";
+import chatTerminalOutputPreferencesUpdateResult from "../../fixtures/contracts/settings/chat-terminal-output-preferences-update.result.json";
+import chatTerminalOutputPreferencesResetError from "../../fixtures/contracts/settings/chat-terminal-output-preferences-reset.error.json";
+import chatTerminalOutputPreferencesResetRequest from "../../fixtures/contracts/settings/chat-terminal-output-preferences-reset.request.json";
+import chatTerminalOutputPreferencesResetResult from "../../fixtures/contracts/settings/chat-terminal-output-preferences-reset.result.json";
+import terminalConfigurationGetError from "../../fixtures/contracts/settings/terminal-configuration-get.error.json";
+import terminalConfigurationGetRequest from "../../fixtures/contracts/settings/terminal-configuration-get.request.json";
+import terminalConfigurationGetResult from "../../fixtures/contracts/settings/terminal-configuration-get.result.json";
+import terminalConfigurationUpdateError from "../../fixtures/contracts/settings/terminal-configuration-update.error.json";
+import terminalConfigurationUpdateRequest from "../../fixtures/contracts/settings/terminal-configuration-update.request.json";
+import terminalConfigurationUpdateResult from "../../fixtures/contracts/settings/terminal-configuration-update.result.json";
+import terminalConfigurationResetError from "../../fixtures/contracts/settings/terminal-configuration-reset.error.json";
+import terminalConfigurationResetRequest from "../../fixtures/contracts/settings/terminal-configuration-reset.request.json";
+import terminalConfigurationResetResult from "../../fixtures/contracts/settings/terminal-configuration-reset.result.json";
 import terminalOpenError from "../../fixtures/contracts/terminal/terminal-open.error.json";
 import terminalOpenRequest from "../../fixtures/contracts/terminal/terminal-open.request.json";
 import terminalOpenResult from "../../fixtures/contracts/terminal/terminal-open.result.json";
@@ -433,6 +530,121 @@ export const dataIntegrityValidateResultFixture: DataIntegrityValidateResult = {
   },
 };
 export const dataIntegrityValidateErrorFixture: AppError = appError(dataIntegrityError);
+
+export const diagnosticsRunStartRequestFixture: StartDiagnosticsRunRequest =
+  diagnosticsRunStartRequest;
+export const diagnosticsRunStartResultFixture: StartDiagnosticsRunResult = {
+  run: diagnosticsRunProfile(diagnosticsRunStartResult.run),
+  startEvent: diagnosticsEventProfile(diagnosticsRunStartResult.startEvent),
+};
+export const diagnosticsRunStartErrorFixture: AppError = appError(diagnosticsRunStartError);
+
+export const diagnosticsRunCompleteRequestFixture: CompleteDiagnosticsRunRequest = {
+  ...diagnosticsRunCompleteRequest,
+  outcome: diagnosticsRunOutcome(diagnosticsRunCompleteRequest.outcome),
+};
+export const diagnosticsRunCompleteResultFixture: CompleteDiagnosticsRunResult = {
+  run: diagnosticsRunProfile(diagnosticsRunCompleteResult.run),
+  completionEvent: diagnosticsRunCompleteResult.completionEvent
+    ? diagnosticsEventProfile(diagnosticsRunCompleteResult.completionEvent)
+    : null,
+};
+export const diagnosticsRunCompleteErrorFixture: AppError = appError(
+  diagnosticsRunCompleteError,
+);
+
+export const diagnosticsEventRecordRequestFixture: RecordDiagnosticsEventRequest = {
+  ...diagnosticsEventRecordRequest,
+  scope: diagnosticsEventScope(diagnosticsEventRecordRequest.scope),
+  severity: diagnosticsEventSeverity(diagnosticsEventRecordRequest.severity),
+};
+export const diagnosticsEventRecordResultFixture: RecordDiagnosticsEventResult = {
+  ...diagnosticsEventRecordResult,
+  event: diagnosticsEventRecordResult.event
+    ? diagnosticsEventProfile(diagnosticsEventRecordResult.event)
+    : null,
+};
+export const diagnosticsEventRecordErrorFixture: AppError = appError(
+  diagnosticsEventRecordError,
+);
+
+export const diagnosticsEventsListRequestFixture: ListDiagnosticsEventsRequest =
+  diagnosticsEventsListRequest;
+export const diagnosticsEventsListResultFixture: ListDiagnosticsEventsResult = {
+  run: diagnosticsRunProfile(diagnosticsEventsListResult.run),
+  events: diagnosticsEventsListResult.events.map(diagnosticsEventProfile),
+};
+export const diagnosticsEventsListErrorFixture: AppError = appError(
+  diagnosticsEventsListError,
+);
+
+export const diagnosticsTerminalConsistencyRequestFixture: RunTerminalConsistencyDiagnosticsRequest =
+  {
+    ...diagnosticsTerminalConsistencyRequest,
+    sessions: diagnosticsTerminalConsistencyRequest.sessions.map((session) => ({
+      ...session,
+      status: terminalSessionStatus(session.status),
+    })),
+  };
+export const diagnosticsTerminalConsistencyResultFixture: RunTerminalConsistencyDiagnosticsResult =
+  {
+    ...diagnosticsTerminalConsistencyResult,
+    issues: diagnosticsTerminalConsistencyResult.issues.map(diagnosticsIssueProfile),
+  };
+export const diagnosticsTerminalConsistencyErrorFixture: AppError = appError(
+  diagnosticsTerminalConsistencyError,
+);
+
+export const diagnosticsChatConsistencyRequestFixture: RunChatConsistencyDiagnosticsRequest =
+  diagnosticsChatConsistencyRequest;
+export const diagnosticsChatConsistencyResultFixture: RunChatConsistencyDiagnosticsResult = {
+  ...diagnosticsChatConsistencyResult,
+  issues: diagnosticsChatConsistencyResult.issues.map(diagnosticsIssueProfile),
+};
+export const diagnosticsChatConsistencyErrorFixture: AppError = appError(
+  diagnosticsChatConsistencyError,
+);
+
+export const diagnosticsOverviewRequestFixture: DiagnosticsOverviewRequest =
+  diagnosticsOverviewRequest;
+export const diagnosticsOverviewResultFixture: DiagnosticsOverviewResult = {
+  ...diagnosticsOverviewResult,
+  runs: diagnosticsOverviewResult.runs.map(diagnosticsRunProfile),
+  keyEvents: diagnosticsOverviewResult.keyEvents.map(diagnosticsEventProfile),
+  validationSummary: {
+    ...diagnosticsOverviewResult.validationSummary,
+    availability: diagnosticsValidationAvailability(
+      diagnosticsOverviewResult.validationSummary.availability,
+    ),
+  },
+};
+export const diagnosticsOverviewErrorFixture: AppError = appError(diagnosticsOverviewError);
+
+export const diagnosticsExportRequestFixture: DiagnosticsExportRequest = {
+  ...diagnosticsExportRequest,
+  includeSections: diagnosticsExportRequest.includeSections.map(diagnosticsExportSection),
+};
+export const diagnosticsExportResultFixture: DiagnosticsExportResult = {
+  ...diagnosticsExportResult,
+  package: {
+    ...diagnosticsExportResult.package,
+    runs: diagnosticsExportResult.package.runs.map(diagnosticsRunProfile),
+    keyEvents: diagnosticsExportResult.package.keyEvents.map(diagnosticsEventProfile),
+    validationSummary: diagnosticsExportResult.package.validationSummary
+      ? {
+          ...diagnosticsExportResult.package.validationSummary,
+          availability: diagnosticsValidationAvailability(
+            diagnosticsExportResult.package.validationSummary.availability,
+          ),
+        }
+      : null,
+  },
+  warnings: diagnosticsExportResult.warnings.map((warning) => ({
+    ...warning,
+    reason: diagnosticsRedactionReason(warning.reason),
+  })),
+};
+export const diagnosticsExportErrorFixture: AppError = appError(diagnosticsExportError);
 
 export const listMembersRequestFixture: ListMembersRequest = listMembersRequest;
 export const listMembersResultFixture: ListMembersResult = {
@@ -816,6 +1028,67 @@ export const shortcutPreferencesResetResultFixture: ResetShortcutPreferencesResu
 export const shortcutPreferencesResetErrorFixture: AppError = appError(
   shortcutPreferencesResetError,
 );
+export const chatTerminalOutputPreferencesGetRequestFixture: GetChatTerminalOutputPreferencesRequest =
+  chatTerminalOutputPreferencesGetRequest;
+export const chatTerminalOutputPreferencesGetResultFixture: GetChatTerminalOutputPreferencesResult =
+  {
+    preferences: chatTerminalOutputPreferencesSnapshot(
+      chatTerminalOutputPreferencesGetResult.preferences,
+    ),
+  };
+export const chatTerminalOutputPreferencesGetErrorFixture: AppError = appError(
+  chatTerminalOutputPreferencesGetError,
+);
+export const chatTerminalOutputPreferencesUpdateRequestFixture: UpdateChatTerminalOutputPreferencesRequest =
+  {
+    displayMode: chatTerminalOutputDisplayMode(
+      chatTerminalOutputPreferencesUpdateRequest.displayMode,
+    ),
+  };
+export const chatTerminalOutputPreferencesUpdateResultFixture: UpdateChatTerminalOutputPreferencesResult =
+  {
+    preferences: chatTerminalOutputPreferencesSnapshot(
+      chatTerminalOutputPreferencesUpdateResult.preferences,
+    ),
+  };
+export const chatTerminalOutputPreferencesUpdateErrorFixture: AppError = appError(
+  chatTerminalOutputPreferencesUpdateError,
+);
+export const chatTerminalOutputPreferencesResetRequestFixture: ResetChatTerminalOutputPreferencesRequest =
+  chatTerminalOutputPreferencesResetRequest;
+export const chatTerminalOutputPreferencesResetResultFixture: ResetChatTerminalOutputPreferencesResult =
+  {
+    preferences: chatTerminalOutputPreferencesSnapshot(
+      chatTerminalOutputPreferencesResetResult.preferences,
+    ),
+  };
+export const chatTerminalOutputPreferencesResetErrorFixture: AppError = appError(
+  chatTerminalOutputPreferencesResetError,
+);
+export const terminalConfigurationGetRequestFixture: GetTerminalConfigurationRequest =
+  terminalConfigurationGetRequest;
+export const terminalConfigurationGetResultFixture: GetTerminalConfigurationResult = {
+  configuration: terminalConfigurationSnapshot(terminalConfigurationGetResult.configuration),
+};
+export const terminalConfigurationGetErrorFixture: AppError = appError(
+  terminalConfigurationGetError,
+);
+export const terminalConfigurationUpdateRequestFixture: UpdateTerminalConfigurationRequest =
+  terminalConfigurationUpdateRequest;
+export const terminalConfigurationUpdateResultFixture: UpdateTerminalConfigurationResult = {
+  configuration: terminalConfigurationSnapshot(terminalConfigurationUpdateResult.configuration),
+};
+export const terminalConfigurationUpdateErrorFixture: AppError = appError(
+  terminalConfigurationUpdateError,
+);
+export const terminalConfigurationResetRequestFixture: ResetTerminalConfigurationRequest =
+  terminalConfigurationResetRequest;
+export const terminalConfigurationResetResultFixture: ResetTerminalConfigurationResult = {
+  configuration: terminalConfigurationSnapshot(terminalConfigurationResetResult.configuration),
+};
+export const terminalConfigurationResetErrorFixture: AppError = appError(
+  terminalConfigurationResetError,
+);
 
 export const listContactsRequestFixture: ListContactsRequest = listContactsRequest;
 export const listContactsResultFixture: ListContactsResult = {
@@ -839,6 +1112,7 @@ export const createContactErrorFixture: AppError = appError(createContactError);
 export const updateContactRequestFixture: UpdateContactRequest = {
   ...updateContactRequest,
   contactKind: contactKind(updateContactRequest.contactKind),
+  status: updateContactRequest.status ? memberStatus(updateContactRequest.status) : undefined,
 };
 export const updateContactResultFixture: UpdateContactResult = {
   contact: contactProfile(updateContactResult.contact),
@@ -887,6 +1161,25 @@ export const clearConversationResultFixture: ClearConversationResult = {
   conversations: clearConversationResult.conversations.map(conversationProfile),
 };
 export const clearConversationErrorFixture: AppError = appError(clearConversationError);
+
+export const repairChatDataRequestFixture: RepairWorkspaceChatDataRequest =
+  repairChatDataRequest;
+export const repairChatDataResultFixture: RepairWorkspaceChatDataResult = {
+  ...repairChatDataResult,
+  repairedItems: repairChatDataResult.repairedItems.map(chatDataMaintenanceItem),
+  failedItems: repairChatDataResult.failedItems.map(chatDataMaintenanceItem),
+  skippedItems: repairChatDataResult.skippedItems.map(chatDataMaintenanceItem),
+  conversations: repairChatDataResult.conversations.map(conversationProfile),
+};
+export const repairChatDataErrorFixture: AppError = appError(repairChatDataError);
+
+export const clearChatDataRequestFixture: ClearWorkspaceChatDataRequest =
+  clearChatDataRequest;
+export const clearChatDataResultFixture: ClearWorkspaceChatDataResult = {
+  ...clearChatDataResult,
+  conversations: clearChatDataResult.conversations.map(conversationProfile),
+};
+export const clearChatDataErrorFixture: AppError = appError(clearChatDataError);
 
 export const deleteConversationRequestFixture: DeleteConversationRequest =
   deleteConversationRequest;
@@ -947,6 +1240,14 @@ export const privateConversationErrorFixture: AppError = appError(privateConvers
 type ErrorJson =
   | typeof workspaceError
   | typeof dataIntegrityError
+  | typeof diagnosticsRunStartError
+  | typeof diagnosticsRunCompleteError
+  | typeof diagnosticsEventRecordError
+  | typeof diagnosticsEventsListError
+  | typeof diagnosticsTerminalConsistencyError
+  | typeof diagnosticsChatConsistencyError
+  | typeof diagnosticsOverviewError
+  | typeof diagnosticsExportError
   | typeof listMembersError
   | typeof inviteMemberError
   | typeof removeMemberError
@@ -995,6 +1296,12 @@ type ErrorJson =
   | typeof shortcutPreferencesGetError
   | typeof shortcutPreferencesUpdateError
   | typeof shortcutPreferencesResetError
+  | typeof chatTerminalOutputPreferencesGetError
+  | typeof chatTerminalOutputPreferencesUpdateError
+  | typeof chatTerminalOutputPreferencesResetError
+  | typeof terminalConfigurationGetError
+  | typeof terminalConfigurationUpdateError
+  | typeof terminalConfigurationResetError
   | typeof listContactsError
   | typeof createContactError
   | typeof updateContactError
@@ -1003,6 +1310,8 @@ type ErrorJson =
   | typeof createGroupConversationError
   | typeof updateConversationSettingsError
   | typeof clearConversationError
+  | typeof repairChatDataError
+  | typeof clearChatDataError
   | typeof deleteConversationError
   | typeof sendMessageError
   | typeof listMessagesError
@@ -1121,6 +1430,16 @@ type ShortcutPreferencesSnapshotJson =
   | typeof shortcutPreferencesUpdateResult.preferences
   | typeof shortcutPreferencesResetResult.preferences;
 
+type ChatTerminalOutputPreferencesSnapshotJson =
+  | typeof chatTerminalOutputPreferencesGetResult.preferences
+  | typeof chatTerminalOutputPreferencesUpdateResult.preferences
+  | typeof chatTerminalOutputPreferencesResetResult.preferences;
+
+type TerminalConfigurationSnapshotJson =
+  | typeof terminalConfigurationGetResult.configuration
+  | typeof terminalConfigurationUpdateResult.configuration
+  | typeof terminalConfigurationResetResult.configuration;
+
 function skillLibraryEntry(skill: SkillLibraryEntryJson): SkillLibraryEntry {
   return {
     ...skill,
@@ -1236,6 +1555,36 @@ function shortcutKeymapProfile(value: string): ShortcutKeymapProfile {
     default:
       throw new Error(`Unknown shortcut profile: ${value}`);
   }
+}
+
+function chatTerminalOutputPreferencesSnapshot(
+  preferences: ChatTerminalOutputPreferencesSnapshotJson,
+): ChatTerminalOutputPreferencesSnapshot {
+  return {
+    ...preferences,
+    displayMode: chatTerminalOutputDisplayMode(preferences.displayMode),
+  };
+}
+
+function chatTerminalOutputDisplayMode(value: string): ChatTerminalOutputPreferencesSnapshot["displayMode"] {
+  switch (value) {
+    case "stream":
+    case "finalOnly":
+      return value;
+    default:
+      throw new Error(`Unknown chat terminal output display mode: ${value}`);
+  }
+}
+
+function terminalConfigurationSnapshot(
+  configuration: TerminalConfigurationSnapshotJson,
+): TerminalConfigurationSnapshot {
+  return {
+    ...configuration,
+    builtInCliEntries: configuration.builtInCliEntries.map((entry) => ({ ...entry })),
+    customCliEntries: configuration.customCliEntries.map((entry) => ({ ...entry })),
+    customTerminalEntries: configuration.customTerminalEntries.map((entry) => ({ ...entry })),
+  };
 }
 
 function profileStatus(value: string): ProfileStatus {
@@ -1371,6 +1720,8 @@ function storageCategory(value: string): StorageCategory {
     case "workspaceFallbacks":
     case "appPreferences":
     case "shortcutPreferences":
+    case "chatTerminalOutputPreferences":
+    case "terminalConfiguration":
     case "notificationPreferences":
     case "profileSettings":
     case "avatarLibrary":
@@ -1476,6 +1827,7 @@ function contactProfile(contact: ContactJson): ContactProfile {
   return {
     ...contact,
     contactKind: contactKind(contact.contactKind),
+    status: memberStatus(contact.status),
     inviteSource: "adminContactInvite",
   };
 }
@@ -1498,6 +1850,8 @@ type ConversationJson =
   | (typeof updateConversationSettingsResult.conversations)[number]
   | typeof clearConversationResult.conversation
   | (typeof clearConversationResult.conversations)[number]
+  | (typeof repairChatDataResult.conversations)[number]
+  | (typeof clearChatDataResult.conversations)[number]
   | (typeof deleteConversationResult.conversations)[number]
   | typeof sendMessageResult.conversation
   | typeof listMessagesResult.conversation
@@ -1514,6 +1868,11 @@ type ReadPositionJson =
   | typeof sendMessageResult.readPosition
   | NonNullable<typeof listMessagesResult.readPosition>
   | typeof updateReadPositionResult.readPosition;
+
+type ChatDataMaintenanceItemJson =
+  | (typeof repairChatDataResult.repairedItems)[number]
+  | (typeof repairChatDataResult.failedItems)[number]
+  | (typeof repairChatDataResult.skippedItems)[number];
 
 function conversationProfile(conversation: ConversationJson): ConversationProfile {
   return {
@@ -1534,6 +1893,26 @@ function chatMessageProfile(message: ChatMessageJson): ChatMessageProfile {
 
 function readPositionProfile(readPosition: ReadPositionJson): ConversationReadPositionProfile {
   return readPosition;
+}
+
+function chatDataMaintenanceItem(
+  item: ChatDataMaintenanceItemJson,
+): ChatDataMaintenanceItem {
+  return {
+    ...item,
+    status: chatDataMaintenanceItemStatus(item.status),
+  };
+}
+
+function chatDataMaintenanceItemStatus(value: string): ChatDataMaintenanceItemStatus {
+  switch (value) {
+    case "repaired":
+    case "failed":
+    case "skipped":
+      return value;
+    default:
+      throw new Error(`Unknown chat data maintenance status: ${value}`);
+  }
 }
 
 function conversationKind(value: string): ConversationKind {
@@ -1781,5 +2160,142 @@ function dataIntegritySeverity(value: string): DataIntegritySeverity {
       return value;
     default:
       throw new Error(`Unknown data integrity severity: ${value}`);
+  }
+}
+
+type DiagnosticsRunProfileJson =
+  | typeof diagnosticsRunStartResult.run
+  | typeof diagnosticsRunCompleteResult.run
+  | typeof diagnosticsEventsListResult.run
+  | (typeof diagnosticsOverviewResult.runs)[number]
+  | (typeof diagnosticsExportResult.package.runs)[number];
+
+type DiagnosticsEventProfileJson =
+  | typeof diagnosticsRunStartResult.startEvent
+  | NonNullable<typeof diagnosticsRunCompleteResult.completionEvent>
+  | NonNullable<typeof diagnosticsEventRecordResult.event>
+  | (typeof diagnosticsEventsListResult.events)[number]
+  | (typeof diagnosticsOverviewResult.keyEvents)[number]
+  | (typeof diagnosticsExportResult.package.keyEvents)[number];
+
+type DiagnosticsIssueProfileJson =
+  | (typeof diagnosticsTerminalConsistencyResult.issues)[number]
+  | (typeof diagnosticsChatConsistencyResult.issues)[number];
+
+function diagnosticsRunProfile(run: DiagnosticsRunProfileJson): DiagnosticsRunProfile {
+  return {
+    ...run,
+    status: diagnosticsRunStatus(run.status),
+    outcome: run.outcome === null ? null : diagnosticsRunOutcome(run.outcome),
+  };
+}
+
+function diagnosticsEventProfile(event: DiagnosticsEventProfileJson): DiagnosticsEventProfile {
+  return {
+    ...event,
+    scope: diagnosticsEventScope(event.scope),
+    severity: diagnosticsEventSeverity(event.severity),
+  };
+}
+
+function diagnosticsIssueProfile(issue: DiagnosticsIssueProfileJson): DiagnosticsIssueProfile {
+  return {
+    ...issue,
+    scope: diagnosticsConsistencyScope(issue.scope),
+    severity: diagnosticsEventSeverity(issue.severity),
+  };
+}
+
+function diagnosticsRunStatus(value: string): DiagnosticsRunStatus {
+  switch (value) {
+    case "active":
+    case "completed":
+      return value;
+    default:
+      throw new Error(`Unknown diagnostics run status: ${value}`);
+  }
+}
+
+function diagnosticsRunOutcome(value: string): DiagnosticsRunOutcome {
+  switch (value) {
+    case "completed":
+    case "cancelled":
+    case "failed":
+      return value;
+    default:
+      throw new Error(`Unknown diagnostics run outcome: ${value}`);
+  }
+}
+
+function diagnosticsEventScope(value: string): DiagnosticsEventScope {
+  switch (value) {
+    case "frontend":
+    case "backend":
+    case "terminal":
+    case "chat":
+    case "member":
+    case "window":
+      return value;
+    default:
+      throw new Error(`Unknown diagnostics event scope: ${value}`);
+  }
+}
+
+function diagnosticsEventSeverity(value: string): DiagnosticsEventSeverity {
+  switch (value) {
+    case "info":
+    case "warning":
+    case "error":
+      return value;
+    default:
+      throw new Error(`Unknown diagnostics event severity: ${value}`);
+  }
+}
+
+function diagnosticsConsistencyScope(value: string): DiagnosticsConsistencyScope {
+  switch (value) {
+    case "terminal":
+    case "chat":
+      return value;
+    default:
+      throw new Error(`Unknown diagnostics consistency scope: ${value}`);
+  }
+}
+
+function diagnosticsExportSection(value: string): DiagnosticsExportSection {
+  switch (value) {
+    case "runs":
+    case "events":
+    case "validationReports":
+    case "consistencySummaries":
+    case "appMetadata":
+    case "additionalContext":
+      return value;
+    default:
+      throw new Error(`Unknown diagnostics export section: ${value}`);
+  }
+}
+
+function diagnosticsRedactionReason(value: string): DiagnosticsRedactionReason {
+  switch (value) {
+    case "sensitiveKey":
+    case "tokenValue":
+    case "environmentValue":
+    case "privatePath":
+    case "sourceSnippet":
+    case "sectionLimit":
+      return value;
+    default:
+      throw new Error(`Unknown diagnostics redaction reason: ${value}`);
+  }
+}
+
+function diagnosticsValidationAvailability(value: string): DiagnosticsValidationAvailability {
+  switch (value) {
+    case "available":
+    case "notAvailable":
+      return value;
+    default:
+      throw new Error(`Unknown diagnostics validation availability: ${value}`);
   }
 }

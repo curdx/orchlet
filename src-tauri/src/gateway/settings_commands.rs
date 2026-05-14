@@ -1,17 +1,26 @@
 use crate::{
     app::settings::{
-        delete_uploaded_profile_avatar, get_profile_settings, get_shortcut_preferences,
-        reset_profile_avatar, reset_shortcut_preferences, select_profile_avatar_preset,
-        update_profile_settings, update_shortcut_preferences, upload_profile_avatar,
+        delete_uploaded_profile_avatar, get_chat_terminal_output_preferences, get_profile_settings,
+        get_shortcut_preferences, get_terminal_configuration,
+        reset_chat_terminal_output_preferences, reset_profile_avatar, reset_shortcut_preferences,
+        reset_terminal_configuration, select_profile_avatar_preset,
+        update_chat_terminal_output_preferences, update_profile_settings,
+        update_shortcut_preferences, update_terminal_configuration, upload_profile_avatar,
     },
     contracts::{
         AppError, DeleteUploadedProfileAvatarRequest, DeleteUploadedProfileAvatarResult,
+        GetChatTerminalOutputPreferencesRequest, GetChatTerminalOutputPreferencesResult,
         GetProfileSettingsRequest, GetProfileSettingsResult, GetShortcutPreferencesRequest,
-        GetShortcutPreferencesResult, ResetProfileAvatarRequest, ResetProfileAvatarResult,
-        ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
+        GetShortcutPreferencesResult, GetTerminalConfigurationRequest,
+        GetTerminalConfigurationResult, ResetChatTerminalOutputPreferencesRequest,
+        ResetChatTerminalOutputPreferencesResult, ResetProfileAvatarRequest,
+        ResetProfileAvatarResult, ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
+        ResetTerminalConfigurationRequest, ResetTerminalConfigurationResult,
         SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
+        UpdateChatTerminalOutputPreferencesRequest, UpdateChatTerminalOutputPreferencesResult,
         UpdateProfileSettingsRequest, UpdateProfileSettingsResult,
         UpdateShortcutPreferencesRequest, UpdateShortcutPreferencesResult,
+        UpdateTerminalConfigurationRequest, UpdateTerminalConfigurationResult,
         UploadProfileAvatarRequest, UploadProfileAvatarResult,
     },
 };
@@ -87,6 +96,54 @@ pub fn shortcut_preferences_reset(
     request: ResetShortcutPreferencesRequest,
 ) -> Result<ResetShortcutPreferencesResult, AppError> {
     reset_shortcut_preferences(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_terminal_output_preferences_get(
+    app: AppHandle,
+    request: GetChatTerminalOutputPreferencesRequest,
+) -> Result<GetChatTerminalOutputPreferencesResult, AppError> {
+    get_chat_terminal_output_preferences(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_terminal_output_preferences_update(
+    app: AppHandle,
+    request: UpdateChatTerminalOutputPreferencesRequest,
+) -> Result<UpdateChatTerminalOutputPreferencesResult, AppError> {
+    update_chat_terminal_output_preferences(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_terminal_output_preferences_reset(
+    app: AppHandle,
+    request: ResetChatTerminalOutputPreferencesRequest,
+) -> Result<ResetChatTerminalOutputPreferencesResult, AppError> {
+    reset_chat_terminal_output_preferences(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn terminal_configuration_get(
+    app: AppHandle,
+    request: GetTerminalConfigurationRequest,
+) -> Result<GetTerminalConfigurationResult, AppError> {
+    get_terminal_configuration(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn terminal_configuration_update(
+    app: AppHandle,
+    request: UpdateTerminalConfigurationRequest,
+) -> Result<UpdateTerminalConfigurationResult, AppError> {
+    update_terminal_configuration(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn terminal_configuration_reset(
+    app: AppHandle,
+    request: ResetTerminalConfigurationRequest,
+) -> Result<ResetTerminalConfigurationResult, AppError> {
+    reset_terminal_configuration(app_data_dir(&app)?, request)
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, AppError> {

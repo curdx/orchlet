@@ -1,0 +1,120 @@
+{
+  "package": {
+    "schemaVersion": 1,
+    "generatedAtMs": 1760000010000,
+    "workspaceRef": "workspace:01K00000000000000000000000",
+    "runs": [
+      {
+        "runId": "01K00000000000000000000800",
+        "workspaceId": "01K00000000000000000000000",
+        "status": "active",
+        "reason": "/Users/<user>/private/project",
+        "initiatedBy": "test-harness",
+        "outcome": null,
+        "summary": null,
+        "startedAtMs": 1760000008000,
+        "completedAtMs": null,
+        "updatedAtMs": 1760000008000
+      }
+    ],
+    "keyEvents": [
+      {
+        "eventId": "01K00000000000000000000810",
+        "runId": "01K00000000000000000000800",
+        "workspaceId": "01K00000000000000000000000",
+        "scope": "terminal",
+        "eventName": "terminal.snapshot.stale",
+        "severity": "warning",
+        "correlations": {
+          "workspaceId": "01K00000000000000000000000",
+          "conversationId": null,
+          "messageId": null,
+          "memberId": null,
+          "terminalSessionId": "01K000000000000000000000AA",
+          "terminalTabId": null,
+          "windowLabel": null,
+          "dispatchId": null
+        },
+        "metadata": [
+          {
+            "key": "latestSeq",
+            "value": "3"
+          }
+        ],
+        "recordedAtMs": 1760000009000
+      }
+    ],
+    "consistencySummary": {
+      "terminalIssueCount": 1,
+      "chatIssueCount": 0,
+      "severityCounts": {
+        "info": 0,
+        "warning": 1,
+        "error": 0
+      },
+      "recentIssueCodes": [
+        "terminal.snapshot.stale"
+      ],
+      "recommendedNextActions": [
+        "重新 attach 受影响终端会话，并检查终端快照/退出状态。"
+      ]
+    },
+    "validationSummary": {
+      "availability": "notAvailable",
+      "status": null,
+      "message": "当前诊断导出不持久化数据完整性报告；请从数据验证面板重新运行。",
+      "reportId": null,
+      "generatedAtMs": null,
+      "totalChecks": 0,
+      "passedChecks": 0,
+      "failedChecks": 0,
+      "skippedChecks": 0
+    },
+    "appMetadata": [
+      {
+        "key": "schemaVersion",
+        "value": "1"
+      },
+      {
+        "key": "generator",
+        "value": "orchlet.diagnostics.export"
+      },
+      {
+        "key": "localOnly",
+        "value": "true"
+      }
+    ],
+    "additionalContext": [
+      {
+        "key": "note",
+        "value": "metadata-only fixture"
+      },
+      {
+        "key": "apiToken",
+        "value": "[redacted]"
+      }
+    ]
+  },
+  "redactionSummary": {
+    "redactedFields": 2,
+    "omittedFields": 0,
+    "warningCount": 2,
+    "truncatedSections": []
+  },
+  "warnings": [
+    {
+      "section": "runs",
+      "field": "reason",
+      "reason": "privatePath",
+      "message": "本机私有路径已脱敏。"
+    },
+    {
+      "section": "additionalContext",
+      "field": "apiToken",
+      "reason": "sensitiveKey",
+      "message": "敏感字段名称已脱敏。"
+    }
+  ],
+  "hasMore": false,
+  "nextCursor": null
+}

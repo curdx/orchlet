@@ -1,0 +1,9 @@
+{
+  "code": "chatDataClear.messagesFailed",
+  "message": "聊天数据维护失败。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "维护操作未完成，当前工作区聊天缓存不会被当作已更新；请运行数据验证后重试。",
+  "details": "workspaceId=01K00000000000000000000000 scope=messages: disk I/O error",
+  "correlationId": null
+}

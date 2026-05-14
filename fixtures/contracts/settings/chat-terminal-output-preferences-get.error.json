@@ -1,0 +1,9 @@
+{
+  "code": "settings.chatTerminalOutput.invalidJson",
+  "message": "聊天终端输出展示偏好不是有效 JSON。",
+  "userAction": "当前聊天终端输出展示偏好保持不变；请先备份或修复 settings/chat-terminal-output.json 后重试。",
+  "recoverable": true,
+  "severity": "warning",
+  "details": "settings/chat-terminal-output.json: expected value at line 1 column 1",
+  "correlationId": null
+}

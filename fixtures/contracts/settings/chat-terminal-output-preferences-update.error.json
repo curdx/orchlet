@@ -1,0 +1,9 @@
+{
+  "code": "settings.chatTerminalOutput.renameFailed",
+  "message": "无法保存聊天终端输出展示偏好。",
+  "userAction": "聊天终端输出展示偏好未更新；当前已生效偏好保持不变，请检查 settings/chat-terminal-output.json 权限后重试。",
+  "recoverable": true,
+  "severity": "warning",
+  "details": "settings/chat-terminal-output.json.tmp -> settings/chat-terminal-output.json: permission denied",
+  "correlationId": null
+}

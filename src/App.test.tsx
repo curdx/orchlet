@@ -12,6 +12,9 @@ import type {
   ClearConversationResult,
   ConversationReadPositionProfile,
   DataIntegrityReport,
+  DiagnosticsExportResult,
+  DiagnosticsExportRequest,
+  DiagnosticsOverviewResult,
   ContactProfile,
   CreateContactRequest,
   CreateContactResult,
@@ -76,6 +79,7 @@ import type {
   StartPrivateConversationResult,
   SkillLibraryEntry,
   SkillLibraryListResult,
+  ChatTerminalOutputPreferencesSnapshot,
   TerminalOutputEventPayload,
   TerminalOpenResult,
   TerminalStatusEventPayload,
@@ -97,16 +101,30 @@ import type {
   DeleteUploadedProfileAvatarResult,
   ShortcutKeymapProfile,
   ShortcutPreferencesSnapshot,
+  TerminalConfigurationSnapshot,
   UpdateGroupConversationMembersResult,
   UpdateReadPositionRequest,
   UpdateReadPositionResult,
+  UpdateMemberProfileRequest,
+  UpdateMemberProfileResult,
   UpdateShortcutPreferencesRequest,
   UpdateShortcutPreferencesResult,
+  UpdateChatTerminalOutputPreferencesRequest,
+  UpdateChatTerminalOutputPreferencesResult,
+  UpdateTerminalConfigurationRequest,
+  UpdateTerminalConfigurationResult,
+  ResetTerminalConfigurationResult,
   WindowContextSnapshot,
   WorkspaceSelectionStatus,
   UnlinkWorkspaceSkillResult,
   WorkspaceSkillLinkEntry,
 } from "./contracts/generated";
+import type {
+  ClearWorkspaceChatDataRequest,
+  ClearWorkspaceChatDataResult,
+  RepairWorkspaceChatDataRequest,
+  RepairWorkspaceChatDataResult,
+} from "./contracts/generated/chat";
 
 const status: WorkspaceSelectionStatus = {
   windowMode: "workspaceSelection",
@@ -115,6 +133,18 @@ const status: WorkspaceSelectionStatus = {
 };
 
 beforeEach(() => {
+  if (!Element.prototype.hasPointerCapture) {
+    Element.prototype.hasPointerCapture = () => false;
+  }
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = () => undefined;
+  }
+  if (!Element.prototype.releasePointerCapture) {
+    Element.prototype.releasePointerCapture = () => undefined;
+  }
+  if (!Element.prototype.scrollIntoView) {
+    Element.prototype.scrollIntoView = () => undefined;
+  }
   useToastStore.getState().clearToast();
   window.localStorage.clear();
   document.documentElement.removeAttribute("data-theme");
@@ -134,6 +164,7 @@ function renderWorkspaceSelection(api: {
     listMembers: (request: ListMembersRequest) => Promise<ListMembersResult>;
     inviteMember: (request: InviteMemberRequest) => Promise<InviteMemberResult>;
     removeMember: (request: RemoveMemberRequest) => Promise<RemoveMemberResult>;
+    updateMemberProfile: (request: UpdateMemberProfileRequest) => Promise<UpdateMemberProfileResult>;
     updateMemberStatus: (request: UpdateMemberStatusRequest) => Promise<UpdateMemberStatusResult>;
   }>;
   terminalApi?: Partial<{
@@ -172,6 +203,27 @@ function renderWorkspaceSelection(api: {
     subscribeNavigation: (
       handler: (action: NotificationNavigationAction) => void,
     ) => Promise<() => void>;
+  }>;
+  diagnosticsApi?: Partial<{
+    getOverview: (request: {
+      workspaceId: string;
+      cursor: string | null;
+      limit: number | null;
+    }) => Promise<DiagnosticsOverviewResult>;
+    generateExport: (request: {
+      workspaceId: string;
+      cursor: string | null;
+      maxEvents: number | null;
+      includeSections: Array<
+        | "runs"
+        | "events"
+        | "validationReports"
+        | "consistencySummaries"
+        | "appMetadata"
+        | "additionalContext"
+      >;
+      additionalContext: Array<{ key: string; value: string }>;
+    }) => Promise<DiagnosticsExportResult>;
   }>;
   skillsApi?: Partial<{
     listSkills: () => Promise<SkillLibraryListResult>;
@@ -237,6 +289,17 @@ function renderWorkspaceSelection(api: {
     resetShortcutPreferences: (
       input: ResetShortcutPreferencesRequest,
     ) => Promise<ResetShortcutPreferencesResult>;
+    getChatTerminalOutputPreferences: () => Promise<{
+      preferences: ChatTerminalOutputPreferencesSnapshot;
+    }>;
+    updateChatTerminalOutputPreferences: (
+      input: UpdateChatTerminalOutputPreferencesRequest,
+    ) => Promise<UpdateChatTerminalOutputPreferencesResult>;
+    getTerminalConfiguration: () => Promise<{ configuration: TerminalConfigurationSnapshot }>;
+    updateTerminalConfiguration: (
+      input: UpdateTerminalConfigurationRequest,
+    ) => Promise<UpdateTerminalConfigurationResult>;
+    resetTerminalConfiguration: () => Promise<ResetTerminalConfigurationResult>;
   }>;
   contactApi?: Partial<{
     listContacts: (request: ListContactsRequest) => Promise<ListContactsResult>;
@@ -253,6 +316,12 @@ function renderWorkspaceSelection(api: {
       request: UpdateConversationSettingsRequest,
     ) => Promise<UpdateConversationSettingsResult>;
     clearConversation: (request: ClearConversationRequest) => Promise<ClearConversationResult>;
+    repairWorkspaceData: (
+      request: RepairWorkspaceChatDataRequest,
+    ) => Promise<RepairWorkspaceChatDataResult>;
+    clearWorkspaceData: (
+      request: ClearWorkspaceChatDataRequest,
+    ) => Promise<ClearWorkspaceChatDataResult>;
     deleteConversation: (request: DeleteConversationRequest) => Promise<DeleteConversationResult>;
     sendMessage: (request: SendMessageRequest) => Promise<SendMessageResult>;
     listMessages: (request: ListMessagesRequest) => Promise<ListMessagesResult>;
@@ -266,10 +335,18 @@ function renderWorkspaceSelection(api: {
       request: StartPrivateConversationRequest,
     ) => Promise<StartPrivateConversationResult>;
   }>;
+  parityWorkbench?: boolean;
+  parityView?: "chat" | "friends" | "workspaces" | "store" | "plugins" | "settings";
+  windowContext?: WindowContextSnapshot | null;
+  onPreferencesChange?: (update: {
+    theme?: WindowContextSnapshot["preferences"]["theme"] | null;
+    language?: WindowContextSnapshot["preferences"]["language"] | null;
+  }) => Promise<void>;
 }) {
   const {
     memberApi,
     notificationApi,
+    diagnosticsApi,
     skillsApi,
     roadmapApi,
     settingsApi,
@@ -277,6 +354,10 @@ function renderWorkspaceSelection(api: {
     terminalDispatchApi,
     contactApi,
     chatApi,
+    parityWorkbench,
+    parityView,
+    windowContext,
+    onPreferencesChange,
     ...workspaceApi
   } = api;
   const queryClient = new QueryClient({
@@ -295,10 +376,16 @@ function renderWorkspaceSelection(api: {
             Promise.reject(new Error("openWorkspaceInFileManager mock missing")),
           ...workspaceApi,
         }}
+        parityWorkbench={parityWorkbench}
+        parityView={parityView}
+        windowContext={windowContext}
+        onPreferencesChange={onPreferencesChange}
         memberApi={{
           listMembers: () => Promise.resolve({ members: [] }),
           inviteMember: () => Promise.reject(new Error("inviteMember mock missing")),
           removeMember: () => Promise.reject(new Error("removeMember mock missing")),
+          updateMemberProfile: () =>
+            Promise.reject(new Error("updateMemberProfile mock missing")),
           updateMemberStatus: () =>
             Promise.reject(new Error("updateMemberStatus mock missing")),
           ...memberApi,
@@ -337,6 +424,11 @@ function renderWorkspaceSelection(api: {
             Promise.resolve({ action: notificationNavigationAction(request) }),
           subscribeNavigation: () => Promise.resolve(() => undefined),
           ...notificationApi,
+        }}
+        diagnosticsApi={{
+          getOverview: () => Promise.resolve(diagnosticsOverviewResult()),
+          generateExport: () => Promise.resolve(diagnosticsExportResult()),
+          ...diagnosticsApi,
         }}
         skillsApi={{
           listSkills: () => Promise.resolve({ skills: [] }),
@@ -390,6 +482,36 @@ function renderWorkspaceSelection(api: {
                 profile: input.profile ?? undefined,
               }),
             }),
+          getChatTerminalOutputPreferences: () =>
+            Promise.resolve({ preferences: chatTerminalOutputPreferencesSnapshot() }),
+          updateChatTerminalOutputPreferences: (input) =>
+            Promise.resolve({
+              preferences: chatTerminalOutputPreferencesSnapshot({
+                displayMode: input.displayMode,
+                updatedAtMs: 1760000091000,
+              }),
+            }),
+          getTerminalConfiguration: () =>
+            Promise.resolve({ configuration: terminalConfigurationSnapshot() }),
+          updateTerminalConfiguration: (input) =>
+            Promise.resolve({
+              configuration: terminalConfigurationSnapshot({
+                builtInCliEntries: input.builtInCliEntries,
+                customCliEntries: input.customCliEntries,
+                customTerminalEntries: input.customTerminalEntries,
+                defaultTerminalId: input.defaultTerminalId,
+                updatedAtMs: 1760000081000,
+              }),
+            }),
+          resetTerminalConfiguration: () =>
+            Promise.resolve({
+              configuration: terminalConfigurationSnapshot({
+                customCliEntries: [],
+                customTerminalEntries: [],
+                defaultTerminalId: null,
+                updatedAtMs: 1760000082000,
+              }),
+            }),
           ...settingsApi,
         }}
         terminalDispatchApi={{
@@ -413,6 +535,10 @@ function renderWorkspaceSelection(api: {
           updateConversationSettings: () =>
             Promise.reject(new Error("updateConversationSettings mock missing")),
           clearConversation: () => Promise.reject(new Error("clearConversation mock missing")),
+          repairWorkspaceData: () =>
+            Promise.reject(new Error("repairWorkspaceData mock missing")),
+          clearWorkspaceData: () =>
+            Promise.reject(new Error("clearWorkspaceData mock missing")),
           deleteConversation: () => Promise.reject(new Error("deleteConversation mock missing")),
           sendMessage: () => Promise.reject(new Error("sendMessage mock missing")),
           listMessages: () =>
@@ -483,6 +609,22 @@ function windowContextSnapshot(
     sourceWindowLabel: null,
     ...overrides,
   };
+}
+
+function workspaceWindowContext(
+  language: WindowContextSnapshot["preferences"]["language"] = "zh-CN",
+): WindowContextSnapshot {
+  return windowContextSnapshot({
+    currentWindow: {
+      label: "main",
+      mode: "main",
+    },
+    activeWorkspace: openedWorkspaceResult().workspace,
+    preferences: {
+      theme: "system",
+      language,
+    },
+  });
 }
 
 function notificationPreviewSnapshot(
@@ -744,6 +886,42 @@ function shortcutPreferencesSnapshot(
   };
 }
 
+function chatTerminalOutputPreferencesSnapshot(
+  overrides: Partial<ChatTerminalOutputPreferencesSnapshot> = {},
+): ChatTerminalOutputPreferencesSnapshot {
+  return {
+    schemaVersion: 1,
+    displayMode: "stream",
+    createdAtMs: 1760000090000,
+    updatedAtMs: 1760000090000,
+    ...overrides,
+  };
+}
+
+function terminalConfigurationSnapshot(
+  overrides: Partial<TerminalConfigurationSnapshot> = {},
+): TerminalConfigurationSnapshot {
+  const builtInCliEntries =
+    overrides.builtInCliEntries ?? [
+      { runtimeId: "claude-code", label: "Claude Code", command: "claude" },
+      { runtimeId: "codex", label: "Codex CLI", command: "codex" },
+      { runtimeId: "gemini-cli", label: "Gemini CLI", command: "gemini" },
+      { runtimeId: "opencode", label: "OpenCode", command: "opencode" },
+      { runtimeId: "qwen-code", label: "Qwen Code", command: "qwen" },
+    ];
+
+  return {
+    schemaVersion: 1,
+    builtInCliEntries,
+    customCliEntries: [],
+    customTerminalEntries: [],
+    defaultTerminalId: null,
+    createdAtMs: 1760000080000,
+    updatedAtMs: 1760000080000,
+    ...overrides,
+  };
+}
+
 function shortcutBindingsForProfile(
   profile: ShortcutKeymapProfile,
   disabledActionIds: string[] = [],
@@ -816,12 +994,122 @@ function dataIntegrityReport(
   };
 }
 
+function diagnosticsOverviewResult(
+  overrides: Partial<DiagnosticsOverviewResult> = {},
+): DiagnosticsOverviewResult {
+  return {
+    workspaceId: "01K00000000000000000000000",
+    generatedAtMs: 1760000010000,
+    runs: [
+      {
+        runId: "01K00000000000000000000800",
+        workspaceId: "01K00000000000000000000000",
+        status: "active",
+        reason: "support handoff",
+        initiatedBy: "test",
+        outcome: null,
+        summary: null,
+        startedAtMs: 1760000008000,
+        completedAtMs: null,
+        updatedAtMs: 1760000008000,
+      },
+    ],
+    keyEvents: [
+      {
+        eventId: "01K00000000000000000000810",
+        runId: "01K00000000000000000000800",
+        workspaceId: "01K00000000000000000000000",
+        scope: "terminal",
+        eventName: "terminal.snapshot.stale",
+        severity: "warning",
+        correlations: {
+          workspaceId: "01K00000000000000000000000",
+          conversationId: null,
+          messageId: null,
+          memberId: null,
+          terminalSessionId: "01K000000000000000000000AA",
+          terminalTabId: null,
+          windowLabel: null,
+          dispatchId: null,
+        },
+        metadata: [{ key: "latestSeq", value: "3" }],
+        recordedAtMs: 1760000009000,
+      },
+    ],
+    consistencySummary: {
+      terminalIssueCount: 1,
+      chatIssueCount: 0,
+      severityCounts: {
+        info: 0,
+        warning: 1,
+        error: 0,
+      },
+      recentIssueCodes: ["terminal.snapshot.stale"],
+      recommendedNextActions: ["重新 attach 受影响终端会话，并检查终端快照/退出状态。"],
+    },
+    validationSummary: {
+      availability: "notAvailable",
+      status: null,
+      message: "当前诊断导出不持久化数据完整性报告；请从数据验证面板重新运行。",
+      reportId: null,
+      generatedAtMs: null,
+      totalChecks: 0,
+      passedChecks: 0,
+      failedChecks: 0,
+      skippedChecks: 0,
+    },
+    hasMore: false,
+    nextCursor: null,
+    ...overrides,
+  };
+}
+
+function diagnosticsExportResult(
+  overrides: Partial<DiagnosticsExportResult> = {},
+): DiagnosticsExportResult {
+  return {
+    package: {
+      schemaVersion: 1,
+      generatedAtMs: 1760000010000,
+      workspaceRef: "workspace:01K00000000000000000000000",
+      runs: diagnosticsOverviewResult().runs,
+      keyEvents: diagnosticsOverviewResult().keyEvents,
+      consistencySummary: diagnosticsOverviewResult().consistencySummary,
+      validationSummary: diagnosticsOverviewResult().validationSummary,
+      appMetadata: [
+        { key: "schemaVersion", value: "1" },
+        { key: "generator", value: "orchlet.diagnostics.export" },
+        { key: "localOnly", value: "true" },
+      ],
+      additionalContext: [],
+    },
+    redactionSummary: {
+      redactedFields: 1,
+      omittedFields: 0,
+      warningCount: 1,
+      truncatedSections: [],
+    },
+    warnings: [
+      {
+        section: "runs",
+        field: "reason",
+        reason: "privatePath",
+        message: "本机私有路径已脱敏。",
+      },
+    ],
+    hasMore: true,
+    nextCursor: "25",
+    ...overrides,
+  };
+}
+
 function memberProfile(overrides: Partial<MemberProfile> = {}): MemberProfile {
   const base: MemberProfile = {
     memberId: "01KMEMBER000000000000000000",
     workspaceId: "01K00000000000000000000000",
     role: "owner",
     displayName: "Workspace Owner",
+    avatar: "css:orbit",
     instanceIndex: 1,
     instanceLabel: "Workspace Owner",
     status: "online",
@@ -858,6 +1146,8 @@ function contactProfile(overrides: Partial<ContactProfile> = {}): ContactProfile
     contactId: "01KCONTACT0000000000000000",
     displayName: "External Admin",
     contactKind: "administrator",
+    avatar: "css:orbit",
+    status: "offline",
     inviteSource: "adminContactInvite",
     notes: "Local administrator contact",
     sourceLabel: "Invite Admin Modal",
@@ -929,11 +1219,57 @@ function readPosition(
   };
 }
 
+function repairWorkspaceChatDataResult(
+  overrides: Partial<RepairWorkspaceChatDataResult> = {},
+): RepairWorkspaceChatDataResult {
+  return {
+    workspaceId: "01K00000000000000000000000",
+    affectedScope: "workspace-chat",
+    repairedCount: 2,
+    failedCount: 0,
+    skippedCount: 0,
+    repairedItems: [
+      {
+        affectedScope: "message_mentions",
+        label: "孤立消息提及",
+        status: "repaired",
+        count: 2,
+        details: "已删除不再指向有效消息的提及行。",
+        followUpAction: null,
+      },
+    ],
+    failedItems: [],
+    skippedItems: [],
+    conversations: [defaultChannel()],
+    followUpAction: "已刷新会话列表；如仍有异常，请再次运行数据验证。",
+    completedAtMs: 1760000015000,
+    ...overrides,
+  };
+}
+
+function clearWorkspaceChatDataResult(
+  overrides: Partial<ClearWorkspaceChatDataResult> = {},
+): ClearWorkspaceChatDataResult {
+  return {
+    workspaceId: "01K00000000000000000000000",
+    affectedScope: "workspace-chat",
+    clearedMessageCount: 3,
+    clearedMentionCount: 1,
+    clearedReadPositionCount: 1,
+    clearedDispatchCount: 1,
+    conversations: [defaultChannel()],
+    followUpAction: "已清空当前工作区本地聊天消息；成员、会话和设置已保留。",
+    completedAtMs: 1760000016000,
+    ...overrides,
+  };
+}
+
 describe("App workspace entry", () => {
   it("opens to a usable workspace selection surface", async () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "orchlet" })).toBeInTheDocument();
+    expect(screen.getByText("Workspaces - golutra")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "工作区选择" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "打开文件夹" }),
     ).toBeInTheDocument();
@@ -948,25 +1284,40 @@ describe("App workspace entry", () => {
     );
   });
 
-  it("exposes accessible labels for icon-only shell actions", () => {
+  it("exposes the Golutra titlebar and workspace entry action", () => {
     render(<App />);
 
-    expect(screen.getByLabelText("刷新最近工作区")).toBeInTheDocument();
-    expect(screen.getByLabelText("打开设置")).toBeInTheDocument();
+    expect(screen.getByText("Workspaces - golutra")).toBeInTheDocument();
+    expect(screen.getByLabelText("打开文件夹")).toBeInTheDocument();
   });
 
-  it("applies browser fallback theme and language updates without restart", async () => {
-    const user = userEvent.setup();
+  it("opens the shell context menu from the global host", () => {
+    render(<App />);
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: "打开文件夹" }), {
+      clientX: 120,
+      clientY: 120,
+    });
+
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: "复制" })).toBeDisabled();
+    expect(within(menu).getByRole("menuitem", { name: "粘贴" })).toBeDisabled();
+    expect(within(menu).getByRole("menuitem", { name: "全选" })).toBeDisabled();
+  });
+
+  it("applies browser fallback theme and language from saved preferences", async () => {
+    window.localStorage.setItem(
+      "orchlet.appPreferences",
+      JSON.stringify({ theme: "dark", language: "en-US" }),
+    );
 
     render(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "深色" }));
-    expect(document.documentElement.dataset.theme).toBe("dark");
-
-    await user.click(screen.getByRole("button", { name: "English" }));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
     expect(document.documentElement.lang).toBe("en-US");
-    expect(await screen.findByRole("button", { name: "Open folder" })).toBeInTheDocument();
-    expect(screen.getByText("Choose a folder to start or resume a workspace")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open Folder" })).toBeInTheDocument();
+    expect(screen.getByText("Pick a folder to start or resume a workspace")).toBeInTheDocument();
+    expect(screen.getByText("Open a folder to start your first workspace.")).toBeInTheDocument();
   });
 
   it("renders opened workspace state after successful metadata creation", async () => {
@@ -985,6 +1336,564 @@ describe("App workspace entry", () => {
     expect(screen.getByText("Schema v1")).toBeInTheDocument();
     expect(screen.getByText("可写模式")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "打开文件管理器" })).toBeInTheDocument();
+  });
+
+  it("routes opened workspaces into the Golutra-style chat workbench when parity shell is enabled", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      memberApi: { listMembers: () => Promise.resolve({ members: [memberProfile()] }) },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [defaultChannel()] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [chatMessage()],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: defaultChannel(),
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const workbench = await screen.findByRole("region", { name: "聊天工作台" });
+    expect(within(workbench).getAllByText("orchlet-demo").length).toBeGreaterThan(0);
+    expect(await within(workbench).findByText("Hello workspace")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "工作区已打开" })).not.toBeInTheDocument();
+  });
+
+  it("localizes parity chat workbench and invite menu from Chinese preferences", async () => {
+    const user = userEvent.setup();
+    const channel = defaultChannel();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      memberApi: { listMembers: () => Promise.resolve({ members: [] }) },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const workbench = await screen.findByRole("region", { name: "聊天工作台" });
+    expect(within(workbench).getByText("频道")).toBeInTheDocument();
+    expect(within(workbench).getByText("私信")).toBeInTheDocument();
+    expect(within(workbench).getByText("默认工作区频道")).toBeInTheDocument();
+    expect(within(workbench).getAllByText("成员").length).toBeGreaterThan(0);
+    expect(await within(workbench).findByText("暂无消息")).toBeInTheDocument();
+    expect(within(workbench).getByPlaceholderText("消息")).toBeInTheDocument();
+    expect(within(workbench).getByText("总结最新讨论")).toBeInTheDocument();
+    expect(within(workbench).queryByText("0/1200")).not.toBeInTheDocument();
+
+    expect(within(workbench).queryByText("CHANNELS")).not.toBeInTheDocument();
+    expect(within(workbench).queryByText("DIRECT MESSAGES")).not.toBeInTheDocument();
+    expect(within(workbench).queryByText("Default workspace channel")).not.toBeInTheDocument();
+    expect(within(workbench).queryByText("Summarize the latest discussion")).not.toBeInTheDocument();
+
+    await user.click(within(workbench).getByRole("button", { name: "添加" }));
+
+    expect(await within(workbench).findByText("邀请加入服务器")).toBeInTheDocument();
+    expect(within(workbench).getByText("生成唯一邀请链接")).toBeInTheDocument();
+    expect(within(workbench).getByText("以管理员身份邀请")).toBeInTheDocument();
+    expect(within(workbench).getByText("以助手身份邀请")).toBeInTheDocument();
+    expect(within(workbench).getByText("普通成员")).toBeInTheDocument();
+    expect(within(workbench).queryByText("Invite to Server")).not.toBeInTheDocument();
+    expect(within(workbench).queryByText("Invite as Admin")).not.toBeInTheDocument();
+  });
+
+  it("localizes member invite modal and submits the selected Codex runtime", async () => {
+    const user = userEvent.setup();
+    const inviteMember = vi.fn((request: InviteMemberRequest) => {
+      const invited = memberProfile({
+        memberId: "01KCODEXMEMBER0000000000000",
+        role: request.memberType,
+        displayName: request.displayName,
+        instanceLabel: request.displayName,
+        runtime: request.runtime,
+        permissions: request.permissions ?? undefined,
+        isolation: request.isolation ?? undefined,
+      });
+
+      return Promise.resolve({
+        member: invited,
+        invitedMembers: [invited],
+        members: [invited],
+      } satisfies InviteMemberResult);
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [] }),
+        inviteMember,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const workbench = await screen.findByRole("region", { name: "聊天工作台" });
+    await user.click(within(workbench).getByRole("button", { name: "添加" }));
+    await user.click(await within(workbench).findByRole("button", { name: /普通成员/ }));
+
+    expect(await screen.findByRole("form", { name: "邀请成员" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "以成员身份邀请" })).toBeInTheDocument();
+    expect(screen.getByText("选择要加入工作区的 AI 模型")).toBeInTheDocument();
+    expect(screen.getByText("实例数量")).toBeInTheDocument();
+    expect(screen.getByText("无限制模式")).toBeInTheDocument();
+    expect(screen.getByText("沙盒环境")).toBeInTheDocument();
+    expect(screen.queryByText("Invite as Member")).not.toBeInTheDocument();
+    expect(screen.queryByText("Select an AI model to join the workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("Send Invitation")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Codex" }));
+    await user.click(screen.getByRole("button", { name: "发送邀请" }));
+
+    await waitFor(() =>
+      expect(inviteMember).toHaveBeenCalledWith(
+        expect.objectContaining({
+          memberType: "member",
+          displayName: "Codex",
+          runtime: expect.objectContaining({
+            kind: "builtInAiCli",
+            runtimeId: "codex",
+            label: "Codex",
+            command: "codex",
+          }),
+        }),
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("成员已邀请");
+    expect(screen.getByRole("status")).toHaveTextContent("Codex 已保存为成员。");
+    expect(screen.getByRole("status")).not.toHaveTextContent("Member invited");
+  });
+
+  it("shows read-only fallback inside the parity chat workbench", async () => {
+    const user = userEvent.setup();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () =>
+        Promise.resolve(
+          openedWorkspaceResult({
+            workspace: {
+              ...openedWorkspaceResult().workspace!,
+              accessMode: "readOnly",
+              fallbackState: {
+                reason: "无法创建 .orchlet/workspace.json。 无法创建 .orchlet 工作区目录。",
+                fallbackPath: "/app-data/workspace-fallbacks.json",
+                limitedActions: ["工作区本地元数据写入", "依赖 .orchlet 的后续本地设置写入"],
+                userAction: "授予该工作区目录写权限后重新打开。",
+              },
+            },
+          }),
+        ),
+      parityWorkbench: true,
+      memberApi: { listMembers: () => Promise.resolve({ members: [memberProfile()] }) },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const workbench = await screen.findByRole("region", { name: "聊天工作台" });
+    expect(within(workbench).getByText("工作区本地数据只读")).toBeInTheDocument();
+    expect(within(workbench).getByText(/无法创建 \.orchlet\/workspace\.json/)).toBeInTheDocument();
+    expect(screen.queryByText("只读模式")).not.toBeInTheDocument();
+  });
+
+  it("uses the Golutra-style conversation menu in the parity chat workbench", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const channel = defaultChannel();
+    let projectRoom = conversationProfile({
+      conversationId: "01K00000000000000000000064",
+      kind: "group",
+      title: "Project Room",
+      participantKind: null,
+      participantId: null,
+      members: [],
+      lastActivityAtMs: 1760000002000,
+      updatedAtMs: 1760000002000,
+    });
+    const updateConversationSettings = vi.fn((request: UpdateConversationSettingsRequest) => {
+      projectRoom = {
+        ...projectRoom,
+        title: request.title ?? projectRoom.title,
+        isPinned: request.isPinned ?? projectRoom.isPinned,
+        isMuted: request.isMuted ?? projectRoom.isMuted,
+      };
+
+      return Promise.resolve({
+        conversation: projectRoom,
+        conversations: [channel, projectRoom],
+      } satisfies UpdateConversationSettingsResult);
+    });
+    const clearConversation = vi.fn(() =>
+      Promise.resolve({
+        conversation: {
+          ...projectRoom,
+          unreadCount: 0,
+          lastMessagePreview: null,
+        },
+        clearedMessageCount: 2,
+        conversations: [channel, projectRoom],
+      } satisfies ClearConversationResult),
+    );
+    const deleteConversation = vi.fn(() =>
+      Promise.resolve({
+        deletedConversationId: projectRoom.conversationId,
+        conversations: [channel],
+      } satisfies DeleteConversationResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel, projectRoom] }),
+        updateConversationSettings,
+        clearConversation,
+        deleteConversation,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    const workbench = await screen.findByRole("region", { name: "聊天工作台" });
+
+    await user.click(within(workbench).getByRole("button", { name: "Project Room 的操作" }));
+    await user.click(within(workbench).getByRole("menuitem", { name: "置顶" }));
+
+    expect(updateConversationSettings).toHaveBeenLastCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: projectRoom.conversationId,
+      title: null,
+      isPinned: true,
+      isMuted: null,
+    });
+
+    await user.click(within(workbench).getByRole("button", { name: "Project Room 的操作" }));
+    await user.click(within(workbench).getByRole("menuitem", { name: "修改群聊名称" }));
+    await user.clear(within(workbench).getByLabelText("群聊名称"));
+    await user.type(within(workbench).getByLabelText("群聊名称"), "Renamed Room");
+    await user.click(within(workbench).getByRole("button", { name: "保存" }));
+
+    expect(updateConversationSettings).toHaveBeenLastCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: projectRoom.conversationId,
+      title: "Renamed Room",
+      isPinned: null,
+      isMuted: null,
+    });
+
+    await user.click(within(workbench).getByRole("button", { name: "Renamed Room 的操作" }));
+    await user.click(within(workbench).getByRole("menuitem", { name: "消息免打扰" }));
+
+    expect(updateConversationSettings).toHaveBeenLastCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      conversationId: projectRoom.conversationId,
+      title: null,
+      isPinned: null,
+      isMuted: true,
+    });
+
+    await user.click(within(workbench).getByRole("button", { name: "Renamed Room 的操作" }));
+    await user.click(within(workbench).getByRole("menuitem", { name: "清空聊天记录" }));
+
+    await waitFor(() =>
+      expect(clearConversation).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: projectRoom.conversationId,
+      }),
+    );
+
+    await user.click(within(workbench).getByRole("button", { name: "Renamed Room 的操作" }));
+    await user.click(within(workbench).getByRole("menuitem", { name: "删除群聊" }));
+
+    await waitFor(() =>
+      expect(deleteConversation).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: projectRoom.conversationId,
+      }),
+    );
+    expect(confirm).toHaveBeenCalledWith("清空 Renamed Room 的本地消息？");
+    expect(confirm).toHaveBeenCalledWith("删除会话 Renamed Room？");
+    confirm.mockRestore();
+  });
+
+  it("uses parity chat input overlays for prompts emoji mentions and attachments", async () => {
+    const user = userEvent.setup();
+    const reviewer = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Reviewer",
+      instanceLabel: "Reviewer",
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel({
+      members: [
+        {
+          memberId: reviewer.memberId,
+          displayName: reviewer.displayName,
+          instanceLabel: reviewer.instanceLabel,
+        },
+      ],
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      memberApi: { listMembers: () => Promise.resolve({ members: [reviewer] }) },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        listMessages: () =>
+          Promise.resolve({
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: channel,
+          }),
+      },
+      roadmapApi: {
+        listTasks: () => Promise.resolve({ tasks: [roadmapTaskEntry({ title: "Parity QA" })] }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    const workbench = await screen.findByRole("region", { name: "聊天工作台" });
+    const input = within(workbench).getByPlaceholderText("消息");
+
+    await user.click(
+      within(workbench).getByRole("button", { name: "总结最新讨论" }),
+    );
+    expect(input).toHaveValue("总结最新讨论");
+
+    await user.click(within(workbench).getByRole("button", { name: "打开表情面板" }));
+    await user.click(within(workbench).getByRole("button", { name: "grinning face 😀" }));
+    expect(input).toHaveValue("总结最新讨论😀");
+
+    await user.click(within(workbench).getByRole("button", { name: "提及成员" }));
+    expect(input).toHaveValue("总结最新讨论😀 @Reviewer ");
+    expect(within(workbench).getByLabelText("消息编辑状态")).toHaveTextContent(
+      "@Reviewer",
+    );
+
+    await user.click(within(workbench).getByRole("button", { name: "添加图片附件" }));
+    expect(within(workbench).getByLabelText("消息编辑状态")).toHaveTextContent(
+      "图片待附加",
+    );
+
+    await user.click(within(workbench).getByRole("button", { name: "添加路线图引用" }));
+    await user.click(within(workbench).getByRole("button", { name: /Parity QA/ }));
+    expect(within(workbench).getByLabelText("消息编辑状态")).toHaveTextContent(
+      "Parity QA",
+    );
+  });
+
+  it("renders settings parity avatar menu and exact keybind availability badges", async () => {
+    const user = userEvent.setup();
+    const uploadedProfile = profileSettingsSnapshot({
+      avatar: profileAvatarSnapshot({
+        kind: "uploaded",
+        uploadId: "01KAVATARUPLOAD000000000001",
+        sourceFileName: "dana.png",
+        contentType: "image/png",
+        sizeBytes: 3,
+        libraryRelativePath: "avatars/uploads/01KAVATARUPLOAD000000000001.png",
+        previewDataUrl: "data:image/png;base64,cG5n",
+      }),
+    });
+    const selectProfileAvatarPreset = vi.fn((presetId: string) =>
+      Promise.resolve({
+        profile: profileSettingsSnapshot({
+          avatar: profileAvatarSnapshot({ kind: "preset", presetId }),
+          updatedAtMs: 1760000055000,
+        }),
+      } satisfies SelectProfileAvatarPresetResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      windowContext: workspaceWindowContext("en-US"),
+      parityWorkbench: true,
+      parityView: "settings",
+      settingsApi: {
+        getProfileSettings: () => Promise.resolve({ profile: uploadedProfile }),
+        getShortcutPreferences: () =>
+          Promise.resolve({
+            preferences: shortcutPreferencesSnapshot({
+              profile: "vscode",
+              disabledActionIds: ["chat.send"],
+            }),
+          }),
+        selectProfileAvatarPreset,
+      },
+    });
+
+    const settings = await screen.findByRole("region", { name: "Settings" });
+
+    await user.click(within(settings).getByRole("button", { name: "Change avatar" }));
+    const avatarMenu = await within(settings).findByRole("menu");
+    expect(within(avatarMenu).getByText("Uploads")).toBeInTheDocument();
+    expect(within(avatarMenu).getByRole("button", { name: "Delete uploaded avatar" })).toBeInTheDocument();
+
+    await user.click(within(avatarMenu).getByRole("menuitem", { name: "Select Forest avatar preset" }));
+
+    expect(selectProfileAvatarPreset).toHaveBeenCalledWith("forest");
+
+    const keybinds = within(settings).getByRole("region", { name: "Keybinds" });
+    expect(within(keybinds).getByText("Disabled")).toBeInTheDocument();
+    expect(within(keybinds).getByText("Unavailable")).toBeInTheDocument();
+    expect(within(keybinds).getByText("Ctrl+Enter / Meta+Enter")).toBeInTheDocument();
+    expect(
+      within(keybinds).getByText("当前版本尚未注册 OS 全局快捷键。"),
+    ).toBeInTheDocument();
+
+    await user.click(within(keybinds).getByRole("combobox", { name: "Profile" }));
+    await user.click(await screen.findByRole("option", { name: "Default" }));
+    expect(within(keybinds).queryByText("Ctrl+Enter / Meta+Enter")).not.toBeInTheDocument();
+    expect(within(keybinds).getAllByText("Enter").length).toBeGreaterThan(0);
+  });
+
+  it("localizes settings parity from preferences and dispatches language changes", async () => {
+    const user = userEvent.setup();
+    const onPreferencesChange = vi.fn(() => Promise.resolve());
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      windowContext: workspaceWindowContext("zh-CN"),
+      onPreferencesChange,
+      parityWorkbench: true,
+      parityView: "settings",
+    });
+
+    const settings = await screen.findByRole("region", { name: "设置" });
+    expect(within(settings).getByRole("heading", { name: "偏好设置" })).toBeInTheDocument();
+    expect(within(settings).getByRole("region", { name: "语言" })).toBeInTheDocument();
+    expect(within(settings).getByRole("region", { name: "外观" })).toBeInTheDocument();
+    expect(within(settings).getByText("中文（简体）")).toBeInTheDocument();
+    expect(within(settings).getByText("深色")).toBeInTheDocument();
+
+    await user.click(within(settings).getByRole("button", { name: /英文（美国）/ }));
+
+    expect(onPreferencesChange).toHaveBeenCalledWith({ language: "en-US" });
+  });
+
+  it("uses settings parity custom member and terminal card flows for terminal configuration", async () => {
+    const user = userEvent.setup();
+    const updateTerminalConfiguration = vi.fn((request: UpdateTerminalConfigurationRequest) =>
+      Promise.resolve({
+        configuration: terminalConfigurationSnapshot({
+          builtInCliEntries: request.builtInCliEntries,
+          customCliEntries: request.customCliEntries,
+          customTerminalEntries: request.customTerminalEntries,
+          defaultTerminalId: request.defaultTerminalId,
+          updatedAtMs: 1760000083000,
+        }),
+      } satisfies UpdateTerminalConfigurationResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      windowContext: workspaceWindowContext("en-US"),
+      parityWorkbench: true,
+      parityView: "settings",
+      settingsApi: { updateTerminalConfiguration },
+    });
+
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    const memberRegion = within(settings).getByRole("region", { name: "Default Member" });
+
+    await user.click(within(memberRegion).getByRole("button", { name: "Custom CLI" }));
+    await user.type(within(memberRegion).getByLabelText("Member Name"), "Local Reviewer");
+    await user.type(within(memberRegion).getByPlaceholderText("reviewer --stdio"), "reviewer --stdio");
+    await user.click(within(memberRegion).getByRole("button", { name: "Confirm custom member" }));
+
+    await user.click(within(memberRegion).getByRole("button", { name: "Actions for Local Reviewer" }));
+    await user.click(within(memberRegion).getByRole("menuitem", { name: "Edit" }));
+    const memberCommand = within(memberRegion).getByPlaceholderText("reviewer --stdio");
+    await user.clear(memberCommand);
+    await user.type(memberCommand, "reviewer --json");
+    await user.click(within(memberRegion).getByRole("button", { name: "Confirm custom member" }));
+
+    await user.click(within(memberRegion).getByRole("button", { name: "Custom Terminal" }));
+    await user.type(within(memberRegion).getByLabelText("Terminal Name"), "Workspace Zsh");
+    await user.type(within(memberRegion).getByLabelText("Terminal Path"), "/bin/zsh");
+    await user.click(within(memberRegion).getByRole("button", { name: "Confirm custom terminal" }));
+
+    await user.click(within(memberRegion).getByRole("button", { name: "Save CLI and terminal" }));
+
+    await waitFor(() =>
+      expect(updateTerminalConfiguration).toHaveBeenCalledWith({
+        builtInCliEntries: terminalConfigurationSnapshot().builtInCliEntries,
+        customCliEntries: [
+          {
+            cliId: "custom-cli-1",
+            label: "Local Reviewer",
+            command: "reviewer --json",
+          },
+        ],
+        customTerminalEntries: [
+          {
+            terminalId: "terminal-1",
+            label: "Workspace Zsh",
+            command: "/bin/zsh",
+          },
+        ],
+        defaultTerminalId: "terminal-1",
+      }),
+    );
+
+    await user.click(within(memberRegion).getByRole("button", { name: "Actions for Local Reviewer" }));
+    await user.click(within(memberRegion).getByRole("menuitem", { name: "Remove" }));
+
+    expect(within(memberRegion).queryByText("reviewer --json")).not.toBeInTheDocument();
+  });
+
+  it("opens a workspace terminal from the settings parity test action", async () => {
+    const user = userEvent.setup();
+    const openTerminal = vi.fn(() => Promise.resolve(terminalOpenResult()));
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      windowContext: workspaceWindowContext("en-US"),
+      parityWorkbench: true,
+      parityView: "settings",
+      terminalApi: { openTerminal },
+    });
+
+    const settings = await screen.findByRole("region", { name: "Settings" });
+    const memberRegion = within(settings).getByRole("region", { name: "Default Member" });
+
+    await user.click(within(memberRegion).getByRole("button", { name: "Actions for Claude Code" }));
+    await user.click(within(memberRegion).getByRole("menuitem", { name: "Test" }));
+
+    await waitFor(() => expect(openTerminal).toHaveBeenCalledWith());
   });
 
   it("saves profile settings and reflects them on the owner member surface", async () => {
@@ -1241,6 +2150,561 @@ describe("App workspace entry", () => {
 
     expect(resetShortcutPreferences).toHaveBeenCalledWith({ profile: "slack" });
     expect(await screen.findByRole("status")).toHaveTextContent("快捷键已恢复默认");
+  });
+
+  it("saves CLI and terminal configuration from keyboard controls", async () => {
+    const user = userEvent.setup();
+    const updateTerminalConfiguration = vi.fn((request: UpdateTerminalConfigurationRequest) =>
+      Promise.resolve({
+        configuration: terminalConfigurationSnapshot({
+          builtInCliEntries: request.builtInCliEntries,
+          customCliEntries: request.customCliEntries,
+          customTerminalEntries: request.customTerminalEntries,
+          defaultTerminalId: request.defaultTerminalId,
+          updatedAtMs: 1760000083000,
+        }),
+      } satisfies UpdateTerminalConfigurationResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      settingsApi: { updateTerminalConfiguration },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    const terminalSection = within(form).getByRole("region", { name: "CLI 与终端配置" });
+    await user.clear(within(terminalSection).getByLabelText("Codex CLI 命令"));
+    await user.type(
+      within(terminalSection).getByLabelText("Codex CLI 命令"),
+      "/opt/homebrew/bin/codex",
+    );
+    await user.click(within(terminalSection).getAllByRole("button", { name: "添加" })[0]);
+    await user.clear(within(terminalSection).getByLabelText("自定义 CLI CLI ID"));
+    await user.type(within(terminalSection).getByLabelText("自定义 CLI CLI ID"), "local-reviewer");
+    await user.clear(within(terminalSection).getByLabelText("自定义 CLI 名称"));
+    await user.type(within(terminalSection).getByLabelText("自定义 CLI 名称"), "Local Reviewer");
+    await user.type(
+      within(terminalSection).getByLabelText("自定义 CLI 命令"),
+      "reviewer --stdio",
+    );
+    await user.click(within(terminalSection).getAllByRole("button", { name: "添加" })[1]);
+    await user.clear(within(terminalSection).getByLabelText("自定义终端 终端 ID"));
+    await user.type(
+      within(terminalSection).getByLabelText("自定义终端 终端 ID"),
+      "workspace-zsh",
+    );
+    await user.clear(within(terminalSection).getByLabelText("自定义终端 名称"));
+    await user.type(within(terminalSection).getByLabelText("自定义终端 名称"), "Workspace Zsh");
+    await user.type(within(terminalSection).getByLabelText("自定义终端 命令"), "/bin/zsh");
+    await user.selectOptions(within(terminalSection).getByLabelText("默认工作区终端"), "workspace-zsh");
+    const saveButton = within(terminalSection).getByRole("button", {
+      name: "保存 CLI 与终端",
+    });
+    saveButton.focus();
+    await user.keyboard("{Enter}");
+
+    expect(updateTerminalConfiguration).toHaveBeenCalledWith({
+      builtInCliEntries: expect.arrayContaining([
+        expect.objectContaining({
+          runtimeId: "codex",
+          command: "/opt/homebrew/bin/codex",
+        }),
+      ]),
+      customCliEntries: [
+        {
+          cliId: "local-reviewer",
+          label: "Local Reviewer",
+          command: "reviewer --stdio",
+        },
+      ],
+      customTerminalEntries: [
+        {
+          terminalId: "workspace-zsh",
+          label: "Workspace Zsh",
+          command: "/bin/zsh",
+        },
+      ],
+      defaultTerminalId: "workspace-zsh",
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("CLI 与终端设置已保存");
+  });
+
+  it("saves chat terminal output preference from the keyboard and applies it to new output", async () => {
+    const user = userEvent.setup();
+    let outputHandler: ((event: TerminalOutputEventPayload) => void) | null = null;
+    let statusHandler: ((event: TerminalStatusEventPayload) => void) | null = null;
+    const subscribeOutput = vi.fn(async (handler: (event: TerminalOutputEventPayload) => void) => {
+      outputHandler = handler;
+      return vi.fn();
+    });
+    const subscribeStatus = vi.fn(async (handler: (event: TerminalStatusEventPayload) => void) => {
+      statusHandler = handler;
+      return vi.fn();
+    });
+    const updateChatTerminalOutputPreferences = vi.fn(
+      (request: UpdateChatTerminalOutputPreferencesRequest) =>
+        Promise.resolve({
+          preferences: chatTerminalOutputPreferencesSnapshot({
+            displayMode: request.displayMode,
+            updatedAtMs: 1760000093000,
+          }),
+        }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      terminalApi: {
+        subscribeOutput,
+        subscribeStatus,
+      },
+      settingsApi: {
+        getChatTerminalOutputPreferences: () =>
+          Promise.resolve({ preferences: chatTerminalOutputPreferencesSnapshot() }),
+        updateChatTerminalOutputPreferences,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeOutput).toHaveBeenCalled());
+    await waitFor(() => expect(subscribeStatus).toHaveBeenCalled());
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    const streamToggle = within(form).getByLabelText("聊天流式输出");
+    expect(streamToggle).toBeChecked();
+
+    await user.click(streamToggle);
+    const saveButton = within(form).getByRole("button", { name: "保存聊天输出" });
+    saveButton.focus();
+    await user.keyboard("{Enter}");
+
+    expect(updateChatTerminalOutputPreferences).toHaveBeenCalledWith({
+      displayMode: "finalOnly",
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent("聊天输出设置已保存");
+    await waitFor(() =>
+      expect(within(form).getByText("当前模式：仅显示最终输出")).toBeInTheDocument(),
+    );
+
+    act(() => {
+      outputHandler?.(
+        terminalOutputEvent({
+          terminalSessionId: "01KTERMINAL00000000000027",
+          seq: 1,
+          chunk: "hidden after successful save\n",
+          emittedAtMs: 1760000011000,
+        }),
+      );
+    });
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    });
+    expect(within(messageLog).queryByText("hidden after successful save")).not.toBeInTheDocument();
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          terminalSessionId: "01KTERMINAL00000000000027",
+          status: "exited",
+          snapshot: {
+            lastSeq: 1,
+            text: "saved final result\n",
+            truncated: false,
+            updatedAtMs: 1760000011200,
+          },
+          emittedAtMs: 1760000011300,
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(within(messageLog).getByLabelText("终端输出流")).toHaveTextContent(
+        "saved final result",
+      ),
+    );
+  });
+
+  it("reports chat terminal output preference save failure without changing active stream mode", async () => {
+    const user = userEvent.setup();
+    let outputHandler: ((event: TerminalOutputEventPayload) => void) | null = null;
+    const subscribeOutput = vi.fn(async (handler: (event: TerminalOutputEventPayload) => void) => {
+      outputHandler = handler;
+      return vi.fn();
+    });
+    const updateChatTerminalOutputPreferences = vi.fn(
+      (_request: UpdateChatTerminalOutputPreferencesRequest) =>
+        Promise.reject({
+          code: "settings.chatTerminalOutput.renameFailed",
+          message: "无法保存聊天终端输出展示偏好。",
+          userAction: "当前已生效偏好保持不变，请检查 settings/chat-terminal-output.json 权限后重试。",
+          recoverable: true,
+          severity: "warning",
+        }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      terminalApi: { subscribeOutput },
+      settingsApi: {
+        getChatTerminalOutputPreferences: () =>
+          Promise.resolve({ preferences: chatTerminalOutputPreferencesSnapshot() }),
+        updateChatTerminalOutputPreferences,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeOutput).toHaveBeenCalled());
+    await user.click(await screen.findByRole("button", { name: "打开设置" }));
+
+    const form = await screen.findByRole("form", { name: "个人资料设置" });
+    await user.click(within(form).getByLabelText("聊天流式输出"));
+    await user.click(within(form).getByRole("button", { name: "保存聊天输出" }));
+
+    expect(updateChatTerminalOutputPreferences).toHaveBeenCalledWith({
+      displayMode: "finalOnly",
+    });
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "无法保存聊天终端输出展示偏好。",
+    );
+
+    act(() => {
+      outputHandler?.(
+        terminalOutputEvent({
+          terminalSessionId: "01KTERMINAL00000000000024",
+          seq: 1,
+          chunk: "still streaming after failed save\n",
+          emittedAtMs: 1760000009000,
+        }),
+      );
+    });
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    await waitFor(() =>
+      expect(within(messageLog).getByLabelText("终端输出流")).toHaveTextContent(
+        "still streaming after failed save",
+      ),
+    );
+  });
+
+  it("repairs workspace chat data from settings after confirmation", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const repairedChannel = defaultChannel({
+      lastMessagePreview: null,
+      unreadCount: 0,
+      updatedAtMs: 1760000015000,
+    });
+    const repairWorkspaceData = vi.fn(() =>
+      Promise.resolve(
+        repairWorkspaceChatDataResult({
+          conversations: [repairedChannel],
+        }),
+      ),
+    );
+
+    try {
+      renderWorkspaceSelection({
+        getWorkspaceSelectionStatus: () => Promise.resolve(status),
+        pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+        chatApi: {
+          repairWorkspaceData,
+          listConversations: () =>
+            Promise.resolve({
+              conversations: [
+                defaultChannel({
+                  unreadCount: 2,
+                  lastMessagePreview: "stale",
+                }),
+              ],
+            }),
+        },
+      });
+
+      await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+      await user.click(await screen.findByRole("button", { name: "打开设置" }));
+      const form = await screen.findByRole("form", { name: "个人资料设置" });
+
+      await user.click(within(form).getByRole("button", { name: "修复消息" }));
+
+      expect(confirm).toHaveBeenCalledWith(
+        "修复 orchlet-demo 的本地聊天数据？此操作可能删除无效消息索引。",
+      );
+      expect(repairWorkspaceData).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+      });
+      const inlineResult = await within(form).findByRole("status", {
+        name: "聊天数据维护结果",
+      });
+      expect(inlineResult).toHaveTextContent("状态：完成");
+      expect(inlineResult).toHaveTextContent("已修复 2 项，失败 0 项，跳过 0 项");
+      expect(await screen.findByText("聊天数据修复完成")).toBeInTheDocument();
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("shows repair failure result without changing chat state", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const channel = defaultChannel({
+      lastMessagePreview: "Keep visible",
+    });
+    const message = chatMessage({ body: "Keep visible" });
+    const repairWorkspaceData = vi.fn(() =>
+      Promise.reject({
+        code: "chatDataRepair.transaction.beginFailed",
+        message: "聊天数据维护失败。",
+        userAction: "请运行数据验证后重试。",
+        details: "workspaceId=01K00000000000000000000000 scope=workspace-chat",
+        recoverable: true,
+        severity: "warning",
+      }),
+    );
+
+    try {
+      renderWorkspaceSelection({
+        getWorkspaceSelectionStatus: () => Promise.resolve(status),
+        pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+        chatApi: {
+          repairWorkspaceData,
+          listConversations: () => Promise.resolve({ conversations: [channel] }),
+          listMessages: () =>
+            Promise.resolve({
+              messages: [message],
+              hasMore: false,
+              nextBeforeMessageId: null,
+              readPosition: null,
+              conversation: channel,
+            }),
+          updateReadPosition: () =>
+            Promise.resolve({
+              readPosition: readPosition(),
+              conversation: channel,
+            }),
+        },
+      });
+
+      await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+      const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+      const messageLog = await within(conversationPanel).findByRole("log", {
+        name: "消息历史",
+      });
+      expect(await within(messageLog).findByText("Keep visible")).toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: "打开设置" }));
+      const form = await screen.findByRole("form", { name: "个人资料设置" });
+
+      await user.click(within(form).getByRole("button", { name: "修复消息" }));
+
+      const inlineResult = await within(form).findByRole("status", {
+        name: "聊天数据维护结果",
+      });
+      expect(inlineResult).toHaveTextContent("状态：失败");
+      expect(inlineResult).toHaveTextContent("请运行数据验证后重试");
+      expect(within(messageLog).getByText("Keep visible")).toBeInTheDocument();
+    } finally {
+      confirm.mockRestore();
+    }
+  });
+
+  it("clears all workspace chat data after strong confirmation and resets cached messages", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("orchlet-demo");
+    const channel = defaultChannel({
+      unreadCount: 3,
+      lastMessagePreview: "Clear all",
+    });
+    const clearedChannel = defaultChannel({
+      unreadCount: 0,
+      lastMessagePreview: null,
+      updatedAtMs: 1760000016000,
+      lastActivityAtMs: 1760000016000,
+    });
+    const clearWorkspaceData = vi.fn(() =>
+      Promise.resolve(
+        clearWorkspaceChatDataResult({
+          conversations: [clearedChannel],
+        }),
+      ),
+    );
+
+    try {
+      renderWorkspaceSelection({
+        getWorkspaceSelectionStatus: () => Promise.resolve(status),
+        pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+        chatApi: {
+          clearWorkspaceData,
+          listConversations: () => Promise.resolve({ conversations: [channel] }),
+          listMessages: () =>
+            Promise.resolve({
+              messages: [chatMessage({ body: "Clear all" })],
+              hasMore: false,
+              nextBeforeMessageId: null,
+              readPosition: readPosition(),
+              conversation: channel,
+            }),
+          updateReadPosition: () =>
+            Promise.resolve({
+              readPosition: readPosition(),
+              conversation: channel,
+            }),
+        },
+      });
+
+      await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+      const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+      const messageLog = await within(conversationPanel).findByRole("log", {
+        name: "消息历史",
+      });
+      expect(await within(messageLog).findByText("Clear all")).toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: "打开设置" }));
+      const form = await screen.findByRole("form", { name: "个人资料设置" });
+
+      await user.click(within(form).getByRole("button", { name: "清空所有消息" }));
+
+      expect(confirm).toHaveBeenCalledWith(
+        "清空 orchlet-demo 的所有本地聊天消息？会话、成员和设置会保留。",
+      );
+      expect(prompt).toHaveBeenCalledWith(
+        "输入 orchlet-demo 或 01K00000000000000000000000 确认清空所有消息",
+      );
+      expect(clearWorkspaceData).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+      });
+      expect(await within(messageLog).findByText("暂无消息")).toBeInTheDocument();
+      const inlineResult = await within(form).findByRole("status", {
+        name: "聊天数据维护结果",
+      });
+      expect(inlineResult).toHaveTextContent("状态：完成");
+      expect(inlineResult).toHaveTextContent("已清除 3 条消息");
+      expect(await screen.findByText("工作区聊天消息已清空")).toBeInTheDocument();
+    } finally {
+      confirm.mockRestore();
+      prompt.mockRestore();
+    }
+  });
+
+  it("preserves messages when workspace clear is cancelled", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const prompt = vi.spyOn(window, "prompt");
+    const channel = defaultChannel();
+    const clearWorkspaceData = vi.fn();
+
+    try {
+      renderWorkspaceSelection({
+        getWorkspaceSelectionStatus: () => Promise.resolve(status),
+        pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+        chatApi: {
+          clearWorkspaceData,
+          listConversations: () => Promise.resolve({ conversations: [channel] }),
+          listMessages: () =>
+            Promise.resolve({
+              messages: [chatMessage({ body: "Do not clear" })],
+              hasMore: false,
+              nextBeforeMessageId: null,
+              readPosition: null,
+              conversation: channel,
+            }),
+          updateReadPosition: () =>
+            Promise.resolve({
+              readPosition: readPosition(),
+              conversation: channel,
+            }),
+        },
+      });
+
+      await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+      const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+      const messageLog = await within(conversationPanel).findByRole("log", {
+        name: "消息历史",
+      });
+      expect(await within(messageLog).findByText("Do not clear")).toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: "打开设置" }));
+      const form = await screen.findByRole("form", { name: "个人资料设置" });
+
+      await user.click(within(form).getByRole("button", { name: "清空所有消息" }));
+
+      expect(confirm).toHaveBeenCalled();
+      expect(prompt).not.toHaveBeenCalled();
+      expect(clearWorkspaceData).not.toHaveBeenCalled();
+      expect(within(messageLog).getByText("Do not clear")).toBeInTheDocument();
+    } finally {
+      confirm.mockRestore();
+      prompt.mockRestore();
+    }
+  });
+
+  it("preserves messages and reports failure when workspace clear fails", async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue("orchlet-demo");
+    const channel = defaultChannel();
+    const clearWorkspaceData = vi.fn(() =>
+      Promise.reject({
+        code: "chatDataClear.messagesFailed",
+        message: "聊天数据维护失败。",
+        userAction: "请运行数据验证后重试。",
+        details: "workspaceId=01K00000000000000000000000 scope=messages",
+        recoverable: true,
+        severity: "error",
+      }),
+    );
+
+    try {
+      renderWorkspaceSelection({
+        getWorkspaceSelectionStatus: () => Promise.resolve(status),
+        pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+        chatApi: {
+          clearWorkspaceData,
+          listConversations: () => Promise.resolve({ conversations: [channel] }),
+          listMessages: () =>
+            Promise.resolve({
+              messages: [chatMessage({ body: "Still here" })],
+              hasMore: false,
+              nextBeforeMessageId: null,
+              readPosition: null,
+              conversation: channel,
+            }),
+          updateReadPosition: () =>
+            Promise.resolve({
+              readPosition: readPosition(),
+              conversation: channel,
+            }),
+        },
+      });
+
+      await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+      const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+      const messageLog = await within(conversationPanel).findByRole("log", {
+        name: "消息历史",
+      });
+      expect(await within(messageLog).findByText("Still here")).toBeInTheDocument();
+      await user.click(await screen.findByRole("button", { name: "打开设置" }));
+      const form = await screen.findByRole("form", { name: "个人资料设置" });
+
+      await user.click(within(form).getByRole("button", { name: "清空所有消息" }));
+
+      const inlineResult = await within(form).findByRole("status", {
+        name: "聊天数据维护结果",
+      });
+      expect(inlineResult).toHaveTextContent("状态：失败");
+      expect(inlineResult).toHaveTextContent("scope=messages");
+      expect(within(messageLog).getByText("Still here")).toBeInTheDocument();
+    } finally {
+      confirm.mockRestore();
+      prompt.mockRestore();
+    }
   });
 
   it("restores saved profile values into settings and member surfaces", async () => {
@@ -1704,9 +3168,61 @@ describe("App workspace entry", () => {
     expect(within(classification).getByText("本地技能")).toBeInTheDocument();
     expect(within(classification).getByText("技能商店")).toBeInTheDocument();
     expect(within(classification).getByText("远程插件")).toBeInTheDocument();
-    expect(within(classification).getByText("可用")).toBeInTheDocument();
-    expect(within(classification).getByText("占位")).toBeInTheDocument();
-    expect(within(classification).getByText("未来")).toBeInTheDocument();
+    expect(within(classification).getByText("已实现")).toBeInTheDocument();
+    expect(within(classification).getAllByText("占位")).toHaveLength(2);
+
+    await user.click(within(classification).getByRole("button", { name: "打开技能商店" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("技能商店暂未启用");
+
+    await user.click(within(classification).getByRole("button", { name: "启用远程插件" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("远程插件暂未启用");
+  });
+
+  it("renders marketplace parity import cards with Golutra copy and placeholder plugin actions", async () => {
+    const user = userEvent.setup();
+    const importLocalFolder = vi.fn(() => Promise.resolve(null));
+
+    const { unmount } = renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      parityView: "store",
+      skillsApi: {
+        listSkills: () => Promise.resolve({ skills: [] }),
+        listWorkspaceLinks: () => Promise.resolve({ skills: [] }),
+        importLocalFolder,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    const skillStore = await screen.findByRole("region", { name: "技能商店" });
+    await user.click(within(skillStore).getByRole("tab", { name: "我的技能" }));
+    const importSkillButton = within(skillStore).getByRole("button", {
+      name: /导入技能.*从 URL 或本地文件/,
+    });
+    expect(importSkillButton).toBeInTheDocument();
+    expect(importSkillButton).toHaveTextContent("从 URL 或本地文件");
+    await user.click(importSkillButton);
+    expect(importLocalFolder).toHaveBeenCalledTimes(1);
+
+    unmount();
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      parityWorkbench: true,
+      parityView: "plugins",
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    const marketplace = await screen.findByRole("region", { name: "插件市场" });
+    await user.click(within(marketplace).getByRole("tab", { name: "我的插件" }));
+    const importPluginButton = within(marketplace).getByRole("button", {
+      name: /导入插件.*从 URL 或本地文件/,
+    });
+    expect(importPluginButton).toBeInTheDocument();
+    expect(importPluginButton).toHaveTextContent("从 URL 或本地文件");
+    await user.click(importPluginButton);
   });
 
   it("creates, edits and deletes roadmap tasks from the Roadmap modal", async () => {
@@ -2536,6 +4052,13 @@ describe("App workspace entry", () => {
             unreadCount: 4,
             lastMessagePreview: "Latest note",
             terminalMemberId: null,
+            workspacePath: "/tmp/orchlet-demo",
+            conversationType: "channel",
+            memberCount: null,
+            senderId: null,
+            senderName: null,
+            senderAvatar: null,
+            senderCanOpenTerminal: false,
             updatedAtMs: channel.updatedAtMs,
           },
           {
@@ -2544,10 +4067,18 @@ describe("App workspace entry", () => {
             unreadCount: 2,
             lastMessagePreview: "Review ready",
             terminalMemberId: null,
+            workspacePath: "/tmp/orchlet-demo",
+            conversationType: "group",
+            memberCount: null,
+            senderId: null,
+            senderName: null,
+            senderAvatar: null,
+            senderCanOpenTerminal: false,
             updatedAtMs: projectRoom.updatedAtMs,
           },
         ],
         sourceWindowLabel: "main",
+        avatarPng: null,
       }),
     );
   });
@@ -2610,6 +4141,7 @@ describe("App workspace entry", () => {
         workspaceName: "orchlet-demo",
         conversations: [],
         sourceWindowLabel: "main",
+        avatarPng: null,
       }),
     );
     expect(screen.getByLabelText("工作区未读总数")).toHaveTextContent("未读 0");
@@ -2660,6 +4192,8 @@ describe("App workspace entry", () => {
           dispatchNavigation: (request) =>
             Promise.resolve({ action: notificationNavigationAction(request) }),
           ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
+          setPreviewHovered: () => Promise.resolve(),
+          hidePreview: () => Promise.resolve(),
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={() => Promise.resolve()}
@@ -2700,6 +4234,7 @@ describe("App workspace entry", () => {
     const dispatchNavigation = vi.fn((request: NotificationNavigationRequest) =>
       Promise.resolve({ action: notificationNavigationAction(request) }),
     );
+    const hidePreview = vi.fn(() => Promise.resolve());
     const onOpenWindowMode = vi.fn(() => Promise.resolve());
 
     render(
@@ -2710,6 +4245,8 @@ describe("App workspace entry", () => {
           subscribeUnreadSummary: () => Promise.resolve(() => undefined),
           dispatchNavigation,
           ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
+          setPreviewHovered: () => Promise.resolve(),
+          hidePreview,
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={onOpenWindowMode}
@@ -2721,6 +4258,7 @@ describe("App workspace entry", () => {
     await user.keyboard("{Enter}");
 
     expect(onOpenWindowMode).toHaveBeenCalledWith("main");
+    expect(hidePreview).toHaveBeenCalledTimes(1);
     expect(dispatchNavigation).toHaveBeenCalledWith({
       kind: "allUnread",
       workspaceId: "01K00000000000000000000000",
@@ -2728,6 +4266,57 @@ describe("App workspace entry", () => {
       memberId: null,
       sourceWindowLabel: "notification-preview",
     });
+    expect(hidePreview.mock.invocationCallOrder[0]).toBeLessThan(
+      dispatchNavigation.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("reports notification preview hover state to native lifecycle APIs", async () => {
+    const user = userEvent.setup();
+    const setPreviewHovered = vi.fn(() => Promise.resolve());
+    const summary = notificationSummary({
+      overrides: {
+        workspaceId: "01K00000000000000000000000",
+        workspaceName: "orchlet-demo",
+        conversations: [
+          {
+            conversationId: "01K00000000000000000000080",
+            title: "Project Room",
+            unreadCount: 1,
+            lastMessagePreview: "Review ready",
+            updatedAtMs: 1760000003000,
+          },
+        ],
+      },
+    });
+
+    render(
+      <NotificationPreviewPage
+        snapshot={notificationPreviewSnapshot()}
+        api={{
+          getUnreadSummary: () => Promise.resolve({ summary }),
+          subscribeUnreadSummary: () => Promise.resolve(() => undefined),
+          dispatchNavigation: (request) =>
+            Promise.resolve({ action: notificationNavigationAction(request) }),
+          ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
+          setPreviewHovered,
+          hidePreview: () => Promise.resolve(),
+        }}
+        onPreferencesChange={() => Promise.resolve()}
+        onOpenWindowMode={() => Promise.resolve()}
+      />,
+    );
+
+    const previewCard = (await screen.findByRole("heading", { name: "未读状态" })).closest(
+      ".notification-preview-card",
+    );
+    expect(previewCard).not.toBeNull();
+
+    await user.hover(previewCard as Element);
+    await user.unhover(previewCard as Element);
+
+    expect(setPreviewHovered).toHaveBeenNthCalledWith(1, true);
+    expect(setPreviewHovered).toHaveBeenNthCalledWith(2, false);
   });
 
   it("dispatches conversation navigation from a notification preview row", async () => {
@@ -2759,6 +4348,8 @@ describe("App workspace entry", () => {
           subscribeUnreadSummary: () => Promise.resolve(() => undefined),
           dispatchNavigation,
           ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
+          setPreviewHovered: () => Promise.resolve(),
+          hidePreview: () => Promise.resolve(),
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={() => Promise.resolve()}
@@ -2805,6 +4396,8 @@ describe("App workspace entry", () => {
           dispatchNavigation: (request) =>
             Promise.resolve({ action: notificationNavigationAction(request) }),
           ignoreAllUnread: () => Promise.resolve({ summary: notificationSummary(), ignoredCount: 0 }),
+          setPreviewHovered: () => Promise.resolve(),
+          hidePreview: () => Promise.resolve(),
         }}
         terminalApi={{ openTerminal }}
         onPreferencesChange={() => Promise.resolve()}
@@ -2862,6 +4455,8 @@ describe("App workspace entry", () => {
           dispatchNavigation: (request) =>
             Promise.resolve({ action: notificationNavigationAction(request) }),
           ignoreAllUnread,
+          setPreviewHovered: () => Promise.resolve(),
+          hidePreview: () => Promise.resolve(),
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={() => Promise.resolve()}
@@ -2908,6 +4503,8 @@ describe("App workspace entry", () => {
           dispatchNavigation: (request) =>
             Promise.resolve({ action: notificationNavigationAction(request) }),
           ignoreAllUnread: () => Promise.reject(new Error("无法忽略全部未读通知。")),
+          setPreviewHovered: () => Promise.resolve(),
+          hidePreview: () => Promise.resolve(),
         }}
         onPreferencesChange={() => Promise.resolve()}
         onOpenWindowMode={() => Promise.resolve()}
@@ -3183,6 +4780,333 @@ describe("App workspace entry", () => {
     await waitFor(() =>
       expect(stream.querySelector("pre")?.textContent).toBe("first\nsecond\n"),
     );
+  });
+
+  it("shows only final terminal output in chat when final-only preference is active", async () => {
+    const user = userEvent.setup();
+    let outputHandler: ((event: TerminalOutputEventPayload) => void) | null = null;
+    let statusHandler: ((event: TerminalStatusEventPayload) => void) | null = null;
+    const subscribeOutput = vi.fn(async (handler: (event: TerminalOutputEventPayload) => void) => {
+      outputHandler = handler;
+      return vi.fn();
+    });
+    const subscribeStatus = vi.fn(async (handler: (event: TerminalStatusEventPayload) => void) => {
+      statusHandler = handler;
+      return vi.fn();
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      terminalApi: {
+        subscribeOutput,
+        subscribeStatus,
+      },
+      settingsApi: {
+        getChatTerminalOutputPreferences: () =>
+          Promise.resolve({
+            preferences: chatTerminalOutputPreferencesSnapshot({ displayMode: "finalOnly" }),
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeOutput).toHaveBeenCalled());
+    await waitFor(() => expect(subscribeStatus).toHaveBeenCalled());
+
+    act(() => {
+      outputHandler?.(
+        terminalOutputEvent({
+          terminalSessionId: "01KTERMINAL00000000000025",
+          seq: 1,
+          chunk: "live hidden\n",
+          emittedAtMs: 1760000010000,
+        }),
+      );
+    });
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    });
+    expect(within(messageLog).queryByText("live hidden")).not.toBeInTheDocument();
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          terminalSessionId: "01KTERMINAL00000000000025",
+          status: "exited",
+          snapshot: {
+            lastSeq: 1,
+            text: "final result\n",
+            truncated: false,
+            updatedAtMs: 1760000010200,
+          },
+          emittedAtMs: 1760000010300,
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(within(messageLog).getByLabelText("终端输出流")).toHaveTextContent(
+        "final result",
+      ),
+    );
+  });
+
+  it("keeps newer final-only terminal output when a stale exit snapshot arrives", async () => {
+    const user = userEvent.setup();
+    let statusHandler: ((event: TerminalStatusEventPayload) => void) | null = null;
+    const subscribeStatus = vi.fn(async (handler: (event: TerminalStatusEventPayload) => void) => {
+      statusHandler = handler;
+      return vi.fn();
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      terminalApi: {
+        subscribeStatus,
+      },
+      settingsApi: {
+        getChatTerminalOutputPreferences: () =>
+          Promise.resolve({
+            preferences: chatTerminalOutputPreferencesSnapshot({ displayMode: "finalOnly" }),
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeStatus).toHaveBeenCalled());
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          terminalSessionId: "01KTERMINAL00000000000031",
+          status: "exited",
+          snapshot: {
+            lastSeq: 2,
+            text: "newer final result\n",
+            truncated: false,
+            updatedAtMs: 1760000013100,
+          },
+          emittedAtMs: 1760000013200,
+        }),
+      );
+    });
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    await waitFor(() =>
+      expect(within(messageLog).getByLabelText("终端输出流")).toHaveTextContent(
+        "newer final result",
+      ),
+    );
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          terminalSessionId: "01KTERMINAL00000000000031",
+          status: "exited",
+          snapshot: {
+            lastSeq: 1,
+            text: "stale final result\n",
+            truncated: false,
+            updatedAtMs: 1760000013000,
+          },
+          emittedAtMs: 1760000013300,
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      const streamText =
+        within(messageLog).getByLabelText("终端输出流").querySelector("pre")?.textContent ?? "";
+
+      expect(streamText).toBe("newer final result\n");
+      expect(streamText).not.toContain("stale final result");
+    });
+  });
+
+  it("uses bounded final-only buffered output when the exit snapshot is empty", async () => {
+    const user = userEvent.setup();
+    let outputHandler: ((event: TerminalOutputEventPayload) => void) | null = null;
+    let statusHandler: ((event: TerminalStatusEventPayload) => void) | null = null;
+    const subscribeOutput = vi.fn(async (handler: (event: TerminalOutputEventPayload) => void) => {
+      outputHandler = handler;
+      return vi.fn();
+    });
+    const subscribeStatus = vi.fn(async (handler: (event: TerminalStatusEventPayload) => void) => {
+      statusHandler = handler;
+      return vi.fn();
+    });
+    const terminalSessionId = "01KTERMINAL00000000000032";
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      terminalApi: {
+        subscribeOutput,
+        subscribeStatus,
+      },
+      settingsApi: {
+        getChatTerminalOutputPreferences: () =>
+          Promise.resolve({
+            preferences: chatTerminalOutputPreferencesSnapshot({ displayMode: "finalOnly" }),
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeOutput).toHaveBeenCalled());
+    await waitFor(() => expect(subscribeStatus).toHaveBeenCalled());
+
+    act(() => {
+      for (let seq = 1; seq <= 1050; seq += 1) {
+        outputHandler?.(
+          terminalOutputEvent({
+            terminalSessionId,
+            seq,
+            chunk:
+              seq === 1
+                ? `old-prefix${"x".repeat(4100)}`
+                : seq === 1050
+                  ? "fresh-tail"
+                  : `line-${seq}\n`,
+            emittedAtMs: 1760000014000 + seq,
+          }),
+        );
+      }
+    });
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    });
+    expect(within(messageLog).queryByText("fresh-tail")).not.toBeInTheDocument();
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          terminalSessionId,
+          status: "exited",
+          snapshot: {
+            lastSeq: 0,
+            text: "",
+            truncated: false,
+            updatedAtMs: null,
+          },
+          emittedAtMs: 1760000015200,
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      const streamText =
+        within(messageLog).getByLabelText("终端输出流").querySelector("pre")?.textContent ?? "";
+
+      expect(streamText).toContain("fresh-tail");
+      expect(streamText).not.toContain("old-prefix");
+      expect(streamText.length).toBeLessThanOrEqual(4000);
+    });
+  });
+
+  it("keeps existing conversation messages unchanged while new output follows final-only mode", async () => {
+    const user = userEvent.setup();
+    let outputHandler: ((event: TerminalOutputEventPayload) => void) | null = null;
+    let statusHandler: ((event: TerminalStatusEventPayload) => void) | null = null;
+    const subscribeOutput = vi.fn(async (handler: (event: TerminalOutputEventPayload) => void) => {
+      outputHandler = handler;
+      return vi.fn();
+    });
+    const subscribeStatus = vi.fn(async (handler: (event: TerminalStatusEventPayload) => void) => {
+      statusHandler = handler;
+      return vi.fn();
+    });
+    const existingMessage = chatMessage({
+      messageId: "01K00000000000000000000177",
+      body: "Existing streamed transcript stays untouched",
+      createdAtMs: 1760000007000,
+      updatedAtMs: 1760000007000,
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      terminalApi: {
+        subscribeOutput,
+        subscribeStatus,
+      },
+      settingsApi: {
+        getChatTerminalOutputPreferences: () =>
+          Promise.resolve({
+            preferences: chatTerminalOutputPreferencesSnapshot({ displayMode: "finalOnly" }),
+          }),
+      },
+      chatApi: {
+        listMessages: () =>
+          Promise.resolve({
+            messages: [existingMessage],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation: defaultChannel(),
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await waitFor(() => expect(subscribeOutput).toHaveBeenCalled());
+    await waitFor(() => expect(subscribeStatus).toHaveBeenCalled());
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    const messageLog = await within(conversationPanel).findByRole("log", { name: "消息历史" });
+    expect(await within(messageLog).findByText("Existing streamed transcript stays untouched"))
+      .toBeInTheDocument();
+
+    act(() => {
+      outputHandler?.(
+        terminalOutputEvent({
+          terminalSessionId: "01KTERMINAL00000000000028",
+          seq: 1,
+          chunk: "new live chunk stays hidden\n",
+          emittedAtMs: 1760000012000,
+        }),
+      );
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+    });
+    expect(within(messageLog).queryByText("new live chunk stays hidden")).not.toBeInTheDocument();
+    expect(within(messageLog).getByText("Existing streamed transcript stays untouched"))
+      .toBeInTheDocument();
+
+    act(() => {
+      statusHandler?.(
+        terminalStatusEvent({
+          terminalSessionId: "01KTERMINAL00000000000028",
+          status: "exited",
+          snapshot: {
+            lastSeq: 1,
+            text: "new final transcript\n",
+            truncated: false,
+            updatedAtMs: 1760000012200,
+          },
+          emittedAtMs: 1760000012300,
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(within(messageLog).getByLabelText("终端输出流")).toHaveTextContent(
+        "new final transcript",
+      ),
+    );
+    expect(within(messageLog).getByText("Existing streamed transcript stays untouched"))
+      .toBeInTheDocument();
   });
 
   it("shows terminal runtime status on members without overwriting manual status", async () => {
@@ -4354,8 +6278,8 @@ describe("App workspace entry", () => {
         canRemove: true,
       },
       isolation: {
-        sandboxed: true,
-        unlimitedAccess: false,
+        sandboxed: false,
+        unlimitedAccess: true,
       },
     });
     const secondInvitedAssistant = memberProfile({
@@ -4409,8 +6333,8 @@ describe("App workspace entry", () => {
         canRemove: true,
       },
       isolation: {
-        sandboxed: true,
-        unlimitedAccess: false,
+        sandboxed: false,
+        unlimitedAccess: true,
       },
     });
     expect(await within(membersPanel).findByText("Codex Reviewer 1")).toBeInTheDocument();
@@ -4418,6 +6342,97 @@ describe("App workspace entry", () => {
     expect(within(membersPanel).getAllByText("Assistant · 离线 · Gemini CLI")).toHaveLength(2);
     expect(within(membersPanel).getAllByText((content) => content.includes("@可用"))).toHaveLength(2);
     expect(await screen.findByRole("status")).toHaveTextContent("终端不会自动启动");
+  });
+
+  it("saves invited assistant runtime from configured custom CLI entries", async () => {
+    const user = userEvent.setup();
+    const owner = memberProfile();
+    const invitedAssistant = memberProfile({
+      memberId: "01KMEMBER000000000000000021",
+      role: "assistant",
+      displayName: "Local Reviewer Bot",
+      instanceIndex: 1,
+      instanceLabel: "Local Reviewer Bot",
+      status: "offline",
+      runtime: {
+        kind: "customCli",
+        runtimeId: "local-reviewer",
+        label: "Local Reviewer",
+        command: "reviewer --stdio",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+      isolation: {
+        sandboxed: false,
+        unlimitedAccess: true,
+      },
+    });
+    const listMembers = vi
+      .fn()
+      .mockResolvedValueOnce({ members: [owner] })
+      .mockResolvedValueOnce({ members: [owner, invitedAssistant] });
+    const inviteMember = vi.fn(() =>
+      Promise.resolve({
+        member: invitedAssistant,
+        invitedMembers: [invitedAssistant],
+        members: [owner, invitedAssistant],
+      }),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: { listMembers, inviteMember },
+      settingsApi: {
+        getTerminalConfiguration: () =>
+          Promise.resolve({
+            configuration: terminalConfigurationSnapshot({
+              customCliEntries: [
+                {
+                  cliId: "local-reviewer",
+                  label: "Local Reviewer",
+                  command: "reviewer --stdio",
+                },
+              ],
+            }),
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const membersPanel = await screen.findByRole("region", { name: "Owner 与邀请成员" });
+    await user.type(within(membersPanel).getByLabelText("显示名称"), "Local Reviewer Bot");
+    await user.selectOptions(within(membersPanel).getByLabelText("Runtime"), "customCli");
+    await user.selectOptions(await within(membersPanel).findByLabelText("自定义 CLI"), "local-reviewer");
+    expect(await within(membersPanel).findByText("命令：reviewer --stdio")).toBeInTheDocument();
+
+    await user.click(within(membersPanel).getByRole("button", { name: "发送邀请" }));
+
+    expect(inviteMember).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      memberType: "assistant",
+      displayName: "Local Reviewer Bot",
+      runtime: {
+        kind: "customCli",
+        runtimeId: "local-reviewer",
+        label: "Local Reviewer",
+        command: "reviewer --stdio",
+      },
+      instanceCount: 1,
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+      isolation: {
+        sandboxed: false,
+        unlimitedAccess: true,
+      },
+    });
+    expect(await within(membersPanel).findByText("Local Reviewer Bot")).toBeInTheDocument();
+    expect(within(membersPanel).getByText("Assistant · 离线 · Local Reviewer")).toBeInTheDocument();
   });
 
   it("shows member action menu and removes members according to permissions", async () => {
@@ -4790,6 +6805,109 @@ describe("App workspace entry", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("数据验证发现问题");
   });
 
+  it("loads diagnostics overview and generates a batched redacted export", async () => {
+    const user = userEvent.setup();
+    const getOverview = vi.fn(() => Promise.resolve(diagnosticsOverviewResult()));
+    const generateExport = vi.fn((request: DiagnosticsExportRequest) =>
+      Promise.resolve(
+        diagnosticsExportResult({
+          hasMore: request.cursor === null,
+          nextCursor: request.cursor === null ? "25" : null,
+        }),
+      ),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      diagnosticsApi: {
+        getOverview,
+        generateExport,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    expect(await screen.findByRole("heading", { name: "诊断信息" })).toBeInTheDocument();
+    expect(getOverview).toHaveBeenCalledWith({
+      workspaceId: "01K00000000000000000000000",
+      cursor: null,
+      limit: 25,
+    });
+    expect(await screen.findByText("terminal.snapshot.stale")).toBeInTheDocument();
+    expect(screen.getByText("终端 1 · 聊天 0")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "生成导出" }));
+
+    expect(generateExport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceId: "01K00000000000000000000000",
+        cursor: null,
+        maxEvents: 25,
+      }),
+    );
+    expect(await screen.findByLabelText("诊断导出结果")).toHaveTextContent("导出包 v1");
+    expect(screen.getByText(/本机私有路径已脱敏/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "下一批" }));
+    expect(generateExport).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "25" }));
+
+    await user.click(screen.getByRole("button", { name: "停止导出" }));
+    expect(screen.queryByLabelText("诊断导出结果")).not.toBeInTheDocument();
+  });
+
+  it("ignores a diagnostics export batch that resolves after the user stops export", async () => {
+    const user = userEvent.setup();
+    let resolveNextBatch: ((result: DiagnosticsExportResult) => void) | null = null;
+    const getOverview = vi.fn(() => Promise.resolve(diagnosticsOverviewResult()));
+    const generateExport = vi.fn((request: DiagnosticsExportRequest) => {
+      if (request.cursor === "25") {
+        return new Promise<DiagnosticsExportResult>((resolve) => {
+          resolveNextBatch = resolve;
+        });
+      }
+
+      return Promise.resolve(
+        diagnosticsExportResult({
+          hasMore: true,
+          nextCursor: "25",
+        }),
+      );
+    });
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      diagnosticsApi: {
+        getOverview,
+        generateExport,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+    await screen.findByRole("heading", { name: "诊断信息" });
+
+    await user.click(screen.getByRole("button", { name: "生成导出" }));
+    expect(await screen.findByLabelText("诊断导出结果")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "下一批" }));
+    expect(generateExport).toHaveBeenLastCalledWith(expect.objectContaining({ cursor: "25" }));
+
+    await user.click(screen.getByRole("button", { name: "停止导出" }));
+    expect(screen.queryByLabelText("诊断导出结果")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveNextBatch?.(
+        diagnosticsExportResult({
+          hasMore: false,
+          nextCursor: null,
+        }),
+      );
+    });
+
+    expect(screen.queryByLabelText("诊断导出结果")).not.toBeInTheDocument();
+  });
+
   it("opens the current workspace in the system file manager", async () => {
     const user = userEvent.setup();
     const openWorkspaceInFileManager = vi.fn(() =>
@@ -4854,7 +6972,7 @@ describe("App workspace entry", () => {
 
     renderWorkspaceSelection({
       getWorkspaceSelectionStatus: () =>
-        Promise.resolve({ ...status, recentWorkspaceCount: 2 }),
+        Promise.resolve({ ...status, recentWorkspaceCount: 4 }),
       listRecentWorkspaces: () =>
         Promise.resolve([
           {
@@ -4871,6 +6989,20 @@ describe("App workspace entry", () => {
             firstOpenedAtMs: 1760000000000,
             lastOpenedAtMs: 1760000001000,
           },
+          {
+            projectId: "01K00000000000000000000003",
+            path: "/work/beta",
+            name: "beta",
+            firstOpenedAtMs: 1760000000000,
+            lastOpenedAtMs: 1760000000500,
+          },
+          {
+            projectId: "01K00000000000000000000004",
+            path: "/work/gamma",
+            name: "gamma",
+            firstOpenedAtMs: 1760000000000,
+            lastOpenedAtMs: 1760000000200,
+          },
         ]),
       pickAndOpenWorkspace: () => Promise.resolve(null),
       openWorkspace,
@@ -4878,15 +7010,15 @@ describe("App workspace entry", () => {
 
     expect(await screen.findByText("newer")).toBeInTheDocument();
     expect(screen.getByText("alpha")).toBeInTheDocument();
+    expect(screen.getByText("beta")).toBeInTheDocument();
 
-    await user.type(screen.getByPlaceholderText("搜索文件夹..."), "alpha");
+    await user.type(screen.getByPlaceholderText("搜索文件夹..."), "gamma");
 
-    expect(screen.queryByText("newer")).not.toBeInTheDocument();
-    expect(screen.getByText("alpha")).toBeInTheDocument();
+    expect(screen.getByText("gamma")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "打开 alpha" }));
+    await user.click(screen.getByRole("button", { name: "打开 gamma" }));
 
-    expect(openWorkspace).toHaveBeenCalledWith("/work/alpha");
+    expect(openWorkspace).toHaveBeenCalledWith("/work/gamma");
   });
 
   it("shows conflict modal and retries with move resolution", async () => {

@@ -1,0 +1,923 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "path": "docs/rebuild/parity-checklist.md",
+    "reference": "Story 8.4 capability status registry"
+  },
+  "entries": [
+    {
+      "id": "workspace-open-local-directory",
+      "domain": "workspace",
+      "title": "可打开任意本地目录作为工作区",
+      "status": "implemented",
+      "reason": "工作区打开流程已写入新版 `.orchlet` 元数据并返回活动工作区。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.2", "path": "_bmad-output/implementation-artifacts/1-2-open-directory-create-workspace-metadata.md" },
+        { "kind": "test", "reference": "Workspace open contract fixtures", "path": "fixtures/contracts/workspace/workspace-open.result.json" }
+      ]
+    },
+    {
+      "id": "workspace-golutra-metadata-path",
+      "domain": "workspace",
+      "title": "首次打开写入 `.golutra/workspace.json`",
+      "status": "alternative",
+      "reason": "MVP 使用 `.orchlet/workspace.json` 作为新版元数据路径；旧 `.golutra` 路径只作为参考能力。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.2", "path": "_bmad-output/implementation-artifacts/1-2-open-directory-create-workspace-metadata.md" },
+        { "kind": "fixture", "reference": ".orchlet workspace schema fixture", "path": "fixtures/schema/valid-workspace/.orchlet/workspace.json" }
+      ]
+    },
+    {
+      "id": "workspace-readonly-fallback",
+      "domain": "workspace",
+      "title": "不可写目录进入只读模式",
+      "status": "implemented",
+      "reason": "只读 fallback 和 app-data fallback 记录已实现并有数据完整性 fixture。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.4", "path": "_bmad-output/implementation-artifacts/1-4-read-only-workspace-fallback-file-manager.md" },
+        { "kind": "fixture", "reference": "workspace fallback fixture", "path": "fixtures/data-integrity/valid-json-stores/app-data/workspace-fallbacks.json" }
+      ]
+    },
+    {
+      "id": "workspace-registry-conflict",
+      "domain": "workspace",
+      "title": "路径移动/复制冲突提示",
+      "status": "implemented",
+      "reason": "最近工作区 registry 冲突检测和用户决议流已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.3", "path": "_bmad-output/implementation-artifacts/1-3-manage-recent-workspaces-registry-conflicts.md" }
+      ]
+    },
+    {
+      "id": "workspace-recent-list-search",
+      "domain": "workspace",
+      "title": "最近工作区列表和搜索",
+      "status": "implemented",
+      "reason": "工作区选择页读取最近记录并在前端支持搜索过滤。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.3", "path": "_bmad-output/implementation-artifacts/1-3-manage-recent-workspaces-registry-conflicts.md" },
+        { "kind": "fixture", "reference": "workspace registry fixture", "path": "fixtures/data-integrity/valid-json-stores/app-data/workspace-registry.json" }
+      ]
+    },
+    {
+      "id": "workspace-window-dedupe",
+      "domain": "workspace",
+      "title": "同 workspace 多窗口去重",
+      "status": "implemented",
+      "reason": "窗口上下文同步和已打开工作区聚焦逻辑已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.5", "path": "_bmad-output/implementation-artifacts/1-5-multi-window-context-sync.md" }
+      ]
+    },
+    {
+      "id": "workspace-selection-window",
+      "domain": "workspace",
+      "title": "独立工作区选择窗口",
+      "status": "implemented",
+      "reason": "窗口模式上下文区分 workspace selection、main、terminal 和 notification preview。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.5", "path": "_bmad-output/implementation-artifacts/1-5-multi-window-context-sync.md" }
+      ]
+    },
+    {
+      "id": "workspace-file-manager-open",
+      "domain": "workspace",
+      "title": "文件管理器打开工作区",
+      "status": "implemented",
+      "reason": "系统文件管理器打开路径通过窄 opener 权限实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.4", "path": "_bmad-output/implementation-artifacts/1-4-read-only-workspace-fallback-file-manager.md" },
+        { "kind": "doc", "reference": "Tauri capability file", "path": "src-tauri/capabilities/default.json" }
+      ]
+    },
+    {
+      "id": "chat-default-channel-name",
+      "domain": "chat",
+      "title": "默认频道随 workspace 名称显示",
+      "status": "implemented",
+      "reason": "默认频道和群聊入口随工作区上下文建立。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.4", "path": "_bmad-output/implementation-artifacts/2-4-default-channel-group-chat-conversation-list.md" }
+      ]
+    },
+    {
+      "id": "chat-conversation-sort-pin",
+      "domain": "chat",
+      "title": "会话列表 pinned/timeline 排序",
+      "status": "implemented",
+      "reason": "会话设置支持 pin/mute/rename，并按会话活动和置顶状态显示。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.6", "path": "_bmad-output/implementation-artifacts/2-6-conversation-management-actions.md" }
+      ]
+    },
+    {
+      "id": "chat-private-ensure-direct",
+      "domain": "chat",
+      "title": "私聊 ensure direct",
+      "status": "implemented",
+      "reason": "联系人和成员私聊入口会创建或复用私聊会话。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.3", "path": "_bmad-output/implementation-artifacts/2-3-global-contacts-private-chat-entry.md" }
+      ]
+    },
+    {
+      "id": "chat-group-create-members",
+      "domain": "chat",
+      "title": "群聊创建与成员更新",
+      "status": "implemented",
+      "reason": "群聊创建和成员更新由聊天会话契约覆盖。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.4", "path": "_bmad-output/implementation-artifacts/2-4-default-channel-group-chat-conversation-list.md" },
+        { "kind": "story", "reference": "Story 2.6", "path": "_bmad-output/implementation-artifacts/2-6-conversation-management-actions.md" }
+      ]
+    },
+    {
+      "id": "chat-message-send-history-status",
+      "domain": "chat",
+      "title": "消息发送、分页、状态",
+      "status": "implemented",
+      "reason": "消息发送、历史分页、读取位置和状态更新已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.5", "path": "_bmad-output/implementation-artifacts/2-5-message-send-history-pagination-read-position.md" }
+      ]
+    },
+    {
+      "id": "chat-conversation-actions",
+      "domain": "chat",
+      "title": "会话 pin/mute/rename/clear/delete",
+      "status": "implemented",
+      "reason": "会话管理动作已实现并通过聊天 contract fixture 覆盖。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.6", "path": "_bmad-output/implementation-artifacts/2-6-conversation-management-actions.md" }
+      ]
+    },
+    {
+      "id": "chat-unread-read-position",
+      "domain": "chat",
+      "title": "未读同步和标记已读",
+      "status": "implemented",
+      "reason": "聊天读取位置与通知未读汇总联动。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.5", "path": "_bmad-output/implementation-artifacts/2-5-message-send-history-pagination-read-position.md" },
+        { "kind": "story", "reference": "Story 5.1", "path": "_bmad-output/implementation-artifacts/5-1-aggregate-window-workspace-unread-status.md" }
+      ]
+    },
+    {
+      "id": "chat-emoji-recent",
+      "domain": "chat",
+      "title": "emoji 搜索与最近使用",
+      "status": "implemented",
+      "reason": "Emoji 搜索、最近使用和快捷提示在聊天输入中可用。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.7", "path": "_bmad-output/implementation-artifacts/2-7-mentions-emoji-attachments-quick-prompts.md" }
+      ]
+    },
+    {
+      "id": "chat-mention-member",
+      "domain": "chat",
+      "title": "mention member",
+      "status": "implemented",
+      "reason": "成员提及插入和派发目标解析已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.7", "path": "_bmad-output/implementation-artifacts/2-7-mentions-emoji-attachments-quick-prompts.md" },
+        { "kind": "story", "reference": "Story 4.2", "path": "_bmad-output/implementation-artifacts/4-2-dispatch-target-resolution-context-selection.md" }
+      ]
+    },
+    {
+      "id": "chat-at-all",
+      "domain": "chat",
+      "title": "`@all` 行为明确实现或明确放弃",
+      "status": "abandoned",
+      "reason": "旧版 `@all` 只是 TODO，不作为当前 MVP 承诺。",
+      "decisionReason": "并发派发策略留给增长阶段重新设计，MVP 不伪装为已实现。",
+      "userFacingState": "当前版本不会把 `@all` 当作批量派发命令。",
+      "evidence": [
+        { "kind": "requirement", "reference": "PRD growth-stage note", "path": "_bmad-output/planning-artifacts/prd.md" },
+        { "kind": "doc", "reference": "Parity checklist item", "path": "docs/rebuild/parity-checklist.md" }
+      ]
+    },
+    {
+      "id": "chat-image-roadmap-attachments",
+      "domain": "chat",
+      "title": "图片/roadmap 附件展示",
+      "status": "implemented",
+      "reason": "聊天输入支持图片占位附件和路线图任务引用。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.7", "path": "_bmad-output/implementation-artifacts/2-7-mentions-emoji-attachments-quick-prompts.md" },
+        { "kind": "story", "reference": "Story 6.4", "path": "_bmad-output/implementation-artifacts/6-4-roadmap-task-crud.md" }
+      ]
+    },
+    {
+      "id": "chat-terminal-output-stream",
+      "domain": "chat",
+      "title": "终端输出流式回写聊天",
+      "status": "implemented",
+      "reason": "终端输出可按流式或 final-only 偏好回写聊天。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 4.5", "path": "_bmad-output/implementation-artifacts/4-5-terminal-output-chat-stream-status-sync.md" },
+        { "kind": "story", "reference": "Story 7.7", "path": "_bmad-output/implementation-artifacts/7-7-chat-terminal-output-display-preferences.md" }
+      ]
+    },
+    {
+      "id": "members-default-owner",
+      "domain": "members",
+      "title": "默认 owner 自动补齐",
+      "status": "implemented",
+      "reason": "工作区打开后默认 owner 成员补齐。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.1", "path": "_bmad-output/implementation-artifacts/2-1-default-owner-member-invitation.md" }
+      ]
+    },
+    {
+      "id": "members-assistant-member-invite",
+      "domain": "members",
+      "title": "assistant/member 邀请创建项目成员",
+      "status": "implemented",
+      "reason": "成员邀请契约支持 assistant/member 类型和项目成员创建。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.2", "path": "_bmad-output/implementation-artifacts/2-2-multi-instance-invite-permissions-member-actions.md" }
+      ]
+    },
+    {
+      "id": "members-admin-global-contact",
+      "domain": "members",
+      "title": "管理员邀请创建全局联系人",
+      "status": "implemented",
+      "reason": "全局联系人管理和私聊入口已实现，管理员邀请等价沉淀为联系人资料。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.3", "path": "_bmad-output/implementation-artifacts/2-3-global-contacts-private-chat-entry.md" }
+      ]
+    },
+    {
+      "id": "members-instances-permissions",
+      "domain": "members",
+      "title": "实例数量、unlimitedAccess、sandboxed 标记",
+      "status": "implemented",
+      "reason": "邀请流程支持实例数和权限标记。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.2", "path": "_bmad-output/implementation-artifacts/2-2-multi-instance-invite-permissions-member-actions.md" }
+      ]
+    },
+    {
+      "id": "members-runtime-status",
+      "domain": "members",
+      "title": "成员状态 online/working/dnd/offline",
+      "status": "implemented",
+      "reason": "成员状态与 DND/working 队列派发状态联动。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 4.3", "path": "_bmad-output/implementation-artifacts/4-3-dnd-busy-queue-visible-status.md" }
+      ]
+    },
+    {
+      "id": "members-actions-mention-dm-terminal",
+      "domain": "members",
+      "title": "成员改名、提及、私信、打开终端",
+      "status": "implemented",
+      "reason": "成员动作菜单覆盖改名、提及、私聊和终端入口。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.2", "path": "_bmad-output/implementation-artifacts/2-2-multi-instance-invite-permissions-member-actions.md" },
+        { "kind": "story", "reference": "Story 2.7", "path": "_bmad-output/implementation-artifacts/2-7-mentions-emoji-attachments-quick-prompts.md" },
+        { "kind": "story", "reference": "Story 3.1", "path": "_bmad-output/implementation-artifacts/3-1-open-or-reuse-workspace-terminal-window.md" }
+      ]
+    },
+    {
+      "id": "members-contact-management",
+      "domain": "members",
+      "title": "好友页联系人管理",
+      "status": "implemented",
+      "reason": "全局联系人列表、创建、编辑、删除和私聊入口已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.3", "path": "_bmad-output/implementation-artifacts/2-3-global-contacts-private-chat-entry.md" }
+      ]
+    },
+    {
+      "id": "terminal-window-reuse",
+      "domain": "terminal",
+      "title": "独立终端窗口按 workspace 复用",
+      "status": "implemented",
+      "reason": "终端窗口打开/复用按 workspace/member 上下文处理。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.1", "path": "_bmad-output/implementation-artifacts/3-1-open-or-reuse-workspace-terminal-window.md" }
+      ]
+    },
+    {
+      "id": "terminal-tabs-create-close-restore",
+      "domain": "terminal",
+      "title": "新建/关闭/恢复 tab",
+      "status": "implemented",
+      "reason": "Terminal tab 创建、关闭、恢复和持久排序已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.3", "path": "_bmad-output/implementation-artifacts/3-3-terminal-tabs-create-restore-search-sort.md" }
+      ]
+    },
+    {
+      "id": "terminal-tabs-search-move-pin",
+      "domain": "terminal",
+      "title": "tab 搜索、拖拽、pin",
+      "status": "alternative",
+      "reason": "MVP 已实现搜索、pin 和显式移动/排序；完整拖拽交互不是当前实现路径。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.3", "path": "_bmad-output/implementation-artifacts/3-3-terminal-tabs-create-restore-search-sort.md" }
+      ]
+    },
+    {
+      "id": "terminal-pane-layouts",
+      "domain": "terminal",
+      "title": "单 pane、左右、上下、2x2",
+      "status": "implemented",
+      "reason": "终端 pane 布局和 tab 分配已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.4", "path": "_bmad-output/implementation-artifacts/3-4-terminal-pane-layouts-tab-assignment.md" }
+      ]
+    },
+    {
+      "id": "terminal-xterm-fit-search",
+      "domain": "terminal",
+      "title": "xterm canvas/webgl/fit/search",
+      "status": "alternative",
+      "reason": "MVP 使用 xterm renderer、fit/resize 和查找控件；WebGL 渲染不是当前承诺。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.2", "path": "_bmad-output/implementation-artifacts/3-2-terminal-session-lifecycle-ipc.md" },
+        { "kind": "story", "reference": "Story 3.5", "path": "_bmad-output/implementation-artifacts/3-5-terminal-text-operations-find-options.md" }
+      ]
+    },
+    {
+      "id": "terminal-context-menu-clear-find",
+      "domain": "terminal",
+      "title": "终端上下文菜单 clear/find",
+      "status": "implemented",
+      "reason": "终端文本操作和 find/clear 入口已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.5", "path": "_bmad-output/implementation-artifacts/3-5-terminal-text-operations-find-options.md" }
+      ]
+    },
+    {
+      "id": "terminal-lifecycle-commands",
+      "domain": "terminal",
+      "title": "create/attach/write/resize/close commands",
+      "status": "implemented",
+      "reason": "终端生命周期 IPC 和 typed facade 已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.2", "path": "_bmad-output/implementation-artifacts/3-2-terminal-session-lifecycle-ipc.md" },
+        { "kind": "fixture", "reference": "terminal contract fixtures", "path": "fixtures/contracts/terminal/terminal-open.result.json" }
+      ]
+    },
+    {
+      "id": "terminal-output-ack-flow-control",
+      "domain": "terminal",
+      "title": "output seq 与 ACK 流控",
+      "status": "implemented",
+      "reason": "终端输出事件包含 seq，前端批处理和 ACK/流控边界已覆盖。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.2", "path": "_bmad-output/implementation-artifacts/3-2-terminal-session-lifecycle-ipc.md" },
+        { "kind": "fixture", "reference": "terminal stream fixtures", "path": "fixtures/terminal-streams/ordered-output.json" }
+      ]
+    },
+    {
+      "id": "terminal-snapshot-lines-text",
+      "domain": "terminal",
+      "title": "snapshot lines/text",
+      "status": "implemented",
+      "reason": "终端 snapshot 和诊断一致性检查已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.6", "path": "_bmad-output/implementation-artifacts/3-6-cli-environment-resolution-error-recovery-session-snapshot.md" },
+        { "kind": "story", "reference": "Story 8.2", "path": "_bmad-output/implementation-artifacts/8-2-terminal-snapshot-chat-consistency-diagnostics.md" }
+      ]
+    },
+    {
+      "id": "terminal-cli-path-resolution",
+      "domain": "terminal",
+      "title": "shell/CLI path 解析",
+      "status": "implemented",
+      "reason": "CLI 环境解析和自定义 CLI 配置已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.6", "path": "_bmad-output/implementation-artifacts/3-6-cli-environment-resolution-error-recovery-session-snapshot.md" },
+        { "kind": "story", "reference": "Story 7.6", "path": "_bmad-output/implementation-artifacts/7-6-cli-custom-member-default-terminal-configuration.md" }
+      ]
+    },
+    {
+      "id": "terminal-shim-ready-post-ready",
+      "domain": "terminal",
+      "title": "shim ready 和 post-ready plan",
+      "status": "implemented",
+      "reason": "CLI readiness、恢复和启动诊断由终端恢复故事覆盖。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.6", "path": "_bmad-output/implementation-artifacts/3-6-cli-environment-resolution-error-recovery-session-snapshot.md" }
+      ]
+    },
+    {
+      "id": "terminal-dnd-dispatch-skip",
+      "domain": "terminal",
+      "title": "DND 跳过派发",
+      "status": "implemented",
+      "reason": "DND/忙碌状态会影响派发并给出可见队列状态。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 4.3", "path": "_bmad-output/implementation-artifacts/4-3-dnd-busy-queue-visible-status.md" }
+      ]
+    },
+    {
+      "id": "terminal-working-queue-dedupe-batch",
+      "domain": "terminal",
+      "title": "working queue、去重、batch merge",
+      "status": "implemented",
+      "reason": "working 队列、去重和相邻批量合并由派发故事覆盖。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 4.3", "path": "_bmad-output/implementation-artifacts/4-3-dnd-busy-queue-visible-status.md" },
+        { "kind": "story", "reference": "Story 4.4", "path": "_bmad-output/implementation-artifacts/4-4-deduplicate-dispatches-merge-consecutive-dispatches.md" }
+      ]
+    },
+    {
+      "id": "terminal-session-exit-window-cleanup",
+      "domain": "terminal",
+      "title": "session 退出和窗口销毁清理",
+      "status": "implemented",
+      "reason": "终端生命周期和窗口上下文同步处理 session 退出与清理。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 3.2", "path": "_bmad-output/implementation-artifacts/3-2-terminal-session-lifecycle-ipc.md" },
+        { "kind": "story", "reference": "Story 3.6", "path": "_bmad-output/implementation-artifacts/3-6-cli-environment-resolution-error-recovery-session-snapshot.md" }
+      ]
+    },
+    {
+      "id": "notifications-unread-aggregate",
+      "domain": "notifications",
+      "title": "托盘未读聚合",
+      "status": "alternative",
+      "reason": "MVP 已实现未读汇总和 tray-state 快照；原生托盘图标渲染验证留给发布/平台检查。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 5.1", "path": "_bmad-output/implementation-artifacts/5-1-aggregate-window-workspace-unread-status.md" }
+      ]
+    },
+    {
+      "id": "notifications-tray-icon-blink",
+      "domain": "notifications",
+      "title": "托盘图标切换/闪烁",
+      "status": "placeholder",
+      "reason": "原生托盘图标切换尚未启用。",
+      "userFacingState": "当前版本显示应用内未读状态，不承诺系统托盘闪烁。",
+      "evidence": [
+        { "kind": "doc", "reference": "Parity checklist item", "path": "docs/rebuild/parity-checklist.md" },
+        { "kind": "story", "reference": "Story 5.1 scope boundary", "path": "_bmad-output/implementation-artifacts/5-1-aggregate-window-workspace-unread-status.md" }
+      ]
+    },
+    {
+      "id": "notifications-avatar-as-tray-icon",
+      "domain": "notifications",
+      "title": "发送者头像渲染为托盘图标",
+      "status": "abandoned",
+      "reason": "该旧版视觉增强不进入 MVP。",
+      "decisionReason": "跨平台托盘图标动态渲染风险高，MVP 优先通知导航和未读状态。",
+      "userFacingState": "当前版本不会把发送者头像渲染到系统托盘。",
+      "evidence": [
+        { "kind": "requirement", "reference": "PRD MVP scope", "path": "_bmad-output/planning-artifacts/prd.md" },
+        { "kind": "doc", "reference": "Parity checklist item", "path": "docs/rebuild/parity-checklist.md" }
+      ]
+    },
+    {
+      "id": "notifications-hover-preview",
+      "domain": "notifications",
+      "title": "hover 预览窗口",
+      "status": "implemented",
+      "reason": "通知预览窗口作为当前 MVP 的通知预览替代形态实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 5.1", "path": "_bmad-output/implementation-artifacts/5-1-aggregate-window-workspace-unread-status.md" },
+        { "kind": "story", "reference": "Story 5.2", "path": "_bmad-output/implementation-artifacts/5-2-notification-preview-navigation.md" }
+      ]
+    },
+    {
+      "id": "notifications-open-all-unread",
+      "domain": "notifications",
+      "title": "打开全部未读",
+      "status": "implemented",
+      "reason": "通知预览可跳转全部未读视图。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 5.2", "path": "_bmad-output/implementation-artifacts/5-2-notification-preview-navigation.md" }
+      ]
+    },
+    {
+      "id": "notifications-open-conversation",
+      "domain": "notifications",
+      "title": "打开指定会话",
+      "status": "implemented",
+      "reason": "通知预览会话行可跳转主窗口对应会话。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 5.2", "path": "_bmad-output/implementation-artifacts/5-2-notification-preview-navigation.md" }
+      ]
+    },
+    {
+      "id": "notifications-open-sender-terminal",
+      "domain": "notifications",
+      "title": "打开发送者终端",
+      "status": "implemented",
+      "reason": "通知预览可打开或聚焦成员终端。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 5.2", "path": "_bmad-output/implementation-artifacts/5-2-notification-preview-navigation.md" }
+      ]
+    },
+    {
+      "id": "notifications-ignore-all-unread",
+      "domain": "notifications",
+      "title": "忽略全部未读",
+      "status": "implemented",
+      "reason": "忽略全部未读动作已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 5.3", "path": "_bmad-output/implementation-artifacts/5-3-ignore-all-unread-notifications.md" }
+      ]
+    },
+    {
+      "id": "settings-global-persist-normalize",
+      "domain": "settings",
+      "title": "全局设置 hydrate/persist/normalize",
+      "status": "implemented",
+      "reason": "设置读取、保存和规范化由设置 stories 和数据 fixture 覆盖。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.1", "path": "_bmad-output/implementation-artifacts/7-1-profile-status-settings.md" },
+        { "kind": "fixture", "reference": "settings preferences fixture", "path": "fixtures/schema/settings-v1/app-preferences.json" }
+      ]
+    },
+    {
+      "id": "settings-theme",
+      "domain": "settings",
+      "title": "主题 dark/light/system",
+      "status": "implemented",
+      "reason": "主题偏好支持 system/light/dark。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.3", "path": "_bmad-output/implementation-artifacts/7-3-theme-language-switching.md" }
+      ]
+    },
+    {
+      "id": "settings-language",
+      "domain": "settings",
+      "title": "中英文语言包",
+      "status": "implemented",
+      "reason": "语言偏好支持 zh-CN/en-US 并同步窗口上下文。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.3", "path": "_bmad-output/implementation-artifacts/7-3-theme-language-switching.md" }
+      ]
+    },
+    {
+      "id": "settings-profile",
+      "domain": "settings",
+      "title": "账号 displayName/email/timezone/status",
+      "status": "alternative",
+      "reason": "MVP 没有产品登录账号；本地 profile 支持 displayName、timezone 和 status，email 不进入当前范围。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.1", "path": "_bmad-output/implementation-artifacts/7-1-profile-status-settings.md" },
+        { "kind": "requirement", "reference": "Architecture local profile decision", "path": "_bmad-output/planning-artifacts/architecture.md" }
+      ]
+    },
+    {
+      "id": "settings-avatar",
+      "domain": "settings",
+      "title": "头像 preset/upload/delete/reset",
+      "status": "implemented",
+      "reason": "头像预设、上传、删除和重置已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.2", "path": "_bmad-output/implementation-artifacts/7-2-avatar-upload-delete-reset-presets.md" }
+      ]
+    },
+    {
+      "id": "settings-notifications-quiet-hours",
+      "domain": "settings",
+      "title": "通知设置和 quiet hours",
+      "status": "implemented",
+      "reason": "通知偏好、声音、DND/quiet hours 和平台不可用提示已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.4", "path": "_bmad-output/implementation-artifacts/7-4-notification-sound-preview-dnd-preferences.md" }
+      ]
+    },
+    {
+      "id": "settings-shortcuts",
+      "domain": "settings",
+      "title": "快捷键 profile 和启用开关",
+      "status": "implemented",
+      "reason": "快捷键 profile、启用开关和不可用绑定提示已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.5", "path": "_bmad-output/implementation-artifacts/7-5-shortcut-configuration.md" }
+      ]
+    },
+    {
+      "id": "settings-terminal-cli-default",
+      "domain": "settings",
+      "title": "终端路径、自定义 CLI、默认终端",
+      "status": "implemented",
+      "reason": "内置/自定义 CLI 和默认终端配置已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.6", "path": "_bmad-output/implementation-artifacts/7-6-cli-custom-member-default-terminal-configuration.md" }
+      ]
+    },
+    {
+      "id": "settings-chat-stream-output",
+      "domain": "settings",
+      "title": "chat streamOutput 开关",
+      "status": "implemented",
+      "reason": "聊天终端输出偏好支持 stream/final-only。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.7", "path": "_bmad-output/implementation-artifacts/7-7-chat-terminal-output-display-preferences.md" }
+      ]
+    },
+    {
+      "id": "settings-repair-chat-db",
+      "domain": "settings",
+      "title": "repair chat DB",
+      "status": "implemented",
+      "reason": "聊天数据修复维护动作已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.8", "path": "_bmad-output/implementation-artifacts/7-8-chat-data-repair-clear-maintenance.md" }
+      ]
+    },
+    {
+      "id": "settings-clear-chat-messages",
+      "domain": "settings",
+      "title": "clear all chat messages",
+      "status": "implemented",
+      "reason": "工作区聊天数据清空维护动作已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.8", "path": "_bmad-output/implementation-artifacts/7-8-chat-data-repair-clear-maintenance.md" }
+      ]
+    },
+    {
+      "id": "skills-local-import",
+      "domain": "skills",
+      "title": "本地技能库导入文件夹",
+      "status": "implemented",
+      "reason": "本地技能导入已实现并由技能库 contract 覆盖。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 6.1", "path": "_bmad-output/implementation-artifacts/6-1-import-local-skill-folder.md" }
+      ]
+    },
+    {
+      "id": "skills-local-delete-open",
+      "domain": "skills",
+      "title": "本地技能库删除/打开",
+      "status": "implemented",
+      "reason": "技能库打开文件夹和删除库记录已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 6.3", "path": "_bmad-output/implementation-artifacts/6-3-delete-open-capability-classification.md" }
+      ]
+    },
+    {
+      "id": "skills-golutra-symlink",
+      "domain": "skills",
+      "title": "workspace `.golutra/skills` symlink",
+      "status": "alternative",
+      "reason": "新版仍以 `.orchlet/skills` 为权威写入目标；Story 9.15 在当前 skill-links store 缺失时读取 legacy `.golutra/skills` symlink，并在取消关联时安全移除旧 symlink 后写入当前 store。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 6.2", "path": "_bmad-output/implementation-artifacts/6-2-manage-skill-library-workspace-links.md" },
+        { "kind": "story", "reference": "Story 9.15", "path": "_bmad-output/implementation-artifacts/9-15-legacy-golutra-workspace-skills-compatibility.md" },
+        { "kind": "test", "reference": "legacy workspace skill symlink tests", "path": "src-tauri/src/infrastructure/persistence/json_store/workspace_skill_link_store.rs" }
+      ]
+    },
+    {
+      "id": "skills-workspace-links",
+      "domain": "skills",
+      "title": "项目技能 list/link/unlink",
+      "status": "implemented",
+      "reason": "工作区技能 list/link/unlink 已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 6.2", "path": "_bmad-output/implementation-artifacts/6-2-manage-skill-library-workspace-links.md" }
+      ]
+    },
+    {
+      "id": "skills-store-placeholder",
+      "domain": "skills",
+      "title": "Skill Store 占位行为明确",
+      "status": "placeholder",
+      "reason": "远程技能安装不属于当前 MVP，本故事只显示一致的占位状态和不可用反馈。",
+      "userFacingState": "点击技能商店入口会提示暂未启用，不会静默失败。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 6.3", "path": "_bmad-output/implementation-artifacts/6-3-delete-open-capability-classification.md" },
+        { "kind": "story", "reference": "Story 8.4", "path": "_bmad-output/implementation-artifacts/8-4-capability-status-labeling.md" }
+      ]
+    },
+    {
+      "id": "skills-plugin-marketplace-placeholder",
+      "domain": "skills",
+      "title": "Plugin Marketplace 占位行为明确",
+      "status": "placeholder",
+      "reason": "插件 API、权限模型和远程安装留给后续阶段。",
+      "userFacingState": "点击远程插件入口会提示暂未启用，不会伪装为已完成。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 6.3", "path": "_bmad-output/implementation-artifacts/6-3-delete-open-capability-classification.md" },
+        { "kind": "story", "reference": "Story 8.4", "path": "_bmad-output/implementation-artifacts/8-4-capability-status-labeling.md" }
+      ]
+    },
+    {
+      "id": "data-golutra-workspace-read",
+      "domain": "data-diagnostics",
+      "title": "可读取旧 `.golutra/workspace.json`",
+      "status": "alternative",
+      "reason": "新版仍以 `.orchlet/workspace.json` 为权威元数据，但会读取并镜像旧 `.golutra/workspace.json` 以保留 Golutra workspace identity。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 9.12", "path": "_bmad-output/implementation-artifacts/9-12-legacy-golutra-workspace-metadata-compatibility.md" },
+        { "kind": "test", "reference": "workspace legacy metadata tests", "path": "src-tauri/src/app/workspace/mod.rs" }
+      ]
+    },
+    {
+      "id": "data-golutra-local-refresh",
+      "domain": "data-diagnostics",
+      "title": "可刷新旧 `.golutra/local.json`",
+      "status": "alternative",
+      "reason": "新版当前仍以 `.orchlet`/app-data stores 为权威，但会刷新旧 `.golutra/local.json` 的 localMachineId/lastOpenedAt 兼容字段。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 9.12", "path": "_bmad-output/implementation-artifacts/9-12-legacy-golutra-workspace-metadata-compatibility.md" },
+        { "kind": "test", "reference": "Golutra local state preservation test", "path": "src-tauri/src/app/workspace/mod.rs" }
+      ]
+    },
+    {
+      "id": "data-old-global-settings-read",
+      "domain": "data-diagnostics",
+      "title": "可读取旧 `global-settings.json`",
+      "status": "implemented",
+      "reason": "Story 9.13 会在当前 `settings/*.json` 不存在时读取旧 root-level `global-settings.json` 并映射到当前设置快照。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 9.13", "path": "_bmad-output/implementation-artifacts/9-13-legacy-golutra-global-settings-compatibility.md" },
+        { "kind": "test", "reference": "legacy global settings reader and precedence tests", "path": "src-tauri/src/infrastructure/persistence/json_store/legacy_global_settings_store.rs" },
+        { "kind": "test", "reference": "settings app-level compatibility tests", "path": "src-tauri/src/app/settings/mod.rs" }
+      ]
+    },
+    {
+      "id": "data-old-chat-redb-read",
+      "domain": "data-diagnostics",
+      "title": "可读取或迁移旧 `chat.redb`",
+      "status": "implemented",
+      "reason": "Story 9.18 在当前 SQLite chat conversations 为空时读取 Golutra per-workspace `chat.redb`，导入 channel/DM conversation metadata 和 text/system messages；当前 SQLite 一旦初始化即保持权威，损坏 redb 返回可恢复错误。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 9.18", "path": "_bmad-output/implementation-artifacts/9-18-legacy-golutra-chat-redb-compatibility.md" },
+        { "kind": "test", "reference": "legacy chat.redb import and precedence tests", "path": "src-tauri/src/app/chat/mod.rs" },
+        { "kind": "test", "reference": "legacy chat.redb data-integrity coverage", "path": "src-tauri/src/app/data_integrity/mod.rs" },
+        { "kind": "test", "reference": "legacy chat.redb importer", "path": "src-tauri/src/infrastructure/persistence/sqlite/legacy_chat_redb_import.rs" }
+      ]
+    },
+    {
+      "id": "data-recent-workspaces",
+      "domain": "data-diagnostics",
+      "title": "可保留 `recent-workspaces.json`",
+      "status": "implemented",
+      "reason": "Story 9.14 在当前 registry schema 缺失时读取 Golutra `recent-workspaces.json` 并映射为当前 registry/recent entries。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 9.14", "path": "_bmad-output/implementation-artifacts/9-14-legacy-golutra-workspace-registry-compatibility.md" },
+        { "kind": "test", "reference": "legacy recent workspace fallback tests", "path": "src-tauri/src/infrastructure/persistence/json_store/workspace_registry_store.rs" }
+      ]
+    },
+    {
+      "id": "data-workspace-registry",
+      "domain": "data-diagnostics",
+      "title": "可保留 `workspace-registry.json`",
+      "status": "implemented",
+      "reason": "新版 workspace registry 持久化和验证 fixture 已实现，Story 9.14 还兼容 Golutra map-style registry。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.3", "path": "_bmad-output/implementation-artifacts/1-3-manage-recent-workspaces-registry-conflicts.md" },
+        { "kind": "story", "reference": "Story 9.14", "path": "_bmad-output/implementation-artifacts/9-14-legacy-golutra-workspace-registry-compatibility.md" },
+        { "kind": "fixture", "reference": "workspace registry fixture", "path": "fixtures/data-integrity/valid-json-stores/app-data/workspace-registry.json" }
+      ]
+    },
+    {
+      "id": "data-avatar-library",
+      "domain": "data-diagnostics",
+      "title": "可保留头像库",
+      "status": "implemented",
+      "reason": "本地头像 preset/upload/delete/reset 和 profile fixture 已实现；Story 9.17 在当前 `settings/profile.json` 缺失时读取 Golutra `account.avatar = local:<id>`、`avatar-library.json` 和 `avatars/<filename>`。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 7.2", "path": "_bmad-output/implementation-artifacts/7-2-avatar-upload-delete-reset-presets.md" },
+        { "kind": "story", "reference": "Story 9.17", "path": "_bmad-output/implementation-artifacts/9-17-legacy-golutra-avatar-library-compatibility.md" },
+        { "kind": "test", "reference": "legacy local avatar compatibility tests", "path": "src-tauri/src/app/settings/mod.rs" },
+        { "kind": "fixture", "reference": "profile settings fixture", "path": "fixtures/schema/settings-v1/profile-settings.json" }
+      ]
+    },
+    {
+      "id": "data-contacts",
+      "domain": "data-diagnostics",
+      "title": "可保留 contacts",
+      "status": "implemented",
+      "reason": "联系人 schema、存储和管理动作已实现；Story 9.16 在当前 SQLite contacts table 缺失时导入 Golutra root-level `contacts.json`。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 2.3", "path": "_bmad-output/implementation-artifacts/2-3-global-contacts-private-chat-entry.md" },
+        { "kind": "story", "reference": "Story 9.16", "path": "_bmad-output/implementation-artifacts/9-16-legacy-golutra-contacts-compatibility.md" },
+        { "kind": "test", "reference": "legacy contacts import tests", "path": "src-tauri/src/app/contacts/mod.rs" },
+        { "kind": "fixture", "reference": "contacts schema fixture", "path": "fixtures/schema/contacts-v1/contact-profiles.json" }
+      ]
+    },
+    {
+      "id": "data-schema-version-migration-report",
+      "domain": "data-diagnostics",
+      "title": "schema version 和 migration report",
+      "status": "implemented",
+      "reason": "schema/data integrity fixture、storage manifest 和报告验证已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.6", "path": "_bmad-output/implementation-artifacts/1-6-storage-manifest-schema-validation-report.md" },
+        { "kind": "fixture", "reference": "data integrity report fixture", "path": "fixtures/data-integrity/reports/passed-report.json" }
+      ]
+    },
+    {
+      "id": "diagnostics-core-events",
+      "domain": "data-diagnostics",
+      "title": "诊断 run 与核心事件记录",
+      "status": "implemented",
+      "reason": "诊断 run/event 记录基础已实现，默认避免高噪声输出。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 8.1", "path": "_bmad-output/implementation-artifacts/8-1-diagnostics-run-core-event-recording.md" }
+      ]
+    },
+    {
+      "id": "diagnostics-consistency",
+      "domain": "data-diagnostics",
+      "title": "终端快照和聊天一致性诊断",
+      "status": "implemented",
+      "reason": "终端 snapshot 和聊天一致性诊断已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 8.2", "path": "_bmad-output/implementation-artifacts/8-2-terminal-snapshot-chat-consistency-diagnostics.md" }
+      ]
+    },
+    {
+      "id": "diagnostics-view-export-redacted",
+      "domain": "data-diagnostics",
+      "title": "查看和导出脱敏诊断信息",
+      "status": "implemented",
+      "reason": "诊断概览和分批脱敏导出已实现。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 8.3", "path": "_bmad-output/implementation-artifacts/8-3-view-export-redacted-diagnostics.md" }
+      ]
+    },
+    {
+      "id": "platform-windows-behavior",
+      "domain": "platform",
+      "title": "Windows 无边框/圆角/托盘行为",
+      "status": "placeholder",
+      "reason": "平台特定桌面行为尚未记录真实三平台 smoke 结果。",
+      "userFacingState": "发布验收前需要由 Story 8.5 记录 Windows smoke 状态。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.7 smoke scaffold", "path": "_bmad-output/implementation-artifacts/1-7-test-contract-fixture-desktop-smoke-scaffolding.md" },
+        { "kind": "fixture", "reference": "smoke matrix scaffold", "path": "fixtures/smoke/desktop-smoke-matrix.json" }
+      ]
+    },
+    {
+      "id": "platform-macos-titlebar-overlay",
+      "domain": "platform",
+      "title": "macOS titlebar overlay",
+      "status": "placeholder",
+      "reason": "平台特定 titlebar 行为尚未作为 release smoke 结果记录。",
+      "userFacingState": "发布验收前需要由 Story 8.5 记录 macOS smoke 状态。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.7 smoke scaffold", "path": "_bmad-output/implementation-artifacts/1-7-test-contract-fixture-desktop-smoke-scaffolding.md" },
+        { "kind": "fixture", "reference": "smoke matrix scaffold", "path": "fixtures/smoke/desktop-smoke-matrix.json" }
+      ]
+    },
+    {
+      "id": "platform-linux-xdg-open-window",
+      "domain": "platform",
+      "title": "Linux xdg-open 与窗口行为",
+      "status": "placeholder",
+      "reason": "Linux 打开路径和窗口行为需要三平台 smoke 记录，当前只保留 scaffold。",
+      "userFacingState": "发布验收前需要由 Story 8.5 记录 Linux smoke 状态。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.7 smoke scaffold", "path": "_bmad-output/implementation-artifacts/1-7-test-contract-fixture-desktop-smoke-scaffolding.md" },
+        { "kind": "fixture", "reference": "smoke matrix scaffold", "path": "fixtures/smoke/desktop-smoke-matrix.json" }
+      ]
+    },
+    {
+      "id": "platform-tauri-capabilities-minimum",
+      "domain": "platform",
+      "title": "Tauri capabilities 最小权限",
+      "status": "implemented",
+      "reason": "Tauri capability 文件按窗口模式拆分，opener/dialog 权限保持窄边界。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 1.4", "path": "_bmad-output/implementation-artifacts/1-4-read-only-workspace-fallback-file-manager.md" },
+        { "kind": "doc", "reference": "workspace-selection capability", "path": "src-tauri/capabilities/workspace-selection.json" },
+        { "kind": "doc", "reference": "terminal capability", "path": "src-tauri/capabilities/terminal.json" }
+      ]
+    },
+    {
+      "id": "platform-debug-log-debug-only",
+      "domain": "platform",
+      "title": "debug log 仅调试态",
+      "status": "implemented",
+      "reason": "诊断记录默认避免正常使用时高噪声/高敏感输出。",
+      "evidence": [
+        { "kind": "story", "reference": "Story 8.1", "path": "_bmad-output/implementation-artifacts/8-1-diagnostics-run-core-event-recording.md" }
+      ]
+    },
+    {
+      "id": "platform-build-preview-test-lint",
+      "domain": "platform",
+      "title": "build、preview、test、lint 脚本",
+      "status": "alternative",
+      "reason": "MVP 提供 build、preview、test、contract/data/smoke 脚本；未设置独立 lint 脚本，类型检查和格式检查作为替代门禁运行。",
+      "evidence": [
+        { "kind": "script", "reference": "package scripts", "path": "package.json" },
+        { "kind": "story", "reference": "Story 1.7", "path": "_bmad-output/implementation-artifacts/1-7-test-contract-fixture-desktop-smoke-scaffolding.md" }
+      ]
+    },
+    {
+      "id": "platform-legal-docs",
+      "domain": "platform",
+      "title": "CLA/法律文档保留",
+      "status": "placeholder",
+      "reason": "仓库目前只保留 README；CLA/法律文档不是当前代码功能，发布前需单独确认。",
+      "userFacingState": "发布验收时需要确认法律文档边界，不把当前 README 当作完整法律材料。",
+      "evidence": [
+        { "kind": "doc", "reference": "README present", "path": "README.md" },
+        { "kind": "doc", "reference": "Parity checklist item", "path": "docs/rebuild/parity-checklist.md" }
+      ]
+    }
+  ]
+}

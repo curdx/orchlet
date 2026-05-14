@@ -1,0 +1,49 @@
+{
+  "configuration": {
+    "schemaVersion": 1,
+    "builtInCliEntries": [
+      {
+        "runtimeId": "claude-code",
+        "label": "Claude Code",
+        "command": "claude"
+      },
+      {
+        "runtimeId": "codex",
+        "label": "Codex CLI",
+        "command": "codex"
+      },
+      {
+        "runtimeId": "gemini-cli",
+        "label": "Gemini CLI",
+        "command": "gemini"
+      },
+      {
+        "runtimeId": "opencode",
+        "label": "OpenCode",
+        "command": "opencode"
+      },
+      {
+        "runtimeId": "qwen-code",
+        "label": "Qwen Code",
+        "command": "qwen"
+      }
+    ],
+    "customCliEntries": [
+      {
+        "cliId": "local-reviewer",
+        "label": "Local Reviewer",
+        "command": "reviewer --stdio"
+      }
+    ],
+    "customTerminalEntries": [
+      {
+        "terminalId": "workspace-zsh",
+        "label": "Workspace Zsh",
+        "command": "/bin/zsh"
+      }
+    ],
+    "defaultTerminalId": "workspace-zsh",
+    "createdAtMs": 1760000080000,
+    "updatedAtMs": 1760000081000
+  }
+}

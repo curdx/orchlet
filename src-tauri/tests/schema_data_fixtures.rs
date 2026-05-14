@@ -5,20 +5,23 @@ use orchlet_lib::{
     app::members::initialize_members,
     contracts::{
         AppLanguage, AppPreferencesSettingsSnapshot, AppTheme, ChatMessageProfile,
-        ChatMessageStatus, ContactProfile, ConversationKind, ConversationProfile,
-        ConversationReadPositionProfile, DataIntegrityReport, DataIntegrityStatus, MemberProfile,
-        NotificationPreferencesSnapshot, ProfileAvatarKind, ProfileAvatarSnapshot,
-        ProfileSettingsSnapshot, ProfileStatus, RoadmapGoalEntry, RoadmapTaskEntry,
-        RoadmapTaskStatus, ShortcutKeymapProfile, ShortcutPreferencesSnapshot, SkillLibraryEntry,
+        ChatMessageStatus, ChatTerminalOutputDisplayMode, ChatTerminalOutputPreferencesSnapshot,
+        ContactProfile, ConversationKind, ConversationProfile, ConversationReadPositionProfile,
+        DataIntegrityReport, DataIntegrityStatus, MemberProfile, NotificationPreferencesSnapshot,
+        ProfileAvatarKind, ProfileAvatarSnapshot, ProfileSettingsSnapshot, ProfileStatus,
+        RoadmapGoalEntry, RoadmapTaskEntry, RoadmapTaskStatus, ShortcutKeymapProfile,
+        ShortcutPreferencesSnapshot, SkillLibraryEntry, TerminalConfigurationSnapshot,
         TerminalTabProfile, TerminalTabStatus, WorkspaceMetadata, WorkspaceSkillLinkEntry,
         WorkspaceSkillLinkMode,
     },
     domain::workspace::validate_workspace_metadata,
     infrastructure::persistence::json_store::{
         app_preferences_store::load_app_preferences,
+        chat_terminal_output_preferences_store::load_chat_terminal_output_preferences,
         notification_preferences_store::load_notification_preferences,
         profile_settings_store::load_profile_settings,
         shortcut_preferences_store::load_shortcut_preferences,
+        terminal_configuration_store::load_terminal_configuration,
         workspace_fallback_store::load_workspace_fallbacks,
         workspace_registry_store::load_workspace_registry,
     },
@@ -178,9 +181,23 @@ struct ShortcutPreferencesFixture {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct ChatTerminalOutputPreferencesFixture {
+    #[serde(flatten)]
+    preferences: ChatTerminalOutputPreferencesSnapshot,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct NotificationPreferencesFixture {
     #[serde(flatten)]
     preferences: NotificationPreferencesSnapshot,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TerminalConfigurationFixture {
+    #[serde(flatten)]
+    configuration: TerminalConfigurationSnapshot,
 }
 
 #[derive(Debug, Deserialize)]
@@ -252,6 +269,16 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
     )
     .expect("shortcut preferences copied");
     fs::copy(
+        fixture_app_data.join("settings/chat-terminal-output.json"),
+        app_data.join("settings/chat-terminal-output.json"),
+    )
+    .expect("chat terminal output preferences copied");
+    fs::copy(
+        fixture_app_data.join("settings/terminal-config.json"),
+        app_data.join("settings/terminal-config.json"),
+    )
+    .expect("terminal configuration copied");
+    fs::copy(
         fixture_app_data.join("settings/notifications.json"),
         app_data.join("settings/notifications.json"),
     )
@@ -304,12 +331,15 @@ fn current_json_store_fixtures_pass_data_integrity_validation() {
     load_workspace_fallbacks(&app_data).expect("fallback fixture loads");
     load_app_preferences(&app_data).expect("app preferences fixture loads");
     load_shortcut_preferences(&app_data).expect("shortcut preferences fixture loads");
+    load_chat_terminal_output_preferences(&app_data)
+        .expect("chat terminal output preferences fixture loads");
+    load_terminal_configuration(&app_data).expect("terminal configuration fixture loads");
     load_notification_preferences(&app_data).expect("notification preferences fixture loads");
     load_profile_settings(&app_data).expect("profile settings fixture loads");
 
     let report = validate_data_integrity(app_data, None, Some(workspace_root));
 
-    assert_eq!(report.total_checks, 21);
+    assert_eq!(report.total_checks, 25);
     assert_eq!(report.failed_checks, 0);
     assert_eq!(report.skipped_checks, 0);
     assert!(report
@@ -323,9 +353,9 @@ fn invalid_registry_fixture_exercises_failure_path_without_hiding_other_checks()
     let app_data = fixture_path("../fixtures/data-integrity/invalid-registry/app-data");
     let report = validate_data_integrity(app_data, None, None);
 
-    assert_eq!(report.total_checks, 21);
+    assert_eq!(report.total_checks, 25);
     assert_eq!(report.failed_checks, 1);
-    assert_eq!(report.skipped_checks, 11);
+    assert_eq!(report.skipped_checks, 13);
     assert!(report.has_failures);
 }
 
@@ -364,7 +394,9 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
             "messages",
             "message_mentions",
             "conversation_read_positions",
-            "terminal_tabs"
+            "terminal_tabs",
+            "diagnostics_runs",
+            "diagnostic_events"
         ]
     );
     assert_eq!(
@@ -372,12 +404,14 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
         vec![
             "202605112300__members.sql",
             "202605120930__member_permissions.sql",
+            "202605130930__member_avatar.sql",
             "202605121210__private_conversations.sql",
             "202605121300__conversation_list_groups.sql",
             "202605121430__messages_read_positions.sql",
             "202605121600__conversation_management.sql",
             "202605121700__message_mentions.sql",
-            "202605121900__terminal_tabs.sql"
+            "202605121900__terminal_tabs.sql",
+            "202605122100__diagnostics_runs.sql"
         ]
     );
     assert!(fixture
@@ -413,6 +447,14 @@ fn sqlite_schema_fixture_tracks_workspace_sqlite_stores() {
         .iter()
         .any(|path| path.contains("terminal_tabs")));
     assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("diagnostics_runs")));
+    assert!(fixture
+        .validation_paths
+        .iter()
+        .any(|path| path.contains("diagnostic_events")));
+    assert!(fixture
         .owned_by_future_stories
         .iter()
         .any(|domain| domain == "notification"));
@@ -442,6 +484,10 @@ fn member_profile_fixture_covers_owner_and_invited_assistant() {
         .members
         .iter()
         .any(|member| member.role == orchlet_lib::contracts::MemberRole::Admin));
+    assert!(fixture
+        .members
+        .iter()
+        .all(|member| member.avatar.starts_with("css:")));
 }
 
 #[test]
@@ -750,6 +796,20 @@ fn shortcut_preferences_fixture_covers_profile_actions_and_unavailable_state() {
 }
 
 #[test]
+fn chat_terminal_output_preferences_fixture_covers_display_mode() {
+    let fixture: ChatTerminalOutputPreferencesFixture =
+        read_fixture("../fixtures/schema/settings-v1/chat-terminal-output.json");
+    let preferences = fixture.preferences;
+
+    assert_eq!(preferences.schema_version, 1);
+    assert_eq!(
+        preferences.display_mode,
+        ChatTerminalOutputDisplayMode::FinalOnly
+    );
+    assert!(preferences.updated_at_ms >= preferences.created_at_ms);
+}
+
+#[test]
 fn notification_preferences_fixture_covers_local_notification_controls() {
     let fixture: NotificationPreferencesFixture =
         read_fixture("../fixtures/schema/settings-v1/notification-preferences.json");
@@ -768,6 +828,33 @@ fn notification_preferences_fixture_covers_local_notification_controls() {
         orchlet_lib::contracts::NotificationPermissionState::Unavailable
     );
     assert!(preferences.updated_at_ms >= preferences.created_at_ms);
+}
+
+#[test]
+fn terminal_configuration_fixture_covers_cli_and_default_terminal_settings() {
+    let fixture: TerminalConfigurationFixture =
+        read_fixture("../fixtures/schema/settings-v1/terminal-config.json");
+    let configuration = fixture.configuration;
+
+    assert_eq!(configuration.schema_version, 1);
+    assert_eq!(configuration.built_in_cli_entries.len(), 5);
+    assert!(configuration
+        .built_in_cli_entries
+        .iter()
+        .any(|entry| entry.runtime_id == "codex" && entry.command == "codex"));
+    assert!(configuration
+        .custom_cli_entries
+        .iter()
+        .any(|entry| { entry.cli_id == "local-reviewer" && entry.command == "reviewer --stdio" }));
+    assert_eq!(
+        configuration.default_terminal_id.as_deref(),
+        Some("workspace-zsh")
+    );
+    assert!(configuration
+        .custom_terminal_entries
+        .iter()
+        .any(|entry| { entry.terminal_id == "workspace-zsh" && entry.command == "/bin/zsh" }));
+    assert!(configuration.updated_at_ms >= configuration.created_at_ms);
 }
 
 #[test]

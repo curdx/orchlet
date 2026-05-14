@@ -120,12 +120,13 @@ export const windowContextApi: WindowContextApi = {
 
 function createBrowserSnapshot(): WindowContextSnapshot {
   const preferences = loadBrowserPreferences();
+  const previewMode = resolveBrowserPreviewMode();
 
   return {
     schemaVersion: 1,
     currentWindow: {
-      label: "main",
-      mode: "workspaceSelection",
+      label: labelFromMode(previewMode),
+      mode: previewMode,
     },
     activeWorkspace: null,
     preferences,
@@ -170,6 +171,39 @@ function isAppTheme(value: unknown): value is AppTheme {
 
 function isAppLanguage(value: unknown): value is AppLanguage {
   return value === "zh-CN" || value === "en-US";
+}
+
+function resolveBrowserPreviewMode(): WindowMode {
+  try {
+    const value = new URLSearchParams(window.location.search).get("mode");
+
+    return isWindowMode(value) ? value : "workspaceSelection";
+  } catch {
+    return "workspaceSelection";
+  }
+}
+
+function isWindowMode(value: unknown): value is WindowMode {
+  return (
+    value === "main" ||
+    value === "terminal" ||
+    value === "workspaceSelection" ||
+    value === "notificationPreview"
+  );
+}
+
+function labelFromMode(mode: WindowMode) {
+  switch (mode) {
+    case "terminal":
+      return "terminal";
+    case "notificationPreview":
+      return "notification-preview";
+    case "workspaceSelection":
+      return "workspace-selection";
+    case "main":
+    default:
+      return "main";
+  }
 }
 
 function modeFromLabel(label: string): WindowMode {

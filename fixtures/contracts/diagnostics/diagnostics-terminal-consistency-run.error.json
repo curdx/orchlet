@@ -1,0 +1,9 @@
+{
+  "code": "diagnostics.run.invalidId",
+  "message": "诊断 run 标识无效。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新后重试；如果问题持续，请重新开始诊断 run。",
+  "details": "runId must be a ULID string: not-a-ulid",
+  "correlationId": null
+}

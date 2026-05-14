@@ -1,0 +1,9 @@
+{
+  "code": "diagnostics.metadata.sensitiveKey",
+  "message": "诊断事件元数据包含敏感字段。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请只记录结构化标识符、状态或枚举值，不要记录路径、token、环境变量或原始文本。",
+  "details": "key=tokenValue",
+  "correlationId": null
+}

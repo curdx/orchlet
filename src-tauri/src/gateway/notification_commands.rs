@@ -54,6 +54,8 @@ pub fn notification_preferences_update(
                 Some(error.to_string()),
             )
         })?;
+    #[cfg(desktop)]
+    notification_state.apply_native_tray_state(&app);
 
     Ok(result)
 }
@@ -88,6 +90,8 @@ pub fn notification_unread_summary_update(
                 Some(error.to_string()),
             )
         })?;
+    #[cfg(desktop)]
+    notification_state.apply_native_tray_state(&app);
 
     Ok(NotificationUnreadUpdateResult { summary })
 }
@@ -139,8 +143,29 @@ pub fn notification_ignore_all_unread(
                 Some(error.to_string()),
             )
         })?;
+    #[cfg(desktop)]
+    notification_state.apply_native_tray_state(&app);
 
     Ok(result)
+}
+
+#[tauri::command]
+pub fn notification_preview_hover(
+    app: AppHandle,
+    notification_state: State<'_, NotificationRuntimeState>,
+    hovered: bool,
+) {
+    #[cfg(desktop)]
+    notification_state.set_preview_hovered(&app, hovered);
+}
+
+#[tauri::command]
+pub fn notification_preview_hide(
+    app: AppHandle,
+    notification_state: State<'_, NotificationRuntimeState>,
+) {
+    #[cfg(desktop)]
+    notification_state.force_hide_preview(&app);
 }
 
 fn app_data_dir(app: &AppHandle) -> Result<std::path::PathBuf, AppError> {

@@ -140,6 +140,75 @@ pub struct ClearConversationResult {
     pub conversations: Vec<ConversationProfile>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub enum ChatDataMaintenanceItemStatus {
+    Repaired,
+    Failed,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ChatDataMaintenanceItem {
+    pub affected_scope: String,
+    pub label: String,
+    pub status: ChatDataMaintenanceItemStatus,
+    pub count: u32,
+    pub details: Option<String>,
+    pub follow_up_action: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct RepairWorkspaceChatDataRequest {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct RepairWorkspaceChatDataResult {
+    pub workspace_id: String,
+    pub affected_scope: String,
+    pub repaired_count: u32,
+    pub failed_count: u32,
+    pub skipped_count: u32,
+    pub repaired_items: Vec<ChatDataMaintenanceItem>,
+    pub failed_items: Vec<ChatDataMaintenanceItem>,
+    pub skipped_items: Vec<ChatDataMaintenanceItem>,
+    pub conversations: Vec<ConversationProfile>,
+    pub follow_up_action: String,
+    #[ts(type = "number")]
+    pub completed_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ClearWorkspaceChatDataRequest {
+    pub workspace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "chat.ts")]
+pub struct ClearWorkspaceChatDataResult {
+    pub workspace_id: String,
+    pub affected_scope: String,
+    pub cleared_message_count: u32,
+    pub cleared_mention_count: u32,
+    pub cleared_read_position_count: u32,
+    pub cleared_dispatch_count: u32,
+    pub conversations: Vec<ConversationProfile>,
+    pub follow_up_action: String,
+    #[ts(type = "number")]
+    pub completed_at_ms: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "chat.ts")]

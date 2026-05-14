@@ -1,0 +1,48 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "affectedScope": "workspace-chat",
+  "repairedCount": 4,
+  "failedCount": 0,
+  "skippedCount": 0,
+  "repairedItems": [
+    {
+      "affectedScope": "message_mentions",
+      "label": "孤立消息提及",
+      "status": "repaired",
+      "count": 2,
+      "details": "已删除不再指向有效消息或会话的提及行。",
+      "followUpAction": null
+    },
+    {
+      "affectedScope": "conversations.metadata",
+      "label": "会话元数据",
+      "status": "repaired",
+      "count": 2,
+      "details": "已根据当前消息和已读位置重算未读数、预览和活动时间。",
+      "followUpAction": null
+    }
+  ],
+  "failedItems": [],
+  "skippedItems": [],
+  "conversations": [
+    {
+      "conversationId": "01K00000000000000000000050",
+      "workspaceId": "01K00000000000000000000000",
+      "kind": "channel",
+      "title": "默认频道",
+      "isDefault": true,
+      "isPinned": true,
+      "isMuted": false,
+      "unreadCount": 0,
+      "lastMessagePreview": null,
+      "participantKind": null,
+      "participantId": null,
+      "members": [],
+      "createdAtMs": 1760000007000,
+      "updatedAtMs": 1760000015000,
+      "lastActivityAtMs": 1760000015000
+    }
+  ],
+  "followUpAction": "已刷新会话列表；如仍有异常，请再次运行数据验证。",
+  "completedAtMs": 1760000015000
+}

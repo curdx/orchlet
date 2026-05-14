@@ -1,23 +1,29 @@
 use std::{fs, path::Path};
 
 use orchlet_lib::contracts::{
-    AppError, ChatMessageStatus, ClearConversationRequest, ClearConversationResult, ContactKind,
-    ConversationKind, ConversationParticipantKind, CreateContactRequest, CreateContactResult,
-    CreateGroupConversationRequest, CreateGroupConversationResult, CreateRoadmapGoalRequest,
-    CreateRoadmapGoalResult, CreateRoadmapTaskRequest, CreateRoadmapTaskResult,
-    DataIntegrityValidateRequest, DataIntegrityValidateResult, DeleteContactRequest,
-    DeleteContactResult, DeleteConversationRequest, DeleteConversationResult,
+    AppError, ChatDataMaintenanceItemStatus, ChatMessageStatus, ChatTerminalOutputDisplayMode,
+    ClearConversationRequest, ClearConversationResult, ClearWorkspaceChatDataRequest,
+    ClearWorkspaceChatDataResult, CompleteDiagnosticsRunRequest, CompleteDiagnosticsRunResult,
+    ContactKind, ConversationKind, ConversationParticipantKind, CreateContactRequest,
+    CreateContactResult, CreateGroupConversationRequest, CreateGroupConversationResult,
+    CreateRoadmapGoalRequest, CreateRoadmapGoalResult, CreateRoadmapTaskRequest,
+    CreateRoadmapTaskResult, DataIntegrityValidateRequest, DataIntegrityValidateResult,
+    DeleteContactRequest, DeleteContactResult, DeleteConversationRequest, DeleteConversationResult,
     DeleteRoadmapGoalRequest, DeleteRoadmapGoalResult, DeleteRoadmapTaskRequest,
     DeleteRoadmapTaskResult, DeleteSkillRequest, DeleteSkillResult,
     DeleteUploadedProfileAvatarRequest, DeleteUploadedProfileAvatarResult,
-    DispatchChatMessageRequest, DispatchChatMessageResult, DispatchQueueResumeRequest,
-    DispatchQueueResumeResult, DispatchRequestStatus, DispatchTargetResolutionSource,
-    GetProfileSettingsRequest, GetProfileSettingsResult, GetShortcutPreferencesRequest,
-    GetShortcutPreferencesResult, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
+    DiagnosticsExportRequest, DiagnosticsExportResult, DiagnosticsOverviewRequest,
+    DiagnosticsOverviewResult, DispatchChatMessageRequest, DispatchChatMessageResult,
+    DispatchQueueResumeRequest, DispatchQueueResumeResult, DispatchRequestStatus,
+    DispatchTargetResolutionSource, GetChatTerminalOutputPreferencesRequest,
+    GetChatTerminalOutputPreferencesResult, GetProfileSettingsRequest, GetProfileSettingsResult,
+    GetShortcutPreferencesRequest, GetShortcutPreferencesResult, GetTerminalConfigurationRequest,
+    GetTerminalConfigurationResult, ImportLocalSkillFolderRequest, ImportLocalSkillFolderResult,
     InviteMemberRequest, InviteMemberResult, InvitedMemberType, LinkWorkspaceSkillRequest,
     LinkWorkspaceSkillResult, ListContactsRequest, ListContactsResult, ListConversationsRequest,
-    ListConversationsResult, ListMembersRequest, ListMembersResult, ListMessagesRequest,
-    ListMessagesResult, ListRoadmapGoalsRequest, ListRoadmapGoalsResult, ListRoadmapTasksRequest,
+    ListConversationsResult, ListDiagnosticsEventsRequest, ListDiagnosticsEventsResult,
+    ListMembersRequest, ListMembersResult, ListMessagesRequest, ListMessagesResult,
+    ListRoadmapGoalsRequest, ListRoadmapGoalsResult, ListRoadmapTasksRequest,
     ListRoadmapTasksResult, ListWorkspaceSkillLinksRequest, ListWorkspaceSkillLinksResult,
     MemberRole, MemberRuntimeKind, MemberStatus, NotificationIgnoreAllRequest,
     NotificationIgnoreAllResult, NotificationNavigationAction, NotificationNavigationKind,
@@ -29,13 +35,19 @@ use orchlet_lib::contracts::{
     NotificationUnreadSummaryRequest, NotificationUnreadSummaryResult,
     NotificationUnreadUpdateRequest, NotificationUnreadUpdateResult, OpenSkillFolderRequest,
     OpenSkillFolderResult, OpenWorkspaceRequest, OpenWorkspaceResult, ProfileAvatarKind,
-    ProfileStatus, RemoveMemberRequest, RemoveMemberResult, ResetProfileAvatarRequest,
-    ResetProfileAvatarResult, ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
-    RoadmapTaskStatus, SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult,
-    SendMessageRequest, SendMessageResult, ShortcutKeymapProfile, SkillImportStatus,
-    SkillLibraryListRequest, SkillLibraryListResult, SkillSource, StartPrivateConversationRequest,
-    StartPrivateConversationResult, TerminalAttachRequest, TerminalAttachResult,
-    TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
+    ProfileStatus, RecordDiagnosticsEventRequest, RecordDiagnosticsEventResult,
+    RemoveMemberRequest, RemoveMemberResult, RepairWorkspaceChatDataRequest,
+    RepairWorkspaceChatDataResult, ResetChatTerminalOutputPreferencesRequest,
+    ResetChatTerminalOutputPreferencesResult, ResetProfileAvatarRequest, ResetProfileAvatarResult,
+    ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
+    ResetTerminalConfigurationRequest, ResetTerminalConfigurationResult, RoadmapTaskStatus,
+    RunChatConsistencyDiagnosticsRequest, RunChatConsistencyDiagnosticsResult,
+    RunTerminalConsistencyDiagnosticsRequest, RunTerminalConsistencyDiagnosticsResult,
+    SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult, SendMessageRequest,
+    SendMessageResult, ShortcutKeymapProfile, SkillImportStatus, SkillLibraryListRequest,
+    SkillLibraryListResult, SkillSource, StartDiagnosticsRunRequest, StartDiagnosticsRunResult,
+    StartPrivateConversationRequest, StartPrivateConversationResult, TerminalAttachRequest,
+    TerminalAttachResult, TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentStatus,
     TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult, TerminalInputRequest,
     TerminalInputResult, TerminalOpenRequest, TerminalOpenResult, TerminalOutputEventPayload,
     TerminalResizeRequest, TerminalResizeResult, TerminalSessionStatus, TerminalStatusEventPayload,
@@ -43,13 +55,15 @@ use orchlet_lib::contracts::{
     TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
     TerminalTabStatus, TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
     TerminalTabsListResult, UnlinkWorkspaceSkillRequest, UnlinkWorkspaceSkillResult,
+    UpdateChatTerminalOutputPreferencesRequest, UpdateChatTerminalOutputPreferencesResult,
     UpdateContactRequest, UpdateContactResult, UpdateConversationSettingsRequest,
     UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
     UpdateGroupConversationMembersResult, UpdateMemberStatusRequest, UpdateMemberStatusResult,
     UpdateProfileSettingsRequest, UpdateProfileSettingsResult, UpdateReadPositionRequest,
     UpdateReadPositionResult, UpdateRoadmapGoalRequest, UpdateRoadmapGoalResult,
     UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult, UpdateShortcutPreferencesRequest,
-    UpdateShortcutPreferencesResult, UploadProfileAvatarRequest, UploadProfileAvatarResult,
+    UpdateShortcutPreferencesResult, UpdateTerminalConfigurationRequest,
+    UpdateTerminalConfigurationResult, UploadProfileAvatarRequest, UploadProfileAvatarResult,
     WindowMode, WorkspaceOpenStatus, WorkspaceSkillLinkMode, WorkspaceSkillLinkStatus,
 };
 use serde::de::DeserializeOwned;
@@ -96,6 +110,118 @@ fn data_integrity_contract_fixtures_deserialize_into_rust_dtos() {
     assert!(!result.report.has_failures);
     assert_eq!(error.code, "dataIntegrity.appDataDirFailed");
     assert!(error.recoverable);
+}
+
+#[test]
+fn diagnostics_contract_fixtures_deserialize_into_rust_dtos() {
+    let start_request: StartDiagnosticsRunRequest =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-run-start.request.json");
+    let start_result: StartDiagnosticsRunResult =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-run-start.result.json");
+    let start_error: AppError =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-run-start.error.json");
+    let complete_request: CompleteDiagnosticsRunRequest =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-run-complete.request.json");
+    let complete_result: CompleteDiagnosticsRunResult =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-run-complete.result.json");
+    let complete_error: AppError =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-run-complete.error.json");
+    let record_request: RecordDiagnosticsEventRequest =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-event-record.request.json");
+    let record_result: RecordDiagnosticsEventResult =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-event-record.result.json");
+    let record_error: AppError =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-event-record.error.json");
+    let list_request: ListDiagnosticsEventsRequest =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-events-list.request.json");
+    let list_result: ListDiagnosticsEventsResult =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-events-list.result.json");
+    let list_error: AppError =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-events-list.error.json");
+    let terminal_request: RunTerminalConsistencyDiagnosticsRequest = read_fixture(
+        "../fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.request.json",
+    );
+    let terminal_result: RunTerminalConsistencyDiagnosticsResult = read_fixture(
+        "../fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.result.json",
+    );
+    let terminal_error: AppError = read_fixture(
+        "../fixtures/contracts/diagnostics/diagnostics-terminal-consistency-run.error.json",
+    );
+    let chat_request: RunChatConsistencyDiagnosticsRequest = read_fixture(
+        "../fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.request.json",
+    );
+    let chat_result: RunChatConsistencyDiagnosticsResult = read_fixture(
+        "../fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.result.json",
+    );
+    let chat_error: AppError = read_fixture(
+        "../fixtures/contracts/diagnostics/diagnostics-chat-consistency-run.error.json",
+    );
+    let overview_request: DiagnosticsOverviewRequest =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-overview-get.request.json");
+    let overview_result: DiagnosticsOverviewResult =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-overview-get.result.json");
+    let overview_error: AppError =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-overview-get.error.json");
+    let export_request: DiagnosticsExportRequest =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-export-generate.request.json");
+    let export_result: DiagnosticsExportResult =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-export-generate.result.json");
+    let export_error: AppError =
+        read_fixture("../fixtures/contracts/diagnostics/diagnostics-export-generate.error.json");
+
+    assert_eq!(start_request.workspace_id, "01K00000000000000000000000");
+    assert_eq!(start_result.run.run_id, "01K00000000000000000000800");
+    assert_eq!(
+        start_result.start_event.event_name,
+        "diagnostics.run.started"
+    );
+    assert_eq!(start_error.code, "diagnostics.run.activeExists");
+    assert_eq!(complete_request.run_id, start_result.run.run_id);
+    assert_eq!(
+        complete_result
+            .completion_event
+            .as_ref()
+            .expect("completion event")
+            .event_name,
+        "diagnostics.run.completed"
+    );
+    assert_eq!(complete_error.code, "diagnostics.run.notFound");
+    assert_eq!(record_request.event_name, "frontend.window.focused");
+    assert!(record_result.recorded);
+    assert_eq!(
+        record_result
+            .event
+            .as_ref()
+            .and_then(|event| event.correlations.window_label.as_deref()),
+        Some("main")
+    );
+    assert_eq!(record_error.code, "diagnostics.metadata.sensitiveKey");
+    assert_eq!(list_request.run_id, start_result.run.run_id);
+    assert_eq!(list_result.events.len(), 2);
+    assert_eq!(list_error.code, "diagnostics.run.notFound");
+    assert_eq!(terminal_request.sessions[0].outputs[1].seq, 3);
+    assert_eq!(terminal_result.issues[0].code, "terminal.sequence.missing");
+    assert_eq!(terminal_result.issue_count, 2);
+    assert_eq!(terminal_error.code, "diagnostics.run.invalidId");
+    assert_eq!(
+        chat_request.run_id.as_deref(),
+        Some(start_result.run.run_id.as_str())
+    );
+    assert_eq!(chat_result.issues[0].code, "chat.status.invalid");
+    assert_eq!(chat_result.events_recorded, 2);
+    assert_eq!(chat_error.code, "diagnostics.run.invalidId");
+    assert_eq!(overview_request.limit, Some(25));
+    assert_eq!(overview_result.consistency_summary.terminal_issue_count, 1);
+    assert_eq!(overview_result.validation_summary.total_checks, 0);
+    assert_eq!(overview_error.code, "diagnostics.cursor.invalid");
+    assert_eq!(export_request.max_events, Some(25));
+    assert_eq!(export_result.package.schema_version, 1);
+    assert_eq!(export_result.redaction_summary.redacted_fields, 2);
+    assert_eq!(
+        export_result.warnings[0].reason,
+        orchlet_lib::contracts::DiagnosticsRedactionReason::PrivatePath
+    );
+    assert_eq!(export_error.code, "diagnostics.cursor.invalid");
 }
 
 #[test]
@@ -154,6 +280,54 @@ fn profile_settings_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/settings/shortcut-preferences-reset.result.json");
     let shortcut_reset_error: AppError =
         read_fixture("../fixtures/contracts/settings/shortcut-preferences-reset.error.json");
+    let chat_terminal_output_get_request: GetChatTerminalOutputPreferencesRequest = read_fixture(
+        "../fixtures/contracts/settings/chat-terminal-output-preferences-get.request.json",
+    );
+    let chat_terminal_output_get_result: GetChatTerminalOutputPreferencesResult = read_fixture(
+        "../fixtures/contracts/settings/chat-terminal-output-preferences-get.result.json",
+    );
+    let chat_terminal_output_get_error: AppError = read_fixture(
+        "../fixtures/contracts/settings/chat-terminal-output-preferences-get.error.json",
+    );
+    let chat_terminal_output_update_request: UpdateChatTerminalOutputPreferencesRequest =
+        read_fixture(
+            "../fixtures/contracts/settings/chat-terminal-output-preferences-update.request.json",
+        );
+    let chat_terminal_output_update_result: UpdateChatTerminalOutputPreferencesResult =
+        read_fixture(
+            "../fixtures/contracts/settings/chat-terminal-output-preferences-update.result.json",
+        );
+    let chat_terminal_output_update_error: AppError = read_fixture(
+        "../fixtures/contracts/settings/chat-terminal-output-preferences-update.error.json",
+    );
+    let chat_terminal_output_reset_request: ResetChatTerminalOutputPreferencesRequest =
+        read_fixture(
+            "../fixtures/contracts/settings/chat-terminal-output-preferences-reset.request.json",
+        );
+    let chat_terminal_output_reset_result: ResetChatTerminalOutputPreferencesResult = read_fixture(
+        "../fixtures/contracts/settings/chat-terminal-output-preferences-reset.result.json",
+    );
+    let chat_terminal_output_reset_error: AppError = read_fixture(
+        "../fixtures/contracts/settings/chat-terminal-output-preferences-reset.error.json",
+    );
+    let terminal_get_request: GetTerminalConfigurationRequest =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-get.request.json");
+    let terminal_get_result: GetTerminalConfigurationResult =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-get.result.json");
+    let terminal_get_error: AppError =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-get.error.json");
+    let terminal_update_request: UpdateTerminalConfigurationRequest =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-update.request.json");
+    let terminal_update_result: UpdateTerminalConfigurationResult =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-update.result.json");
+    let terminal_update_error: AppError =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-update.error.json");
+    let terminal_reset_request: ResetTerminalConfigurationRequest =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-reset.request.json");
+    let terminal_reset_result: ResetTerminalConfigurationResult =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-reset.result.json");
+    let terminal_reset_error: AppError =
+        read_fixture("../fixtures/contracts/settings/terminal-configuration-reset.error.json");
 
     let _ = get_request;
     assert_eq!(get_result.profile.display_name, "Dana");
@@ -240,6 +414,81 @@ fn profile_settings_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(
         shortcut_reset_error.code,
         "settings.shortcuts.invalidRecordVersion"
+    );
+    let _ = chat_terminal_output_get_request;
+    assert_eq!(
+        chat_terminal_output_get_result.preferences.display_mode,
+        ChatTerminalOutputDisplayMode::Stream
+    );
+    assert_eq!(
+        chat_terminal_output_get_error.code,
+        "settings.chatTerminalOutput.invalidJson"
+    );
+    assert_eq!(
+        chat_terminal_output_update_request.display_mode,
+        ChatTerminalOutputDisplayMode::FinalOnly
+    );
+    assert_eq!(
+        chat_terminal_output_update_result.preferences.display_mode,
+        ChatTerminalOutputDisplayMode::FinalOnly
+    );
+    assert_eq!(
+        chat_terminal_output_update_error.code,
+        "settings.chatTerminalOutput.renameFailed"
+    );
+    let _ = chat_terminal_output_reset_request;
+    assert_eq!(
+        chat_terminal_output_reset_result.preferences.display_mode,
+        ChatTerminalOutputDisplayMode::Stream
+    );
+    assert_eq!(
+        chat_terminal_output_reset_error.code,
+        "settings.chatTerminalOutput.invalidRecordVersion"
+    );
+    let _ = terminal_get_request;
+    assert_eq!(
+        terminal_get_result.configuration.built_in_cli_entries.len(),
+        5
+    );
+    assert_eq!(
+        terminal_get_result
+            .configuration
+            .custom_cli_entries
+            .first()
+            .map(|entry| entry.cli_id.as_str()),
+        Some("local-reviewer")
+    );
+    assert_eq!(
+        terminal_get_error.code,
+        "settings.terminalConfig.invalidJson"
+    );
+    assert!(terminal_update_request
+        .built_in_cli_entries
+        .iter()
+        .any(|entry| entry.runtime_id == "codex" && entry.command == "/opt/homebrew/bin/codex"));
+    assert_eq!(
+        terminal_update_result
+            .configuration
+            .default_terminal_id
+            .as_deref(),
+        Some("workspace-zsh")
+    );
+    assert_eq!(
+        terminal_update_error.code,
+        "settings.terminalConfig.duplicateCustomCli"
+    );
+    let _ = terminal_reset_request;
+    assert!(terminal_reset_result
+        .configuration
+        .custom_cli_entries
+        .is_empty());
+    assert!(terminal_reset_result
+        .configuration
+        .default_terminal_id
+        .is_none());
+    assert_eq!(
+        terminal_reset_error.code,
+        "settings.terminalConfig.invalidRecordVersion"
     );
 }
 
@@ -979,6 +1228,18 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
         read_fixture("../fixtures/contracts/chat/chat-conversation-clear.result.json");
     let clear_error: AppError =
         read_fixture("../fixtures/contracts/chat/chat-conversation-clear.error.json");
+    let repair_request: RepairWorkspaceChatDataRequest =
+        read_fixture("../fixtures/contracts/chat/chat-data-repair.request.json");
+    let repair_result: RepairWorkspaceChatDataResult =
+        read_fixture("../fixtures/contracts/chat/chat-data-repair.result.json");
+    let repair_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-data-repair.error.json");
+    let clear_chat_request: ClearWorkspaceChatDataRequest =
+        read_fixture("../fixtures/contracts/chat/chat-data-clear.request.json");
+    let clear_chat_result: ClearWorkspaceChatDataResult =
+        read_fixture("../fixtures/contracts/chat/chat-data-clear.result.json");
+    let clear_chat_error: AppError =
+        read_fixture("../fixtures/contracts/chat/chat-data-clear.error.json");
     let delete_request: DeleteConversationRequest =
         read_fixture("../fixtures/contracts/chat/chat-conversation-delete.request.json");
     let delete_result: DeleteConversationResult =
@@ -1051,6 +1312,21 @@ fn chat_contract_fixtures_deserialize_into_rust_dtos() {
     assert_eq!(clear_result.conversation.unread_count, 0);
     assert_eq!(clear_result.conversation.last_message_preview, None);
     assert_eq!(clear_error.code, "conversation.getById.notFound");
+    assert_eq!(repair_request.workspace_id, list_request.workspace_id);
+    assert_eq!(repair_result.affected_scope, "workspace-chat");
+    assert_eq!(repair_result.repaired_count, 4);
+    assert_eq!(
+        repair_result.repaired_items[0].status,
+        ChatDataMaintenanceItemStatus::Repaired
+    );
+    assert_eq!(repair_result.failed_count, 0);
+    assert_eq!(repair_result.conversations.len(), 1);
+    assert_eq!(repair_error.code, "chatDataRepair.transaction.beginFailed");
+    assert_eq!(clear_chat_request.workspace_id, list_request.workspace_id);
+    assert_eq!(clear_chat_result.cleared_message_count, 12);
+    assert_eq!(clear_chat_result.cleared_dispatch_count, 1);
+    assert_eq!(clear_chat_result.conversations.len(), 2);
+    assert_eq!(clear_chat_error.code, "chatDataClear.messagesFailed");
     assert_eq!(
         delete_request.conversation_id,
         create_group_result.conversation.conversation_id

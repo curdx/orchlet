@@ -1,0 +1,9 @@
+{
+  "code": "diagnostics.run.activeExists",
+  "message": "当前工作区已有正在记录的诊断 run。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请先完成当前诊断 run，或复用当前 run 继续记录。",
+  "details": "workspaceId=01K00000000000000000000000",
+  "correlationId": null
+}

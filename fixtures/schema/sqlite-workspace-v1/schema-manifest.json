@@ -12,21 +12,26 @@
     "messages",
     "message_mentions",
     "conversation_read_positions",
-    "terminal_tabs"
+    "terminal_tabs",
+    "diagnostics_runs",
+    "diagnostic_events"
   ],
   "migrationFiles": [
     "202605112300__members.sql",
     "202605120930__member_permissions.sql",
+    "202605130930__member_avatar.sql",
     "202605121210__private_conversations.sql",
     "202605121300__conversation_list_groups.sql",
     "202605121430__messages_read_positions.sql",
     "202605121600__conversation_management.sql",
     "202605121700__message_mentions.sql",
-    "202605121900__terminal_tabs.sql"
+    "202605121900__terminal_tabs.sql",
+    "202605122100__diagnostics_runs.sql"
   ],
   "validationPaths": [
     "member profiles database must contain exactly one owner per workspace",
     "member profiles include instance labels, mention/remove permissions and sandbox/unlimited access flags",
+    "member profiles persist Golutra-style css avatar identifiers for Friends avatar parity",
     "conversation records include exactly one default channel per initialized workspace",
     "private conversations reuse one conversation per workspace participant",
     "conversation_members records persist group member ids separately from conversation list records",
@@ -35,12 +40,12 @@
     "message_mentions records persist structured mentioned member ids separately from message body",
     "conversation_read_positions records persist local read cursor per conversation",
     "terminal_tabs records persist labels, pin/order state, closed timestamp and latest attached session id without terminal output",
+    "diagnostics_runs records persist explicitly enabled diagnostics run lifecycle metadata",
+    "diagnostic_events records persist event names, severity, correlation ids and allowlisted metadata without raw terminal output, chat bodies, paths, env vars or tokens",
     "future stories must add their own manifest entries, migrations and fixtures with their own tables"
   ],
   "ownedByFutureStories": [
     "terminalSnapshot",
-    "notification",
-    "roadmap",
-    "diagnostics"
+    "notification"
   ]
 }

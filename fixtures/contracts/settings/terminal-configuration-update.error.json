@@ -1,0 +1,9 @@
+{
+  "code": "settings.terminalConfig.duplicateCustomCli",
+  "message": "自定义 CLI 配置存在重复项。",
+  "userAction": "请保留每个自定义 CLI 的唯一配置后重试。",
+  "details": "cliId=local-reviewer",
+  "severity": "error",
+  "recoverable": true,
+  "correlationId": null
+}

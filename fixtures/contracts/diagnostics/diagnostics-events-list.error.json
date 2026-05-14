@@ -1,0 +1,9 @@
+{
+  "code": "diagnostics.run.notFound",
+  "message": "未找到诊断 run。",
+  "severity": "error",
+  "recoverable": true,
+  "userAction": "请刷新诊断信息或重新开始诊断 run。",
+  "details": "workspaceId=01K00000000000000000000000 runId=01K00000000000000000009999",
+  "correlationId": null
+}

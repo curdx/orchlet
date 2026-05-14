@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode, RefObject } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from "react";
+import * as Select from "@radix-ui/react-select";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -11,6 +12,7 @@ import {
   Edit3,
   Eraser,
   Eye,
+  FileDown,
   FolderOpen,
   Hash,
   History,
@@ -44,6 +46,7 @@ import {
   chatApi,
   contactApi,
   dataIntegrityApi,
+  diagnosticsApi,
   memberApi,
   notificationApi,
   normalizeAppError,
@@ -54,10 +57,29 @@ import {
   terminalApi,
   workspaceApi,
 } from "../../../shared/api";
+import {
+  EMOJI_DATA as GOLUTRA_EMOJI_DATA,
+  EMOJI_GROUPS as GOLUTRA_EMOJI_GROUPS,
+} from "./golutra-emoji-data";
+import anyCliIconUrl from "../../../assets/runtime-icons/any-cli.svg";
+import claudeCodeIconUrl from "../../../assets/runtime-icons/claude-code.png";
+import codexIconUrl from "../../../assets/runtime-icons/codex.png";
+import geminiIconUrl from "../../../assets/runtime-icons/gemini.png";
+import opencodeIconUrl from "../../../assets/runtime-icons/opencode.svg";
+import qwenIconUrl from "../../../assets/runtime-icons/qwen.png";
+import type {
+  EmojiEntry as GolutraEmojiEntry,
+  EmojiGroup as GolutraEmojiGroup,
+} from "./golutra-emoji-data";
 import type { ChatApi } from "../../../shared/api/chat-api";
 import type { ContactApi } from "../../../shared/api/contact-api";
 import type { DataIntegrityApi } from "../../../shared/api/data-integrity-api";
 import type { DataIntegrityReport } from "../../../contracts/generated/data_integrity";
+import type { DiagnosticsApi } from "../../../shared/api/diagnostics-api";
+import type {
+  DiagnosticsExportResult,
+  DiagnosticsOverviewResult,
+} from "../../../contracts/generated/diagnostics";
 import type { MemberApi } from "../../../shared/api/member-api";
 import type { NotificationApi } from "../../../shared/api/notification-api";
 import type {
@@ -71,9 +93,11 @@ import type { TerminalDispatchApi } from "../../../shared/api/terminal-dispatch-
 import type { TerminalApi } from "../../../shared/api/terminal-api";
 import type {
   ChatMessageProfile,
+  ClearWorkspaceChatDataResult,
   ConversationProfile,
   ListConversationsResult,
   ListMessagesResult,
+  RepairWorkspaceChatDataResult,
 } from "../../../contracts/generated/chat";
 import type { ContactKind, ContactProfile } from "../../../contracts/generated/contact";
 import type { DispatchRequestProfile } from "../../../contracts/generated/orchestration";
@@ -110,12 +134,22 @@ import type {
   RoadmapTaskStatus,
 } from "../../../contracts/generated/roadmap";
 import type {
+  ChatTerminalOutputDisplayMode,
+  ChatTerminalOutputPreferencesSnapshot,
   ProfileAvatarSnapshot,
   ProfileSettingsSnapshot,
   ProfileStatus,
   ShortcutKeymapProfile,
   ShortcutPreferencesSnapshot,
+  TerminalBuiltInCliEntry,
+  TerminalConfigurationSnapshot,
+  TerminalCustomCliEntry,
+  TerminalCustomTerminalEntry,
 } from "../../../contracts/generated/settings";
+import {
+  capabilityStatusMeta,
+  type CapabilityStatus,
+} from "../../../shared/capabilities/status";
 import { SHORTCUT_ACTION, shortcutEventMatches } from "../../../shared/shortcuts";
 import { IconButton, Toast, useToastStore } from "../../../shared/ui";
 import type { WorkspaceApi } from "../../../shared/api/workspace-api";
@@ -135,8 +169,17 @@ type WorkspaceSelectionPageProps = {
     language?: AppLanguage | null;
   }) => Promise<void>;
   onOpenWindowMode?: (mode: WindowMode) => Promise<void>;
+  onWorkspaceOpened?: (workspace: OpenedWorkspace) => void;
+  showCompatibilityControls?: boolean;
+  renderLocalToast?: boolean;
+  parityWorkbench?: boolean;
+  parityView?: "chat" | "friends" | "workspaces" | "store" | "plugins" | "settings";
   integrityApi?: Pick<DataIntegrityApi, "validate">;
-  memberApi?: Pick<MemberApi, "listMembers" | "inviteMember" | "removeMember" | "updateMemberStatus">;
+  diagnosticsApi?: Pick<DiagnosticsApi, "getOverview" | "generateExport">;
+  memberApi?: Pick<
+    MemberApi,
+    "listMembers" | "inviteMember" | "removeMember" | "updateMemberProfile" | "updateMemberStatus"
+  >;
   notificationApi?: Pick<
     NotificationApi,
     | "getNotificationPreferences"
@@ -178,6 +221,11 @@ type WorkspaceSelectionPageProps = {
     | "getShortcutPreferences"
     | "updateShortcutPreferences"
     | "resetShortcutPreferences"
+    | "getChatTerminalOutputPreferences"
+    | "updateChatTerminalOutputPreferences"
+    | "getTerminalConfiguration"
+    | "updateTerminalConfiguration"
+    | "resetTerminalConfiguration"
   >;
   terminalApi?: Pick<TerminalApi, "openTerminal" | "subscribeOutput" | "subscribeStatus">;
   terminalDispatchApi?: Pick<
@@ -191,6 +239,8 @@ type WorkspaceSelectionPageProps = {
     | "createGroupConversation"
     | "updateConversationSettings"
     | "clearConversation"
+    | "repairWorkspaceData"
+    | "clearWorkspaceData"
     | "deleteConversation"
     | "sendMessage"
     | "listMessages"
@@ -268,11 +318,36 @@ type ShortcutPreferencesDraft = {
   shortcutHintsEnabled: boolean;
   disabledActionIds: string[];
 };
+type ChatTerminalOutputPreferencesDraft = {
+  displayMode: ChatTerminalOutputDisplayMode;
+};
+type ChatMaintenanceResultView = {
+  status: "completed" | "failed";
+  title: string;
+  summary: string;
+  details: string[];
+  action: string | null;
+};
+type TerminalConfigurationDraft = {
+  builtInCliEntries: TerminalBuiltInCliEntry[];
+  customCliEntries: TerminalCustomCliEntry[];
+  customTerminalEntries: TerminalCustomTerminalEntry[];
+  defaultTerminalId: string | null;
+};
+type RuntimeOption = {
+  id: string;
+  label: string;
+  command: string;
+};
 
 const MESSAGE_PAGE_LIMIT = 30;
 const RECENT_EMOJI_STORAGE_KEY = "orchlet.chat.recentEmojis";
+const RECENT_EMOJI_GROUP_ID = -1;
+const DEFAULT_EMOJI_GROUP_ID = 0;
+const RECENT_EMOJI_MAX_COUNT = 24;
 const TERMINAL_STREAM_FLUSH_MS = 100;
 const TERMINAL_STREAM_MAX_CHARS = 4000;
+const TERMINAL_STREAM_MAX_BUFFER_EVENTS = 1000;
 const PROFILE_TIMEZONE_OPTIONS = [
   "UTC",
   "Asia/Shanghai",
@@ -357,6 +432,66 @@ const DEFAULT_SHORTCUT_PREFERENCES: ShortcutPreferencesSnapshot = {
   createdAtMs: 1,
   updatedAtMs: 1,
 };
+const DEFAULT_CHAT_TERMINAL_OUTPUT_PREFERENCES: ChatTerminalOutputPreferencesSnapshot = {
+  schemaVersion: 1,
+  displayMode: "stream",
+  createdAtMs: 1,
+  updatedAtMs: 1,
+};
+const DEFAULT_TERMINAL_CONFIGURATION: TerminalConfigurationSnapshot = {
+  schemaVersion: 1,
+  builtInCliEntries: [
+    { runtimeId: "claude-code", label: "Claude Code", command: "claude" },
+    { runtimeId: "codex", label: "Codex CLI", command: "codex" },
+    { runtimeId: "gemini-cli", label: "Gemini CLI", command: "gemini" },
+    { runtimeId: "opencode", label: "OpenCode", command: "opencode" },
+    { runtimeId: "qwen-code", label: "Qwen Code", command: "qwen" },
+  ],
+  customCliEntries: [],
+  customTerminalEntries: [],
+  defaultTerminalId: null,
+  createdAtMs: 1,
+  updatedAtMs: 1,
+};
+const GOLUTRA_INVITE_RUNTIME_ORDER = [
+  "gemini-cli",
+  "codex",
+  "claude-code",
+  "opencode",
+  "qwen-code",
+] as const;
+const GOLUTRA_INVITE_RUNTIME_LABELS: Record<string, string> = {
+  "gemini-cli": "Gemini CLI",
+  codex: "Codex",
+  "claude-code": "Claude Code",
+  opencode: "opencode",
+  "qwen-code": "Qwen Code",
+};
+
+function normalizeGolutraInviteRuntimeOptions(options: RuntimeOption[]): RuntimeOption[] {
+  const byId = new Map(
+    options.map((option) => [
+      option.id,
+      {
+        ...option,
+        label: GOLUTRA_INVITE_RUNTIME_LABELS[option.id] ?? option.label,
+      },
+    ]),
+  );
+  const orderedOptions = GOLUTRA_INVITE_RUNTIME_ORDER.flatMap((runtimeId) => {
+    const option = byId.get(runtimeId);
+    return option ? [option] : [];
+  });
+  const extraOptions = options
+    .filter((option) => !GOLUTRA_INVITE_RUNTIME_ORDER.includes(option.id as never))
+    .map((option) => ({
+      ...option,
+      label: GOLUTRA_INVITE_RUNTIME_LABELS[option.id] ?? option.label,
+    }));
+
+  return [...orderedOptions, ...extraOptions];
+}
+
 const WORKSPACE_SELECTION_TEXT = {
   "zh-CN": {
     loadingEntry: "检查入口状态中",
@@ -387,9 +522,9 @@ const WORKSPACE_SELECTION_TEXT = {
     unreadCountLabel: "Workspace unread total",
     refreshRecentWorkspaces: "Refresh recent workspaces",
     openSettings: "Open settings",
-    openFolder: "Open folder",
-    openingFolder: "Opening folder",
-    openFolderSubtitle: "Choose a folder to start or resume a workspace",
+    openFolder: "Open Folder",
+    openingFolder: "Opening Folder",
+    openFolderSubtitle: "Pick a folder to start or resume a workspace",
     recentWorkspaces: "Recent workspaces",
     recordsSuffix: "records",
     searchFolders: "Search folders",
@@ -397,8 +532,8 @@ const WORKSPACE_SELECTION_TEXT = {
     openRecentPrefix: "Open",
     open: "Open",
     noRecentWorkspaces: "No recent workspaces",
-    noRecentWorkspacesHint: "Open a folder to create your first workspace.",
-    noMatchingWorkspaces: "No matching workspaces found",
+    noRecentWorkspacesHint: "Open a folder to start your first workspace.",
+    noMatchingWorkspaces: "No matching workspaces",
   },
 } as const satisfies Record<AppLanguage, Record<string, string>>;
 const WINDOW_CONTEXT_TEXT = {
@@ -419,7 +554,13 @@ export function WorkspaceSelectionPage({
   windowContext = null,
   onPreferencesChange,
   onOpenWindowMode,
+  onWorkspaceOpened,
+  showCompatibilityControls = true,
+  renderLocalToast = true,
+  parityWorkbench = false,
+  parityView = "chat",
   integrityApi = dataIntegrityApi,
+  diagnosticsApi: localDiagnosticsApi = diagnosticsApi,
   memberApi: membersApi = memberApi,
   notificationApi: notificationsApi = notificationApi,
   skillsApi: localSkillsApi = skillsApi,
@@ -480,19 +621,43 @@ export function WorkspaceSelectionPage({
     );
   const [shortcutPreferencesError, setShortcutPreferencesError] = useState<string | null>(null);
   const [isSavingShortcutPreferences, setIsSavingShortcutPreferences] = useState(false);
+  const [chatTerminalOutputPreferencesDraft, setChatTerminalOutputPreferencesDraft] =
+    useState<ChatTerminalOutputPreferencesDraft>(
+      chatTerminalOutputPreferencesToDraft(DEFAULT_CHAT_TERMINAL_OUTPUT_PREFERENCES),
+    );
+  const [chatTerminalOutputPreferencesError, setChatTerminalOutputPreferencesError] = useState<
+    string | null
+  >(null);
+  const [isSavingChatTerminalOutputPreferences, setIsSavingChatTerminalOutputPreferences] =
+    useState(false);
+  const [terminalConfigurationDraft, setTerminalConfigurationDraft] =
+    useState<TerminalConfigurationDraft>(
+      terminalConfigurationToDraft(DEFAULT_TERMINAL_CONFIGURATION),
+    );
+  const [terminalConfigurationError, setTerminalConfigurationError] = useState<string | null>(
+    null,
+  );
+  const [isSavingTerminalConfiguration, setIsSavingTerminalConfiguration] = useState(false);
   const [isInvitingMember, setIsInvitingMember] = useState(false);
   const [openedWorkspace, setOpenedWorkspace] = useState<OpenedWorkspace | null>(null);
   const [integrityReport, setIntegrityReport] = useState<DataIntegrityReport | null>(null);
+  const [diagnosticsOverview, setDiagnosticsOverview] =
+    useState<DiagnosticsOverviewResult | null>(null);
+  const [diagnosticsExportResult, setDiagnosticsExportResult] =
+    useState<DiagnosticsExportResult | null>(null);
+  const [isLoadingDiagnostics, setIsLoadingDiagnostics] = useState(false);
+  const [isExportingDiagnostics, setIsExportingDiagnostics] = useState(false);
   const [inviteType, setInviteType] = useState<InvitedMemberType>("assistant");
   const [inviteDisplayName, setInviteDisplayName] = useState("");
   const [runtimeKind, setRuntimeKind] = useState<MemberRuntimeKind>("builtInAiCli");
-  const [builtinRuntimeId, setBuiltinRuntimeId] = useState("codex");
+  const [builtinRuntimeId, setBuiltinRuntimeId] = useState("gemini-cli");
+  const [customRuntimeCliId, setCustomRuntimeCliId] = useState("");
   const [customRuntimeCommand, setCustomRuntimeCommand] = useState("");
   const [inviteInstanceCount, setInviteInstanceCount] = useState(1);
   const [inviteCanMention, setInviteCanMention] = useState(true);
   const [inviteCanRemove, setInviteCanRemove] = useState(true);
-  const [inviteSandboxed, setInviteSandboxed] = useState(true);
-  const [inviteUnlimitedAccess, setInviteUnlimitedAccess] = useState(false);
+  const [inviteSandboxed, setInviteSandboxed] = useState(false);
+  const [inviteUnlimitedAccess, setInviteUnlimitedAccess] = useState(true);
   const [memberActionMenuId, setMemberActionMenuId] = useState<string | null>(null);
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [contactDisplayName, setContactDisplayName] = useState("");
@@ -504,6 +669,10 @@ export function WorkspaceSelectionPage({
   const [isUpdatingGroupMembers, setIsUpdatingGroupMembers] = useState(false);
   const [isUpdatingConversationSettings, setIsUpdatingConversationSettings] = useState(false);
   const [isClearingConversation, setIsClearingConversation] = useState(false);
+  const [isRepairingChatData, setIsRepairingChatData] = useState(false);
+  const [isClearingWorkspaceChatData, setIsClearingWorkspaceChatData] = useState(false);
+  const [chatMaintenanceResult, setChatMaintenanceResult] =
+    useState<ChatMaintenanceResultView | null>(null);
   const [isDeletingConversation, setIsDeletingConversation] = useState(false);
   const [lastPrivateConversation, setLastPrivateConversation] =
     useState<ConversationProfile | null>(null);
@@ -540,7 +709,13 @@ export function WorkspaceSelectionPage({
   const lastUnreadPublishKeyRef = useRef<string | null>(null);
   const lastHandledNavigationKeyRef = useRef<string | null>(null);
   const terminalOutputBufferRef = useRef(new Map<string, TerminalOutputEventPayload[]>());
+  const terminalFinalOnlyOutputBufferRef = useRef(
+    new Map<string, TerminalOutputEventPayload[]>(),
+  );
   const terminalOutputFlushTimerRef = useRef<number | null>(null);
+  const chatTerminalOutputDisplayModeRef =
+    useRef<ChatTerminalOutputDisplayMode>("stream");
+  const diagnosticsExportGenerationRef = useRef(0);
   const membersRef = useRef<MemberProfile[]>([]);
   const { toast, showToast, clearToast } = useToastStore();
   const { data: status, isLoading } = useQuery({
@@ -556,6 +731,51 @@ export function WorkspaceSelectionPage({
   const activeWorkspace = openedWorkspace ?? windowContext?.activeWorkspace ?? null;
   const activeWorkspaceId = activeWorkspace?.metadata.projectId ?? null;
   const activeWorkspaceRoot = activeWorkspace?.rootPath ?? null;
+
+  useEffect(() => {
+    diagnosticsExportGenerationRef.current += 1;
+    if (!activeWorkspaceId) {
+      setDiagnosticsOverview(null);
+      setDiagnosticsExportResult(null);
+      setIsExportingDiagnostics(false);
+      return;
+    }
+
+    let disposed = false;
+    setIsLoadingDiagnostics(true);
+    void localDiagnosticsApi
+      .getOverview({
+        workspaceId: activeWorkspaceId,
+        cursor: null,
+        limit: 25,
+      })
+      .then((result) => {
+        if (!disposed) {
+          setDiagnosticsOverview(result);
+        }
+      })
+      .catch((error) => {
+        if (!disposed) {
+          const appError = normalizeAppError(error);
+          showToast({
+            tone: appError.severity,
+            title: "无法加载诊断信息",
+            message: appError.message,
+            action: appError.userAction ?? undefined,
+          });
+        }
+      })
+      .finally(() => {
+        if (!disposed) {
+          setIsLoadingDiagnostics(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeWorkspaceId, localDiagnosticsApi, showToast]);
+
   const conversationQueryKey = ["chat-conversations", activeWorkspaceId] as const;
   const workspaceSkillLinksQueryKey = ["workspace-skill-links", activeWorkspaceRoot] as const;
   const roadmapTasksQueryKey = ["roadmap-tasks", activeWorkspaceRoot] as const;
@@ -639,6 +859,42 @@ export function WorkspaceSelectionPage({
   });
   const shortcutPreferences =
     shortcutPreferencesQuery.data?.preferences ?? DEFAULT_SHORTCUT_PREFERENCES;
+  const chatTerminalOutputPreferencesQuery = useQuery({
+    queryKey: ["chat-terminal-output-preferences"],
+    queryFn: profileSettingsApi.getChatTerminalOutputPreferences,
+    retry: false,
+  });
+  const chatTerminalOutputPreferences =
+    chatTerminalOutputPreferencesQuery.data?.preferences ??
+    DEFAULT_CHAT_TERMINAL_OUTPUT_PREFERENCES;
+  chatTerminalOutputDisplayModeRef.current = chatTerminalOutputPreferences.displayMode;
+  const terminalConfigurationQuery = useQuery({
+    queryKey: ["terminal-configuration"],
+    queryFn: profileSettingsApi.getTerminalConfiguration,
+    retry: false,
+  });
+  const terminalConfiguration =
+    terminalConfigurationQuery.data?.configuration ?? DEFAULT_TERMINAL_CONFIGURATION;
+  const builtInRuntimeOptions = useMemo(
+    () =>
+      normalizeGolutraInviteRuntimeOptions(
+        terminalConfiguration.builtInCliEntries.map((entry) => ({
+          id: entry.runtimeId,
+          label: entry.label,
+          command: entry.command,
+        })),
+      ),
+    [terminalConfiguration.builtInCliEntries],
+  );
+  const customCliRuntimeOptions = useMemo(
+    () =>
+      terminalConfiguration.customCliEntries.map((entry) => ({
+        id: entry.cliId,
+        label: entry.label,
+        command: entry.command,
+      })),
+    [terminalConfiguration.customCliEntries],
+  );
   const profiledMembers = useMemo(
     () => applyProfileSettingsToOwnerMembers(members, profileSettings),
     [members, profileSettings],
@@ -660,18 +916,32 @@ export function WorkspaceSelectionPage({
     () =>
       conversations
         .filter((conversation) => conversation.unreadCount > 0)
-        .map((conversation) => ({
-          conversationId: conversation.conversationId,
-          title: conversation.title,
-          unreadCount: conversation.unreadCount,
-          lastMessagePreview: conversation.lastMessagePreview,
-          terminalMemberId:
+        .map((conversation) => {
+          const participantMember =
             conversation.kind === "private" && conversation.participantKind === "member"
-              ? conversation.participantId
-              : null,
-          updatedAtMs: conversation.updatedAtMs,
-        })),
-    [conversations],
+              ? profiledMembers.find((member) => member.memberId === conversation.participantId)
+              : null;
+          const terminalMemberId = participantMember?.memberId ?? null;
+
+          return {
+            conversationId: conversation.conversationId,
+            title: conversation.title,
+            unreadCount: conversation.unreadCount,
+            lastMessagePreview: conversation.lastMessagePreview,
+            terminalMemberId,
+            workspacePath: activeWorkspace?.rootPath ?? null,
+            conversationType: conversation.kind,
+            memberCount: conversation.members.length > 0 ? conversation.members.length : null,
+            senderId: participantMember?.memberId ?? null,
+            senderName: participantMember?.displayName ?? null,
+            senderAvatar: participantMember ? memberFriendAvatar(participantMember) : null,
+            senderCanOpenTerminal: participantMember
+              ? isTerminalCapableMember(participantMember)
+              : false,
+            updatedAtMs: conversation.updatedAtMs,
+          };
+        }),
+    [activeWorkspace?.rootPath, conversations, profiledMembers],
   );
   const workspaceUnreadCount = unreadConversations.reduce(
     (total, conversation) => total + conversation.unreadCount,
@@ -712,6 +982,28 @@ export function WorkspaceSelectionPage({
       return name.includes(query) || path.includes(query);
     });
   }, [recentSearch, recentWorkspaces]);
+  const recentPrimaryWorkspaces = useMemo(
+    () => recentWorkspaces.slice(0, 3),
+    [recentWorkspaces],
+  );
+  const recentMoreWorkspaces = useMemo(
+    () => recentWorkspaces.slice(3),
+    [recentWorkspaces],
+  );
+  const filteredMoreWorkspaces = useMemo(() => {
+    const query = recentSearch.trim().toLocaleLowerCase();
+
+    if (!query) {
+      return recentMoreWorkspaces;
+    }
+
+    return recentMoreWorkspaces.filter((workspace) => {
+      const name = workspace.name.toLocaleLowerCase();
+      const path = formatWorkspacePath(workspace.path).toLocaleLowerCase();
+
+      return name.includes(query) || path.includes(query);
+    });
+  }, [recentMoreWorkspaces, recentSearch]);
   const modeLabel =
     activeWorkspace
       ? text.workspaceOpened
@@ -879,6 +1171,36 @@ export function WorkspaceSelectionPage({
   }, [shortcutPreferencesQuery.error, showToast]);
 
   useEffect(() => {
+    if (!chatTerminalOutputPreferencesQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(chatTerminalOutputPreferencesQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载聊天输出设置",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [chatTerminalOutputPreferencesQuery.error, showToast]);
+
+  useEffect(() => {
+    if (!terminalConfigurationQuery.error) {
+      return;
+    }
+
+    const appError = normalizeAppError(terminalConfigurationQuery.error);
+
+    showToast({
+      tone: appError.severity,
+      title: "无法加载 CLI 与终端设置",
+      message: appError.message,
+      action: appError.userAction ?? undefined,
+    });
+  }, [terminalConfigurationQuery.error, showToast]);
+
+  useEffect(() => {
     if (isProfileSettingsOpen) {
       return;
     }
@@ -889,35 +1211,86 @@ export function WorkspaceSelectionPage({
     setNotificationPreferencesError(null);
     setShortcutPreferencesDraft(shortcutPreferencesToDraft(shortcutPreferences));
     setShortcutPreferencesError(null);
-  }, [isProfileSettingsOpen, notificationPreferences, profileSettings, shortcutPreferences]);
+    setChatTerminalOutputPreferencesDraft(
+      chatTerminalOutputPreferencesToDraft(chatTerminalOutputPreferences),
+    );
+    setChatTerminalOutputPreferencesError(null);
+    setTerminalConfigurationDraft(terminalConfigurationToDraft(terminalConfiguration));
+    setTerminalConfigurationError(null);
+  }, [
+    chatTerminalOutputPreferences,
+    isProfileSettingsOpen,
+    notificationPreferences,
+    profileSettings,
+    shortcutPreferences,
+    terminalConfiguration,
+  ]);
+
+  useEffect(() => {
+    if (
+      builtInRuntimeOptions.length > 0 &&
+      !builtInRuntimeOptions.some((option) => option.id === builtinRuntimeId)
+    ) {
+      setBuiltinRuntimeId(builtInRuntimeOptions[0].id);
+    }
+  }, [builtInRuntimeOptions, builtinRuntimeId]);
+
+  useEffect(() => {
+    if (
+      runtimeKind === "customCli" &&
+      customCliRuntimeOptions.length > 0 &&
+      !customRuntimeCliId &&
+      !customRuntimeCommand.trim()
+    ) {
+      setCustomRuntimeCliId(customCliRuntimeOptions[0].id);
+    }
+  }, [customCliRuntimeOptions, customRuntimeCliId, customRuntimeCommand, runtimeKind]);
 
   useEffect(() => {
     membersRef.current = profiledMembers;
   }, [profiledMembers]);
 
   useEffect(() => {
+    let cancelled = false;
+    const avatarKey = unreadConversations[0]?.senderAvatar ?? null;
     const request = {
       workspaceId: activeWorkspaceId,
       workspaceName: activeWorkspace?.metadata.name ?? null,
       conversations: activeWorkspaceId ? unreadConversations : [],
       sourceWindowLabel: windowContext?.currentWindow.label ?? "main",
+      avatarPng: null as number[] | null,
     };
-    const publishKey = JSON.stringify(request);
+    const publishKey = JSON.stringify({ ...request, avatarKey });
 
     if (lastUnreadPublishKeyRef.current === publishKey) {
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
     lastUnreadPublishKeyRef.current = publishKey;
 
-    notificationsApi.updateUnreadSummary(request).catch((error) => {
-      const appError = normalizeAppError(error);
-      showToast({
-        tone: appError.severity,
-        title: "无法同步未读状态",
-        message: appError.message,
-        action: appError.userAction ?? undefined,
+    async function publishUnreadSummary() {
+      request.avatarPng = await renderNotificationAvatarPng(avatarKey);
+      if (cancelled) {
+        return;
+      }
+
+      notificationsApi.updateUnreadSummary(request).catch((error) => {
+        const appError = normalizeAppError(error);
+        showToast({
+          tone: appError.severity,
+          title: "无法同步未读状态",
+          message: appError.message,
+          action: appError.userAction ?? undefined,
+        });
       });
-    });
+    }
+
+    void publishUnreadSummary();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     activeWorkspace?.metadata.name,
     activeWorkspaceId,
@@ -1051,6 +1424,7 @@ export function WorkspaceSelectionPage({
 
   useEffect(() => {
     terminalOutputBufferRef.current.clear();
+    terminalFinalOnlyOutputBufferRef.current.clear();
     if (terminalOutputFlushTimerRef.current !== null) {
       window.clearTimeout(terminalOutputFlushTimerRef.current);
       terminalOutputFlushTimerRef.current = null;
@@ -1142,10 +1516,81 @@ export function WorkspaceSelectionPage({
       );
     }
 
+    function bufferedTerminalOutputText(
+      events: TerminalOutputEventPayload[],
+      lastRenderedSeq: number,
+    ) {
+      const orderedEvents = compactTerminalOutputEvents(events);
+      let text = "";
+      let lastSeq = lastRenderedSeq;
+
+      for (const event of orderedEvents) {
+        if (event.seq <= lastSeq) {
+          continue;
+        }
+
+        text = `${text}${event.chunk}`.slice(-TERMINAL_STREAM_MAX_CHARS);
+        lastSeq = event.seq;
+      }
+
+      return { text, lastSeq };
+    }
+
+    function compactTerminalOutputEvents(events: TerminalOutputEventPayload[]) {
+      const orderedEvents = events
+        .filter((event) => event.workspaceId === activeWorkspaceId)
+        .sort((left, right) => {
+          if (left.seq !== right.seq) {
+            return left.seq - right.seq;
+          }
+
+          return left.emittedAtMs - right.emittedAtMs;
+        });
+      const uniqueEvents: TerminalOutputEventPayload[] = [];
+      let lastSeq = 0;
+
+      for (const event of orderedEvents) {
+        if (event.seq <= lastSeq) {
+          continue;
+        }
+
+        uniqueEvents.push(event);
+        lastSeq = event.seq;
+      }
+
+      const retainedEvents: TerminalOutputEventPayload[] = [];
+      let retainedChars = 0;
+
+      for (let index = uniqueEvents.length - 1; index >= 0; index -= 1) {
+        if (retainedEvents.length >= TERMINAL_STREAM_MAX_BUFFER_EVENTS) {
+          break;
+        }
+
+        if (retainedChars >= TERMINAL_STREAM_MAX_CHARS && uniqueEvents[index].chunk.length > 0) {
+          break;
+        }
+
+        retainedEvents.push(uniqueEvents[index]);
+        retainedChars += uniqueEvents[index].chunk.length;
+      }
+
+      return retainedEvents.reverse();
+    }
+
     async function subscribeTerminalEvents() {
       try {
         unsubscribeOutput = await terminalsApi.subscribeOutput((event) => {
           if (disposed || event.workspaceId !== activeWorkspaceId) {
+            return;
+          }
+
+          if (chatTerminalOutputDisplayModeRef.current === "finalOnly") {
+            const sessionEvents =
+              terminalFinalOnlyOutputBufferRef.current.get(event.terminalSessionId) ?? [];
+            terminalFinalOnlyOutputBufferRef.current.set(
+              event.terminalSessionId,
+              compactTerminalOutputEvents([...sessionEvents, event]),
+            );
             return;
           }
 
@@ -1165,11 +1610,48 @@ export function WorkspaceSelectionPage({
           const memberLabel = terminalMemberLabel(event.memberId, membersRef.current, event.title);
           const snapshotText = event.snapshot.text.slice(-TERMINAL_STREAM_MAX_CHARS);
           const exitReasonMessage = event.exitReason?.message ?? null;
+          const displayMode = chatTerminalOutputDisplayModeRef.current;
+          const finalOnlyBufferedEvents =
+            terminalFinalOnlyOutputBufferRef.current.get(event.terminalSessionId) ?? [];
 
           setTerminalChatStreams((current) => {
             const existing = current[event.terminalSessionId];
+            const existingLastSeq = existing?.lastSeq ?? 0;
+            const finalOnlyFallback = bufferedTerminalOutputText(
+              finalOnlyBufferedEvents,
+              existingLastSeq,
+            );
             const shouldUseSnapshot =
-              event.snapshot.lastSeq > (existing?.lastSeq ?? 0) && snapshotText.length > 0;
+              displayMode === "stream" &&
+              event.snapshot.lastSeq > existingLastSeq &&
+              snapshotText.length > 0;
+            const isFinalOnlyExit = displayMode === "finalOnly" && event.status === "exited";
+            const shouldUseFinalOnlySnapshot =
+              isFinalOnlyExit &&
+              event.snapshot.lastSeq > existingLastSeq &&
+              event.snapshot.lastSeq >= finalOnlyFallback.lastSeq &&
+              snapshotText.length > 0;
+            const shouldUseFinalOnlyFallback =
+              isFinalOnlyExit &&
+              !shouldUseFinalOnlySnapshot &&
+              finalOnlyFallback.lastSeq > existingLastSeq &&
+              finalOnlyFallback.text.length > 0;
+            const text = shouldUseFinalOnlySnapshot
+              ? snapshotText
+              : shouldUseFinalOnlyFallback
+                ? `${existing?.text ?? ""}${finalOnlyFallback.text}`.slice(
+                    -TERMINAL_STREAM_MAX_CHARS,
+                  )
+                : shouldUseSnapshot
+                  ? snapshotText
+                  : (existing?.text ?? "");
+            const lastSeq = shouldUseFinalOnlySnapshot
+              ? Math.max(existingLastSeq, event.snapshot.lastSeq, finalOnlyFallback.lastSeq)
+              : shouldUseFinalOnlyFallback
+                ? Math.max(existingLastSeq, finalOnlyFallback.lastSeq)
+                : shouldUseSnapshot
+                  ? Math.max(existingLastSeq, event.snapshot.lastSeq)
+                  : existingLastSeq;
 
             return {
               ...current,
@@ -1181,14 +1663,16 @@ export function WorkspaceSelectionPage({
                 title: event.title,
                 status: event.status,
                 exitReasonMessage,
-                text: shouldUseSnapshot ? snapshotText : (existing?.text ?? ""),
-                lastSeq: shouldUseSnapshot
-                  ? Math.max(existing?.lastSeq ?? 0, event.snapshot.lastSeq)
-                  : (existing?.lastSeq ?? 0),
+                text,
+                lastSeq,
                 updatedAtMs: event.emittedAtMs,
               },
             };
           });
+
+          if (displayMode === "finalOnly" && event.status === "exited") {
+            terminalFinalOnlyOutputBufferRef.current.delete(event.terminalSessionId);
+          }
 
           if (event.memberId) {
             setMemberTerminalActivity((current) => {
@@ -1232,6 +1716,7 @@ export function WorkspaceSelectionPage({
       unsubscribeOutput?.();
       unsubscribeStatus?.();
       terminalOutputBufferRef.current.clear();
+      terminalFinalOnlyOutputBufferRef.current.clear();
       if (terminalOutputFlushTimerRef.current !== null) {
         window.clearTimeout(terminalOutputFlushTimerRef.current);
         terminalOutputFlushTimerRef.current = null;
@@ -1504,6 +1989,101 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  async function handleRefreshDiagnostics() {
+    if (!activeWorkspaceId) {
+      return;
+    }
+
+    setIsLoadingDiagnostics(true);
+
+    try {
+      const result = await localDiagnosticsApi.getOverview({
+        workspaceId: activeWorkspaceId,
+        cursor: null,
+        limit: 25,
+      });
+
+      setDiagnosticsOverview(result);
+      showToast({
+        tone: "info",
+        title: "诊断信息已刷新",
+        message: `已读取 ${result.runs.length} 个 run 和 ${result.keyEvents.length} 条事件。`,
+        action: result.hasMore ? "还有更多诊断事件，可通过导出分批获取。" : undefined,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法刷新诊断信息",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsLoadingDiagnostics(false);
+    }
+  }
+
+  async function handleGenerateDiagnosticsExport(cursor: string | null = null) {
+    if (!activeWorkspaceId) {
+      return;
+    }
+
+    const exportGeneration = diagnosticsExportGenerationRef.current + 1;
+    diagnosticsExportGenerationRef.current = exportGeneration;
+    setIsExportingDiagnostics(true);
+
+    try {
+      const result = await localDiagnosticsApi.generateExport({
+        workspaceId: activeWorkspaceId,
+        cursor,
+        maxEvents: 25,
+        includeSections: [
+          "runs",
+          "events",
+          "validationReports",
+          "consistencySummaries",
+          "appMetadata",
+          "additionalContext",
+        ],
+        additionalContext: [],
+      });
+
+      if (diagnosticsExportGenerationRef.current !== exportGeneration) {
+        return;
+      }
+      setDiagnosticsExportResult(result);
+      showToast({
+        tone: result.warnings.length > 0 ? "warning" : "info",
+        title: result.warnings.length > 0 ? "诊断导出已生成，包含脱敏提醒" : "诊断导出已生成",
+        message: `本批包含 ${result.package.runs.length} 个 run 和 ${result.package.keyEvents.length} 条事件。`,
+        action: result.hasMore ? "可继续生成下一批，或停止当前导出。" : "导出包已完成脱敏处理。",
+      });
+    } catch (error) {
+      if (diagnosticsExportGenerationRef.current !== exportGeneration) {
+        return;
+      }
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法生成诊断导出",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      if (diagnosticsExportGenerationRef.current === exportGeneration) {
+        setIsExportingDiagnostics(false);
+      }
+    }
+  }
+
+  function handleClearDiagnosticsExport() {
+    diagnosticsExportGenerationRef.current += 1;
+    setIsExportingDiagnostics(false);
+    setDiagnosticsExportResult(null);
+  }
+
   async function handleInviteMember() {
     if (!activeWorkspace) {
       return;
@@ -1512,11 +2092,22 @@ export function WorkspaceSelectionPage({
     setIsInvitingMember(true);
 
     try {
-      const runtime = selectedRuntimeProfile(runtimeKind, builtinRuntimeId, customRuntimeCommand);
+      const runtime = selectedRuntimeProfile(
+        runtimeKind,
+        builtinRuntimeId,
+        customRuntimeCliId,
+        customRuntimeCommand,
+        builtInRuntimeOptions,
+        customCliRuntimeOptions,
+      );
+      const resolvedInviteDisplayName =
+        inviteDisplayName.trim() ||
+        runtime.label?.trim() ||
+        (inviteType === "member" ? "Local Collaborator" : "Codex Reviewer");
       const result = await membersApi.inviteMember({
         workspaceId: activeWorkspace.metadata.projectId,
         memberType: inviteType,
-        displayName: inviteDisplayName,
+        displayName: resolvedInviteDisplayName,
         runtime,
         instanceCount: inviteInstanceCount,
         permissions: {
@@ -1531,14 +2122,35 @@ export function WorkspaceSelectionPage({
 
       setInviteDisplayName("");
       await memberQuery.refetch();
+      const inviteFeedbackText =
+        language === "en-US"
+          ? {
+              title: "Member invited",
+              multiple: "Saved {count} {role} instances.",
+              single: "{name} saved as {role}.",
+              action: "Runtime config saved; the terminal will not start automatically.",
+            }
+          : {
+              title: "成员已邀请",
+              multiple: "已保存 {count} 个{role}实例。",
+              single: "{name} 已保存为{role}。",
+              action: "运行时配置已保存，终端不会自动启动。",
+            };
+      const invitedRoleLabel = parityMemberRoleLabel(result.member.role, language);
       showToast({
         tone: "info",
-        title: "成员已邀请",
+        title: inviteFeedbackText.title,
         message:
           result.invitedMembers.length > 1
-            ? `已保存 ${result.invitedMembers.length} 个 ${memberRoleLabel(result.member.role)} 实例。`
-            : `${result.member.instanceLabel} 已保存为 ${memberRoleLabel(result.member.role)}。`,
-        action: "运行时配置已保存，终端不会自动启动。",
+            ? formatChatText(inviteFeedbackText.multiple, {
+                count: result.invitedMembers.length,
+                role: invitedRoleLabel,
+              })
+            : formatChatText(inviteFeedbackText.single, {
+                name: result.member.instanceLabel,
+                role: invitedRoleLabel,
+              }),
+        action: inviteFeedbackText.action,
       });
     } catch (error) {
       const appError = normalizeAppError(error);
@@ -1587,6 +2199,36 @@ export function WorkspaceSelectionPage({
         message: appError.message,
         action: appError.userAction ?? undefined,
       });
+    }
+  }
+
+  async function handleUpdateMemberProfile(member: MemberProfile, displayName: string) {
+    if (!activeWorkspaceId) {
+      return;
+    }
+
+    try {
+      const result = await membersApi.updateMemberProfile({
+        workspaceId: activeWorkspaceId,
+        memberId: member.memberId,
+        displayName,
+      });
+      queryClient.setQueryData(["members", activeWorkspaceId], { members: result.members });
+      showToast({
+        tone: "info",
+        title: "成员资料已更新",
+        message: `${result.member.instanceLabel} 已保存。`,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法更新成员资料",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+      throw error;
     }
   }
 
@@ -1814,8 +2456,8 @@ export function WorkspaceSelectionPage({
     title?: string;
     isPinned?: boolean;
     isMuted?: boolean;
-  }) {
-    if (!activeWorkspaceId || !selectedConversation) {
+  }, targetConversation: ConversationProfile | null = selectedConversation) {
+    if (!activeWorkspaceId || !targetConversation) {
       return;
     }
 
@@ -1824,7 +2466,7 @@ export function WorkspaceSelectionPage({
     try {
       const result = await conversationsApi.updateConversationSettings({
         workspaceId: activeWorkspaceId,
-        conversationId: selectedConversation.conversationId,
+        conversationId: targetConversation.conversationId,
         title: update.title ?? null,
         isPinned: update.isPinned ?? null,
         isMuted: update.isMuted ?? null,
@@ -1869,12 +2511,12 @@ export function WorkspaceSelectionPage({
     await handleUpdateConversationSettings({ title });
   }
 
-  async function handleClearConversation() {
-    if (!activeWorkspaceId || !selectedConversation) {
+  async function handleClearConversation(targetConversation: ConversationProfile | null = selectedConversation) {
+    if (!activeWorkspaceId || !targetConversation) {
       return;
     }
 
-    const confirmed = window.confirm(`清空 ${selectedConversation.title} 的本地消息？`);
+    const confirmed = window.confirm(`清空 ${targetConversation.title} 的本地消息？`);
 
     if (!confirmed) {
       return;
@@ -1885,7 +2527,7 @@ export function WorkspaceSelectionPage({
     try {
       const result = await conversationsApi.clearConversation({
         workspaceId: activeWorkspaceId,
-        conversationId: selectedConversation.conversationId,
+        conversationId: targetConversation.conversationId,
       });
 
       queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, {
@@ -1926,12 +2568,167 @@ export function WorkspaceSelectionPage({
     }
   }
 
-  async function handleDeleteConversation() {
-    if (!activeWorkspaceId || !selectedConversation) {
+  async function handleRepairWorkspaceChatData() {
+    if (!activeWorkspaceId) {
       return;
     }
 
-    const confirmed = window.confirm(`删除会话 ${selectedConversation.title}？`);
+    const workspaceLabel = activeWorkspace?.metadata.name ?? activeWorkspaceId;
+    const confirmed = window.confirm(
+      `修复 ${workspaceLabel} 的本地聊天数据？此操作可能删除无效消息索引。`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setIsRepairingChatData(true);
+
+    try {
+      const result = await conversationsApi.repairWorkspaceData({
+        workspaceId: activeWorkspaceId,
+      });
+
+      queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, {
+        conversations: result.conversations,
+      });
+      await queryClient.invalidateQueries({ queryKey: messageQueryKey });
+      setChatMaintenanceResult(chatRepairResultView(result));
+      showToast({
+        tone: result.failedCount > 0 ? "warning" : "info",
+        title: result.failedCount > 0 ? "聊天数据修复有遗留项" : "聊天数据修复完成",
+        message: `已修复 ${result.repairedCount} 项，失败 ${result.failedCount} 项，跳过 ${result.skippedCount} 项。`,
+        action: result.followUpAction,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setChatMaintenanceResult({
+        status: "failed",
+        title: "聊天数据修复失败",
+        summary: `范围：workspace-chat。${appError.message}`,
+        details: appError.details ? [appError.details] : [],
+        action: appError.userAction ?? "请运行数据验证后重试。",
+      });
+      showToast({
+        tone: appError.severity,
+        title: "无法修复聊天数据",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsRepairingChatData(false);
+    }
+  }
+
+  async function handleClearWorkspaceChatData() {
+    if (!activeWorkspaceId) {
+      return;
+    }
+
+    const workspaceLabel = activeWorkspace?.metadata.name ?? activeWorkspaceId;
+    const confirmed = window.confirm(
+      `清空 ${workspaceLabel} 的所有本地聊天消息？会话、成员和设置会保留。`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const typed = window.prompt(
+      `输入 ${workspaceLabel} 或 ${activeWorkspaceId} 确认清空所有消息`,
+    );
+    const confirmation = typed?.trim() ?? "";
+
+    if (confirmation !== workspaceLabel && confirmation !== activeWorkspaceId) {
+      if (typed !== null) {
+        showToast({
+          tone: "warning",
+          title: "未清空聊天数据",
+          message: "确认内容不匹配，当前工作区消息保持不变。",
+        });
+      }
+      return;
+    }
+
+    setIsClearingWorkspaceChatData(true);
+
+    try {
+      const result = await conversationsApi.clearWorkspaceData({
+        workspaceId: activeWorkspaceId,
+      });
+      const nextSelectedConversation =
+        result.conversations.find(
+          (conversation) => conversation.conversationId === selectedConversation?.conversationId,
+        ) ??
+        result.conversations[0] ??
+        null;
+
+      queryClient.setQueryData<ListConversationsResult>(conversationQueryKey, {
+        conversations: result.conversations,
+      });
+      queryClient.setQueriesData<ListMessagesResult>(
+        { queryKey: ["chat-messages", activeWorkspaceId] },
+        (current) => {
+          if (!current) {
+            return current;
+          }
+
+          const conversation =
+            result.conversations.find(
+              (item) => item.conversationId === current.conversation.conversationId,
+            ) ?? current.conversation;
+
+          return {
+            ...current,
+            messages: [],
+            hasMore: false,
+            nextBeforeMessageId: null,
+            readPosition: null,
+            conversation,
+          };
+        },
+      );
+      setSelectedConversationId(nextSelectedConversation?.conversationId ?? null);
+      setMessages([]);
+      setNextBeforeMessageId(null);
+      setHasOlderMessages(false);
+      setMessageDispatchStates({});
+      lastReadUpdateRef.current = null;
+      setChatMaintenanceResult(chatClearResultView(result));
+      showToast({
+        tone: "info",
+        title: "工作区聊天消息已清空",
+        message: `已清除 ${result.clearedMessageCount} 条消息、${result.clearedMentionCount} 条提及和 ${result.clearedReadPositionCount} 条已读位置。`,
+        action: result.followUpAction,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setChatMaintenanceResult({
+        status: "failed",
+        title: "聊天数据清空失败",
+        summary: `范围：workspace-chat。${appError.message}`,
+        details: appError.details ? [appError.details] : [],
+        action: appError.userAction ?? "请运行数据验证后重试。",
+      });
+      showToast({
+        tone: appError.severity,
+        title: "无法清空聊天数据",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsClearingWorkspaceChatData(false);
+    }
+  }
+
+  async function handleDeleteConversation(targetConversation: ConversationProfile | null = selectedConversation) {
+    if (!activeWorkspaceId || !targetConversation) {
+      return;
+    }
+
+    const confirmed = window.confirm(`删除会话 ${targetConversation.title}？`);
 
     if (!confirmed) {
       return;
@@ -1942,7 +2739,7 @@ export function WorkspaceSelectionPage({
     try {
       const result = await conversationsApi.deleteConversation({
         workspaceId: activeWorkspaceId,
-        conversationId: selectedConversation.conversationId,
+        conversationId: targetConversation.conversationId,
       });
       const nextConversation = result.conversations[0] ?? null;
 
@@ -2399,6 +3196,57 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  async function handleRenameContact(contact: ContactProfile, displayName: string) {
+    try {
+      const result = await contactsApi.updateContact({
+        contactId: contact.contactId,
+        displayName,
+        contactKind: contact.contactKind,
+        notes: contact.notes,
+        sourceLabel: contact.sourceLabel,
+      });
+      queryClient.setQueryData(["contacts"], { contacts: result.contacts });
+      showToast({
+        tone: "info",
+        title: "联系人已更新",
+        message: `${result.contact.displayName} 已保存到全局联系人。`,
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法更新联系人",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+      throw error;
+    }
+  }
+
+  async function handleUpdateContactStatus(contact: ContactProfile, status: MemberProfile["status"]) {
+    try {
+      const result = await contactsApi.updateContact({
+        contactId: contact.contactId,
+        displayName: contact.displayName,
+        contactKind: contact.contactKind,
+        status,
+        notes: contact.notes,
+        sourceLabel: contact.sourceLabel,
+      });
+      queryClient.setQueryData(["contacts"], { contacts: result.contacts });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      showToast({
+        tone: appError.severity,
+        title: "无法更新联系人状态",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    }
+  }
+
   async function runOpenFlow(openAction: () => Promise<OpenWorkspaceResult | null>) {
     setIsOpening(true);
 
@@ -2438,6 +3286,7 @@ export function WorkspaceSelectionPage({
     }
 
     setOpenedWorkspace(result.workspace);
+    onWorkspaceOpened?.(result.workspace);
     await recentQuery.refetch();
 
     if (result.status === "focusedExisting") {
@@ -2601,6 +3450,17 @@ export function WorkspaceSelectionPage({
     } finally {
       setPendingSkillUnlinkId(null);
     }
+  }
+
+  function handleUnavailableCapability(title: string, status: CapabilityStatus) {
+    const meta = capabilityStatusMeta(status);
+
+    showToast({
+      tone: "warning",
+      title: `${title}暂未启用`,
+      message: meta.description,
+      action: `该能力已标记为${meta.label}，不会作为已完成 MVP 功能处理。`,
+    });
   }
 
   async function handleCreateRoadmapTask() {
@@ -2838,6 +3698,12 @@ export function WorkspaceSelectionPage({
     setNotificationPreferencesError(null);
     setShortcutPreferencesDraft(shortcutPreferencesToDraft(shortcutPreferences));
     setShortcutPreferencesError(null);
+    setChatTerminalOutputPreferencesDraft(
+      chatTerminalOutputPreferencesToDraft(chatTerminalOutputPreferences),
+    );
+    setChatTerminalOutputPreferencesError(null);
+    setTerminalConfigurationDraft(terminalConfigurationToDraft(terminalConfiguration));
+    setTerminalConfigurationError(null);
     setIsProfileSettingsOpen(true);
   }
 
@@ -2992,6 +3858,117 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  async function handleSaveChatTerminalOutputPreferences() {
+    setIsSavingChatTerminalOutputPreferences(true);
+    setChatTerminalOutputPreferencesError(null);
+
+    try {
+      const result = await profileSettingsApi.updateChatTerminalOutputPreferences({
+        displayMode: chatTerminalOutputPreferencesDraft.displayMode,
+      });
+
+      queryClient.setQueryData(["chat-terminal-output-preferences"], {
+        preferences: result.preferences,
+      });
+      setChatTerminalOutputPreferencesDraft(
+        chatTerminalOutputPreferencesToDraft(result.preferences),
+      );
+      showToast({
+        tone: "info",
+        title: "聊天输出设置已保存",
+        message:
+          result.preferences.displayMode === "stream"
+            ? "新的终端输出会实时显示在聊天中。"
+            : "新的终端输出会在终端退出后显示最终结果。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setChatTerminalOutputPreferencesError(appError.message);
+      showToast({
+        tone: appError.severity,
+        title: "聊天输出设置保存失败",
+        message: appError.message,
+        action: appError.userAction ?? "之前保存的聊天输出偏好仍在生效。",
+      });
+    } finally {
+      setIsSavingChatTerminalOutputPreferences(false);
+    }
+  }
+
+  async function handleSaveTerminalConfiguration() {
+    setIsSavingTerminalConfiguration(true);
+    setTerminalConfigurationError(null);
+
+    try {
+      const result = await profileSettingsApi.updateTerminalConfiguration({
+        builtInCliEntries: terminalConfigurationDraft.builtInCliEntries.map((entry) => ({
+          ...entry,
+        })),
+        customCliEntries: terminalConfigurationDraft.customCliEntries.map((entry) => ({
+          ...entry,
+        })),
+        customTerminalEntries: terminalConfigurationDraft.customTerminalEntries.map((entry) => ({
+          ...entry,
+        })),
+        defaultTerminalId: terminalConfigurationDraft.defaultTerminalId,
+      });
+
+      queryClient.setQueryData(["terminal-configuration"], {
+        configuration: result.configuration,
+      });
+      setTerminalConfigurationDraft(terminalConfigurationToDraft(result.configuration));
+      showToast({
+        tone: "info",
+        title: "CLI 与终端设置已保存",
+        message: "成员运行时和工作区终端会使用新的本地配置。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setTerminalConfigurationError(appError.message);
+      showToast({
+        tone: appError.severity,
+        title: "CLI 与终端设置保存失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSavingTerminalConfiguration(false);
+    }
+  }
+
+  async function handleResetTerminalConfiguration() {
+    setIsSavingTerminalConfiguration(true);
+    setTerminalConfigurationError(null);
+
+    try {
+      const result = await profileSettingsApi.resetTerminalConfiguration();
+
+      queryClient.setQueryData(["terminal-configuration"], {
+        configuration: result.configuration,
+      });
+      setTerminalConfigurationDraft(terminalConfigurationToDraft(result.configuration));
+      showToast({
+        tone: "info",
+        title: "CLI 与终端已恢复默认",
+        message: "自定义 CLI 与默认终端选择已清空。",
+      });
+    } catch (error) {
+      const appError = normalizeAppError(error);
+
+      setTerminalConfigurationError(appError.message);
+      showToast({
+        tone: appError.severity,
+        title: "CLI 与终端恢复失败",
+        message: appError.message,
+        action: appError.userAction ?? undefined,
+      });
+    } finally {
+      setIsSavingTerminalConfiguration(false);
+    }
+  }
+
   function applyProfileSettingsResult(profile: ProfileSettingsSnapshot) {
     queryClient.setQueryData(["profile-settings"], { profile });
     setProfileSettingsDraft(profileSnapshotToDraft(profile));
@@ -3103,6 +4080,275 @@ export function WorkspaceSelectionPage({
     }
   }
 
+  if (!activeWorkspace) {
+    return (
+      <WorkspaceSelectionLanding
+        text={text}
+        language={language}
+        isOpening={isOpening}
+        isLoading={isLoading}
+        recentPrimaryWorkspaces={recentPrimaryWorkspaces}
+        recentMoreWorkspaces={recentMoreWorkspaces}
+        filteredMoreWorkspaces={filteredMoreWorkspaces}
+        recentSearch={recentSearch}
+        windowContext={windowContext}
+        integrityReport={integrityReport}
+        isValidatingIntegrity={isValidatingIntegrity}
+        isSyncActionPending={isSyncActionPending}
+        showCompatibilityControls={showCompatibilityControls}
+        statusRecentWorkspaceCount={status?.recentWorkspaceCount ?? 0}
+        pendingConflict={pendingConflict}
+        conflictPrimaryButtonRef={conflictPrimaryButtonRef}
+        toast={renderLocalToast ? toast : null}
+        onOpenWorkspace={handleOpenWorkspace}
+        onOpenRecent={handleOpenRecent}
+        onRecentSearchChange={setRecentSearch}
+        onRefreshRecent={() => void recentQuery.refetch()}
+        onThemeChange={(theme) => void handlePreferenceChange({ theme })}
+        onLanguageChange={(language) => void handlePreferenceChange({ language })}
+        onOpenWindowMode={(mode) => void handleOpenWindowMode(mode)}
+        onValidateIntegrity={() => void handleValidateDataIntegrity()}
+        onResolveConflict={handleResolveConflict}
+        onCancelConflict={handleCancelConflict}
+        onClearToast={clearToast}
+      />
+    );
+  }
+
+  if (parityWorkbench) {
+    const renderParitySurface = (surface: ReactNode) => (
+      <>
+        {surface}
+        {renderLocalToast && toast ? <Toast toast={toast} onClose={clearToast} /> : null}
+      </>
+    );
+
+    if (parityView === "friends") {
+      return renderParitySurface(
+        <FriendsMembersParity
+          language={language}
+          members={profiledMembers}
+          contacts={contacts}
+          terminalActivity={memberTerminalActivity}
+          isLoading={memberQuery.isLoading}
+          isInviting={isInvitingMember}
+          runtimeKind={runtimeKind}
+          builtinRuntimeId={builtinRuntimeId}
+          customRuntimeCliId={customRuntimeCliId}
+          customRuntimeCommand={customRuntimeCommand}
+          builtInRuntimeOptions={builtInRuntimeOptions}
+          customCliRuntimeOptions={customCliRuntimeOptions}
+          instanceCount={inviteInstanceCount}
+          sandboxed={inviteSandboxed}
+          unlimitedAccess={inviteUnlimitedAccess}
+          onInviteTypeChange={setInviteType}
+          onDisplayNameChange={setInviteDisplayName}
+          onRuntimeKindChange={setRuntimeKind}
+          onBuiltinRuntimeChange={setBuiltinRuntimeId}
+          onCustomRuntimeCliChange={setCustomRuntimeCliId}
+          onCustomRuntimeCommandChange={setCustomRuntimeCommand}
+          onInstanceCountChange={setInviteInstanceCount}
+          onSandboxedChange={setInviteSandboxed}
+          onUnlimitedAccessChange={setInviteUnlimitedAccess}
+          onStartPrivateConversation={(member) =>
+            void handleStartPrivateConversation("member", member.memberId)
+          }
+          onOpenMemberTerminal={(member) => void handleOpenMemberTerminal(member)}
+          onRenameMember={handleUpdateMemberProfile}
+          onRenameContact={handleRenameContact}
+          onUpdateContactStatus={handleUpdateContactStatus}
+          onStartContactConversation={(contact) =>
+            void handleStartPrivateConversation("contact", contact.contactId)
+          }
+          onRemoveContact={(contact) => void handleDeleteContact(contact)}
+          onUpdateMemberStatus={(member, status) =>
+            void handleUpdateMemberStatus(member, status)
+          }
+          onRemoveMember={(member) => void handleRemoveMember(member)}
+          onInvite={() => void handleInviteMember()}
+          onUnavailable={(capability) => handleUnavailableCapability(capability, "placeholder")}
+        />,
+      );
+    }
+
+    if (parityView === "settings") {
+      return renderParitySurface(
+        <SettingsParity
+          profileDraft={profileSettingsDraft}
+          savedProfile={profileSettings}
+          notificationDraft={notificationPreferencesDraft}
+          savedNotificationPreferences={notificationPreferences}
+          shortcutDraft={shortcutPreferencesDraft}
+          savedShortcutPreferences={shortcutPreferences}
+          chatTerminalOutputDraft={chatTerminalOutputPreferencesDraft}
+          savedChatTerminalOutputPreferences={chatTerminalOutputPreferences}
+          terminalDraft={terminalConfigurationDraft}
+          savedTerminalConfiguration={terminalConfiguration}
+          activeWorkspaceId={activeWorkspaceId}
+          activeWorkspaceName={activeWorkspace.metadata.name}
+          chatMaintenanceResult={chatMaintenanceResult}
+          fieldError={profileSettingsFieldError}
+          notificationError={notificationPreferencesError}
+          shortcutError={shortcutPreferencesError}
+          chatTerminalOutputError={chatTerminalOutputPreferencesError}
+          terminalError={terminalConfigurationError}
+          isLoading={profileSettingsQuery.isLoading}
+          isSaving={isSavingProfileSettings}
+          isNotificationLoading={notificationPreferencesQuery.isLoading}
+          isNotificationSaving={isSavingNotificationPreferences}
+          isShortcutLoading={shortcutPreferencesQuery.isLoading}
+          isShortcutSaving={isSavingShortcutPreferences}
+          isChatTerminalOutputLoading={chatTerminalOutputPreferencesQuery.isLoading}
+          isChatTerminalOutputSaving={isSavingChatTerminalOutputPreferences}
+          isRepairingChatData={isRepairingChatData}
+          isClearingWorkspaceChatData={isClearingWorkspaceChatData}
+          isTerminalLoading={terminalConfigurationQuery.isLoading}
+          isTerminalSaving={isSavingTerminalConfiguration}
+          pendingAvatarAction={pendingProfileAvatarAction}
+          theme={windowContext?.preferences.theme ?? "system"}
+          language={language}
+          onDraftChange={setProfileSettingsDraft}
+          onNotificationDraftChange={setNotificationPreferencesDraft}
+          onShortcutDraftChange={setShortcutPreferencesDraft}
+          onChatTerminalOutputDraftChange={setChatTerminalOutputPreferencesDraft}
+          onTerminalDraftChange={setTerminalConfigurationDraft}
+          onUploadAvatar={() => void handleUploadProfileAvatar()}
+          onSelectAvatarPreset={(presetId) => void handleSelectProfileAvatarPreset(presetId)}
+          onResetAvatar={() => void handleResetProfileAvatar()}
+          onDeleteUploadedAvatar={() => void handleDeleteUploadedProfileAvatar()}
+          onSave={() => void handleSaveProfileSettings()}
+          onSaveNotifications={() => void handleSaveNotificationPreferences()}
+          onSaveShortcuts={() => void handleSaveShortcutPreferences()}
+          onResetShortcuts={() => void handleResetShortcutPreferences()}
+          onSaveChatTerminalOutput={() => void handleSaveChatTerminalOutputPreferences()}
+          onRepairChatData={() => void handleRepairWorkspaceChatData()}
+          onClearWorkspaceChatData={() => void handleClearWorkspaceChatData()}
+          onSaveTerminalConfiguration={() => void handleSaveTerminalConfiguration()}
+          onResetTerminalConfiguration={() => void handleResetTerminalConfiguration()}
+          onTestTerminal={() => void handleOpenWorkspaceTerminal()}
+          onThemeChange={(theme) => void handlePreferenceChange({ theme })}
+          onLanguageChange={(language) => void handlePreferenceChange({ language })}
+        />,
+      );
+    }
+
+    if (parityView === "store") {
+      return renderParitySurface(
+        <SkillStoreParity
+          language={language}
+          skills={skills}
+          linkedSkillIds={linkedSkillIds}
+          isLoading={skillQuery.isLoading}
+          isLoadingLinks={workspaceSkillLinksQuery.isLoading}
+          isImporting={isImportingSkill}
+          pendingOpenId={pendingSkillOpenId}
+          pendingDeleteId={pendingSkillDeleteId}
+          pendingLinkId={pendingSkillLinkId}
+          pendingUnlinkId={pendingSkillUnlinkId}
+          onImport={() => void handleImportSkill()}
+          onOpen={(skillId) => void handleOpenSkillFolder(skillId)}
+          onDelete={(skillId) => void handleDeleteSkill(skillId)}
+          onLink={(skillId) => void handleLinkWorkspaceSkill(skillId)}
+          onUnlink={(skillId) => void handleUnlinkWorkspaceSkill(skillId)}
+        />,
+      );
+    }
+
+    if (parityView === "plugins") {
+      return renderParitySurface(
+        <PluginMarketplaceParity
+          language={language}
+          onUnavailableCapability={handleUnavailableCapability}
+        />,
+      );
+    }
+
+    if (parityView !== "chat") {
+      return renderParitySurface(<ParityTabPlaceholder tab={parityView} />);
+    }
+
+    return renderParitySurface(
+      <ChatWorkbenchParity
+        language={language}
+        activeWorkspace={activeWorkspace}
+        conversations={visibleConversations}
+        selectedConversation={selectedConversation}
+        messages={messages}
+        members={profiledMembers}
+        messageDraft={messageDraft}
+        mentionedMemberIds={mentionedMemberIds}
+        attachmentEntries={attachmentEntries}
+        roadmapTasks={roadmapTasks}
+        isRoadmapAttachmentPickerOpen={isRoadmapAttachmentPickerOpen}
+        isLoadingConversations={conversationQuery.isLoading}
+        isLoadingMessages={messageQuery.isLoading}
+        isLoadingOlderMessages={isLoadingOlderMessages}
+        hasOlderMessages={hasOlderMessages}
+        isSendingMessage={isSendingMessage}
+        isUpdatingSettings={isUpdatingConversationSettings}
+        isClearingConversation={isClearingConversation}
+        isDeletingConversation={isDeletingConversation}
+        renameDraft={renameDraft}
+        inviteRuntimeKind={runtimeKind}
+        inviteBuiltinRuntimeId={builtinRuntimeId}
+        inviteCustomRuntimeCliId={customRuntimeCliId}
+        inviteCustomRuntimeCommand={customRuntimeCommand}
+        builtInRuntimeOptions={builtInRuntimeOptions}
+        customCliRuntimeOptions={customCliRuntimeOptions}
+        inviteInstanceCount={inviteInstanceCount}
+        inviteSandboxed={inviteSandboxed}
+        inviteUnlimitedAccess={inviteUnlimitedAccess}
+        isInviting={isInvitingMember}
+        onSelectConversation={setSelectedConversationId}
+        onMessageDraftChange={handleMessageDraftChange}
+        onAddMention={addMentionMember}
+        onRemoveMention={removeMentionMember}
+        onAddImageAttachment={addImageAttachmentEntry}
+        onOpenRoadmapAttachmentPicker={openRoadmapAttachmentPicker}
+        onSelectRoadmapAttachment={addRoadmapAttachmentEntry}
+        onOpenRoadmapReference={openRoadmapReference}
+        onRemoveAttachmentEntry={removeAttachmentEntry}
+        onSendMessage={() => void handleSendMessage()}
+        onLoadOlderMessages={() => void handleLoadOlderMessages()}
+        onTogglePinned={(conversation) =>
+          void handleUpdateConversationSettings({ isPinned: !conversation.isPinned }, conversation)
+        }
+        onToggleMuted={(conversation) =>
+          void handleUpdateConversationSettings({ isMuted: !conversation.isMuted }, conversation)
+        }
+        onRenameDraftChange={setRenameDraft}
+        onRenameConversation={() => void handleRenameConversation()}
+        onClearConversation={(conversation) => void handleClearConversation(conversation)}
+        onDeleteConversation={(conversation) => void handleDeleteConversation(conversation)}
+        onOpenRoadmap={() => {
+          setFocusedRoadmapTaskId(null);
+          setIsRoadmapOpen(true);
+        }}
+        onOpenSkills={() => handleUnavailableCapability("技能管理", "placeholder")}
+        onOpenMembers={() => undefined}
+        onInviteTypeChange={setInviteType}
+        onInviteDisplayNameChange={setInviteDisplayName}
+        onInviteRuntimeKindChange={setRuntimeKind}
+        onInviteBuiltinRuntimeChange={setBuiltinRuntimeId}
+        onInviteCustomRuntimeCliChange={setCustomRuntimeCliId}
+        onInviteCustomRuntimeCommandChange={setCustomRuntimeCommand}
+        onInviteInstanceCountChange={setInviteInstanceCount}
+        onInviteSandboxedChange={setInviteSandboxed}
+        onInviteUnlimitedAccessChange={setInviteUnlimitedAccess}
+        onInviteMember={() => void handleInviteMember()}
+        onStartPrivateConversation={(member) =>
+          void handleStartPrivateConversation("member", member.memberId)
+        }
+        onOpenMemberTerminal={(member) => void handleOpenMemberTerminal(member)}
+        onMentionMember={handleMentionMember}
+        onRenameMember={handleUpdateMemberProfile}
+        onUpdateMemberStatus={(member, status) => void handleUpdateMemberStatus(member, status)}
+        onRemoveMember={(member) => void handleRemoveMember(member)}
+        onUnavailable={(capability) => handleUnavailableCapability(capability, "placeholder")}
+      />,
+    );
+  }
+
   return (
     <main className="min-h-screen bg-[#f4f7f2] text-[#17211b]">
       <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-5">
@@ -3179,6 +4425,19 @@ export function WorkspaceSelectionPage({
                 report={integrityReport}
                 disabled={isValidatingIntegrity}
                 onValidate={() => void handleValidateDataIntegrity()}
+              />
+            ) : null}
+
+            {activeWorkspace ? (
+              <DiagnosticsPanel
+                overview={diagnosticsOverview}
+                exportResult={diagnosticsExportResult}
+                isLoading={isLoadingDiagnostics}
+                isExporting={isExportingDiagnostics}
+                onRefresh={() => void handleRefreshDiagnostics()}
+                onExport={() => void handleGenerateDiagnosticsExport(null)}
+                onExportNext={(cursor) => void handleGenerateDiagnosticsExport(cursor)}
+                onClearExport={handleClearDiagnosticsExport}
               />
             ) : null}
 
@@ -3367,7 +4626,10 @@ export function WorkspaceSelectionPage({
                 displayName={inviteDisplayName}
                 runtimeKind={runtimeKind}
                 builtinRuntimeId={builtinRuntimeId}
+                customRuntimeCliId={customRuntimeCliId}
                 customRuntimeCommand={customRuntimeCommand}
+                builtInRuntimeOptions={builtInRuntimeOptions}
+                customCliRuntimeOptions={customCliRuntimeOptions}
                 instanceCount={inviteInstanceCount}
                 canMention={inviteCanMention}
                 canRemove={inviteCanRemove}
@@ -3378,6 +4640,7 @@ export function WorkspaceSelectionPage({
                 onDisplayNameChange={setInviteDisplayName}
                 onRuntimeKindChange={setRuntimeKind}
                 onBuiltinRuntimeChange={setBuiltinRuntimeId}
+                onCustomRuntimeCliChange={setCustomRuntimeCliId}
                 onCustomRuntimeCommandChange={setCustomRuntimeCommand}
                 onInstanceCountChange={setInviteInstanceCount}
                 onCanMentionChange={setInviteCanMention}
@@ -3446,6 +4709,7 @@ export function WorkspaceSelectionPage({
                 onDelete={(skillId) => void handleDeleteSkill(skillId)}
                 onLink={(skillId) => void handleLinkWorkspaceSkill(skillId)}
                 onUnlink={(skillId) => void handleUnlinkWorkspaceSkill(skillId)}
+                onUnavailableCapability={handleUnavailableCapability}
               />
             ) : null}
 
@@ -3457,19 +4721,36 @@ export function WorkspaceSelectionPage({
                 savedNotificationPreferences={notificationPreferences}
                 shortcutDraft={shortcutPreferencesDraft}
                 savedShortcutPreferences={shortcutPreferences}
+                chatTerminalOutputDraft={chatTerminalOutputPreferencesDraft}
+                savedChatTerminalOutputPreferences={chatTerminalOutputPreferences}
+                terminalDraft={terminalConfigurationDraft}
+                savedTerminalConfiguration={terminalConfiguration}
+                activeWorkspaceId={activeWorkspaceId}
+                activeWorkspaceName={activeWorkspace?.metadata.name ?? null}
+                chatMaintenanceResult={chatMaintenanceResult}
                 fieldError={profileSettingsFieldError}
                 notificationError={notificationPreferencesError}
                 shortcutError={shortcutPreferencesError}
+                chatTerminalOutputError={chatTerminalOutputPreferencesError}
+                terminalError={terminalConfigurationError}
                 isLoading={profileSettingsQuery.isLoading}
                 isSaving={isSavingProfileSettings}
                 isNotificationLoading={notificationPreferencesQuery.isLoading}
                 isNotificationSaving={isSavingNotificationPreferences}
                 isShortcutLoading={shortcutPreferencesQuery.isLoading}
                 isShortcutSaving={isSavingShortcutPreferences}
+                isChatTerminalOutputLoading={chatTerminalOutputPreferencesQuery.isLoading}
+                isChatTerminalOutputSaving={isSavingChatTerminalOutputPreferences}
+                isRepairingChatData={isRepairingChatData}
+                isClearingWorkspaceChatData={isClearingWorkspaceChatData}
+                isTerminalLoading={terminalConfigurationQuery.isLoading}
+                isTerminalSaving={isSavingTerminalConfiguration}
                 pendingAvatarAction={pendingProfileAvatarAction}
                 onDraftChange={setProfileSettingsDraft}
                 onNotificationDraftChange={setNotificationPreferencesDraft}
                 onShortcutDraftChange={setShortcutPreferencesDraft}
+                onChatTerminalOutputDraftChange={setChatTerminalOutputPreferencesDraft}
+                onTerminalDraftChange={setTerminalConfigurationDraft}
                 onUploadAvatar={() => void handleUploadProfileAvatar()}
                 onSelectAvatarPreset={(presetId) => void handleSelectProfileAvatarPreset(presetId)}
                 onResetAvatar={() => void handleResetProfileAvatar()}
@@ -3479,6 +4760,11 @@ export function WorkspaceSelectionPage({
                 onSaveNotifications={() => void handleSaveNotificationPreferences()}
                 onSaveShortcuts={() => void handleSaveShortcutPreferences()}
                 onResetShortcuts={() => void handleResetShortcutPreferences()}
+                onSaveChatTerminalOutput={() => void handleSaveChatTerminalOutputPreferences()}
+                onRepairChatData={() => void handleRepairWorkspaceChatData()}
+                onClearWorkspaceChatData={() => void handleClearWorkspaceChatData()}
+                onSaveTerminalConfiguration={() => void handleSaveTerminalConfiguration()}
+                onResetTerminalConfiguration={() => void handleResetTerminalConfiguration()}
               />
             ) : null}
 
@@ -3598,18 +4884,5833 @@ export function WorkspaceSelectionPage({
           onCancel={handleCancelConflict}
         />
       ) : null}
-      {toast ? <Toast toast={toast} onClose={clearToast} /> : null}
+      {renderLocalToast && toast ? <Toast toast={toast} onClose={clearToast} /> : null}
     </main>
   );
 }
 
-const builtInRuntimeOptions = [
-  { id: "codex", label: "Codex CLI", command: "codex" },
-  { id: "claude-code", label: "Claude Code", command: "claude" },
-  { id: "gemini-cli", label: "Gemini CLI", command: "gemini" },
-  { id: "opencode", label: "OpenCode", command: "opencode" },
-  { id: "qwen-code", label: "Qwen Code", command: "qwen" },
-];
+type ParityInviteKind = "admin" | InvitedMemberType;
+const PARITY_INVITE_TEXT = {
+  "zh-CN": {
+    title: "邀请加入服务器",
+    subtitle: "生成唯一邀请链接",
+    admin: "以管理员身份邀请",
+    adminDesc: "完全服务器权限",
+    assistant: "以助手身份邀请",
+    assistantDesc: "管理权限",
+    member: "普通成员",
+    memberDesc: "标准访问权限",
+  },
+  "en-US": {
+    title: "Invite to Server",
+    subtitle: "Generate a unique invite link",
+    admin: "Invite as Admin",
+    adminDesc: "Full server access",
+    assistant: "Invite as Assistant",
+    assistantDesc: "Moderation permissions",
+    member: "General Member",
+    memberDesc: "Standard access",
+  },
+} as const satisfies Record<AppLanguage, Record<string, string>>;
+
+const PARITY_INVITE_MODAL_TEXT = {
+  "zh-CN": {
+    close: "关闭",
+    admin: {
+      ariaLabel: "邀请管理员",
+      title: "以管理员身份邀请",
+      subtitle: "配置访问级别与时长",
+      uniqueLink: "唯一邀请链接",
+      copyInviteLink: "复制邀请链接",
+      userIdentifier: "用户标识",
+      userPlaceholder: "用户名或邮箱地址",
+      permissions: "权限等级",
+      send: "发送邀请",
+      permissionsList: [
+        {
+          title: "完全服务器权限",
+          description: "可修改设置、频道与角色",
+          checked: true,
+        },
+        {
+          title: "账单权限",
+          description: "管理订阅与付款",
+          checked: false,
+        },
+        {
+          title: "成员管理",
+          description: "踢出、封禁并分配低级角色",
+          checked: true,
+        },
+      ],
+    },
+    assistant: {
+      assistantAriaLabel: "邀请助手",
+      memberAriaLabel: "邀请成员",
+      assistantTitle: "以助手身份邀请",
+      memberTitle: "以成员身份邀请",
+      subtitle: "选择要加入工作区的 AI 模型",
+      shellCommand: "Shell 命令",
+      customCliCommand: "自定义 CLI 命令",
+      shellPlaceholder: "zsh",
+      customCliPlaceholder: "my-agent --stdio",
+      instances: "实例数量",
+      instanceCount: "实例数量",
+      instanceLimit: "最多 {count} 个实例",
+      unlimitedAccess: "无限制模式",
+      unlimitedAccessDesc: "绕过使用限制",
+      sandboxed: "沙盒环境",
+      saving: "保存中",
+      send: "发送邀请",
+    },
+    manage: {
+      ariaLabel: "管理成员",
+      title: "管理成员",
+      displayName: "显示名称",
+      saving: "保存中",
+      save: "保存更改",
+    },
+  },
+  "en-US": {
+    close: "Close",
+    admin: {
+      ariaLabel: "Invite admin",
+      title: "Invite as Admin",
+      subtitle: "Configure access level and duration",
+      uniqueLink: "Unique Invite Link",
+      copyInviteLink: "Copy invite link",
+      userIdentifier: "User Identifier",
+      userPlaceholder: "Username or email address",
+      permissions: "Permissions Level",
+      send: "Send Invitation",
+      permissionsList: [
+        {
+          title: "Full Server Access",
+          description: "Can modify settings, channels & roles",
+          checked: true,
+        },
+        {
+          title: "Billing Access",
+          description: "Manage subscription and payments",
+          checked: false,
+        },
+        {
+          title: "Member Management",
+          description: "Kick, ban, and assign lower roles",
+          checked: true,
+        },
+      ],
+    },
+    assistant: {
+      assistantAriaLabel: "Invite assistant",
+      memberAriaLabel: "Invite member",
+      assistantTitle: "Invite as Assistant",
+      memberTitle: "Invite as Member",
+      subtitle: "Select an AI model to join the workspace",
+      shellCommand: "Shell command",
+      customCliCommand: "Custom CLI command",
+      shellPlaceholder: "zsh",
+      customCliPlaceholder: "my-agent --stdio",
+      instances: "Number of Instances",
+      instanceCount: "Instance count",
+      instanceLimit: "Max {count} instances",
+      unlimitedAccess: "Unlimited Mode",
+      unlimitedAccessDesc: "Bypass usage limits",
+      sandboxed: "Sandboxed environment",
+      saving: "Saving",
+      send: "Send Invitation",
+    },
+    manage: {
+      ariaLabel: "Manage member",
+      title: "Manage Member",
+      displayName: "Display Name",
+      saving: "Saving",
+      save: "Save Changes",
+    },
+  },
+} as const satisfies Record<AppLanguage, {
+  close: string;
+  admin: {
+    ariaLabel: string;
+    title: string;
+    subtitle: string;
+    uniqueLink: string;
+    copyInviteLink: string;
+    userIdentifier: string;
+    userPlaceholder: string;
+    permissions: string;
+    send: string;
+    permissionsList: Array<{ title: string; description: string; checked: boolean }>;
+  };
+  assistant: {
+    assistantAriaLabel: string;
+    memberAriaLabel: string;
+    assistantTitle: string;
+    memberTitle: string;
+    subtitle: string;
+    shellCommand: string;
+    customCliCommand: string;
+    shellPlaceholder: string;
+    customCliPlaceholder: string;
+    instances: string;
+    instanceCount: string;
+    instanceLimit: string;
+    unlimitedAccess: string;
+    unlimitedAccessDesc: string;
+    sandboxed: string;
+    saving: string;
+    send: string;
+  };
+  manage: {
+    ariaLabel: string;
+    title: string;
+    displayName: string;
+    saving: string;
+    save: string;
+  };
+}>;
+
+const FRIENDS_PARITY_TEXT = {
+  "zh-CN": {
+    title: "好友",
+    loading: "加载中",
+    add: "添加",
+    closeInviteMenu: "关闭邀请菜单",
+    loadingMembers: "正在加载成员",
+    empty: "暂无好友",
+    projectFriends: "项目好友",
+    globalFriends: "全局好友",
+    openTerminal: "打开终端",
+    sendMessage: "发送消息",
+    moreActions: "更多操作",
+    status: "状态",
+    remove: "移除",
+    adminRole: "管理员",
+    memberRole: "成员",
+  },
+  "en-US": {
+    title: "Friends",
+    loading: "Loading",
+    add: "Add",
+    closeInviteMenu: "Close invite menu",
+    loadingMembers: "Loading members",
+    empty: "No friends yet",
+    projectFriends: "PROJECT FRIENDS",
+    globalFriends: "GLOBAL FRIENDS",
+    openTerminal: "Open terminal",
+    sendMessage: "Send message",
+    moreActions: "More actions",
+    status: "Status",
+    remove: "Remove",
+    adminRole: "Admin",
+    memberRole: "Member",
+  },
+} as const satisfies Record<AppLanguage, Record<string, string>>;
+
+const CHAT_PARITY_TEXT = {
+  "zh-CN": {
+    workspaceAria: "聊天工作台",
+    workspaceFallback: "工作区",
+    channels: "频道",
+    directMessages: "私信",
+    loading: "加载中",
+    empty: "空",
+    roadmap: "路线图",
+    skills: "技能",
+    members: "成员",
+    add: "添加",
+    closeInviteMenu: "关闭邀请菜单",
+    readOnlyTitle: "工作区本地数据只读",
+    selectConversation: "选择一个会话",
+    directMessage: "私信",
+    defaultChannel: "默认频道",
+    channel: "频道",
+    memberCount: "{count} 位成员",
+    defaultWorkspaceChannel: "默认工作区频道",
+    workspaceChannel: "工作区频道",
+    renameConversation: "修改群聊名称",
+    conversationName: "群聊名称",
+    saving: "保存中",
+    save: "保存",
+    cancel: "取消",
+    messageHistory: "消息历史",
+    loadingMessages: "正在加载消息",
+    noMessages: "暂无消息",
+    loadEarlierMessages: "加载更早消息",
+    loadingHistory: "正在加载历史...",
+    quickPromptsAria: "快捷提示",
+    quickPrompts: [
+      { label: "总结最新讨论", text: "总结最新讨论" },
+      { label: "生成礼貌回复", text: "生成礼貌回复" },
+      { label: "提取行动项", text: "提取行动项" },
+    ],
+    compositionState: "消息编辑状态",
+    removeAttachment: "移除 {label}",
+    unsupportedAllMention: "@all 暂未在 MVP 中启用，请选择具体成员。",
+    emojiPanel: "表情面板",
+    emojiSearch: "搜索表情...",
+    emojiGroups: "表情分组",
+    emojiEmpty: "没有匹配的表情",
+    selectRoadmapTask: "选择路线图任务",
+    noRoadmapTasks: "暂无路线图任务",
+    addRoadmapAttachment: "添加路线图引用",
+    mentionMember: "提及成员",
+    openEmojiPanel: "打开表情面板",
+    addImageAttachment: "添加图片附件",
+    messagePlaceholder: "消息",
+    selectConversationPlaceholder: "选择会话",
+    mentionSuggestions: "提及建议",
+    sendMessage: "发送消息",
+    sendingMessage: "正在发送消息",
+    inputHint: "Enter 发送 • Shift+Enter 换行",
+    noMembers: "暂无成员",
+    actionsFor: "{name} 的操作",
+    ownerFallback: "群主",
+    conversationActions: {
+      pin: "置顶",
+      unpin: "取消置顶",
+      rename: "修改群聊名称",
+      mute: "消息免打扰",
+      unmute: "取消免打扰",
+      clear: "清空聊天记录",
+      deleteDirect: "删除对话",
+      deleteGroup: "删除群聊",
+    },
+    memberActions: {
+      sendMessage: "发送消息",
+      mention: "提及",
+      openTerminal: "打开终端",
+      rename: "更改名称",
+      remove: "移出群组",
+      renamePrompt: "更改成员名称",
+    },
+    roles: {
+      owner: "群主",
+      admin: "管理员",
+      assistant: "助手",
+      member: "成员",
+    },
+    sections: {
+      owner: "群主 — {count}",
+      admin: "管理员 — {count}",
+      assistant: "助手 — {count}",
+      member: "普通成员 — {count}",
+    },
+    statuses: {
+      online: "在线",
+      working: "工作中",
+      doNotDisturb: "请勿打扰",
+      offline: "离线",
+    },
+    messageStatuses: {
+      sent: "已发送",
+      sending: "发送中",
+      failed: "发送失败",
+    },
+  },
+  "en-US": {
+    workspaceAria: "Chat workspace",
+    workspaceFallback: "Workspace",
+    channels: "CHANNELS",
+    directMessages: "DIRECT MESSAGES",
+    loading: "Loading",
+    empty: "Empty",
+    roadmap: "Roadmap",
+    skills: "Skills",
+    members: "Members",
+    add: "Add",
+    closeInviteMenu: "Close invite menu",
+    readOnlyTitle: "Local workspace data is read-only",
+    selectConversation: "Select a conversation",
+    directMessage: "Direct message",
+    defaultChannel: "Default channel",
+    channel: "Channel",
+    memberCount: "{count} members",
+    defaultWorkspaceChannel: "Default workspace channel",
+    workspaceChannel: "Workspace channel",
+    renameConversation: "Rename conversation",
+    conversationName: "Conversation name",
+    saving: "Saving",
+    save: "Save",
+    cancel: "Cancel",
+    messageHistory: "Message history",
+    loadingMessages: "Loading messages",
+    noMessages: "No messages yet",
+    loadEarlierMessages: "Load earlier messages",
+    loadingHistory: "Loading history...",
+    quickPromptsAria: "Quick prompts",
+    quickPrompts: [
+      { label: "Summarize the latest discussion", text: "Summarize the latest discussion" },
+      { label: "Draft a polite reply", text: "Draft a polite reply" },
+      { label: "Extract action items", text: "Extract action items" },
+    ],
+    compositionState: "Message composition state",
+    removeAttachment: "Remove {label}",
+    unsupportedAllMention: "@all is not enabled in the MVP yet. Pick specific members instead.",
+    emojiPanel: "Emoji panel",
+    emojiSearch: "Search emoji...",
+    emojiGroups: "Emoji groups",
+    emojiEmpty: "No matching emoji",
+    selectRoadmapTask: "Select roadmap task",
+    noRoadmapTasks: "No roadmap tasks",
+    addRoadmapAttachment: "Add roadmap attachment",
+    mentionMember: "Mention member",
+    openEmojiPanel: "Open emoji panel",
+    addImageAttachment: "Add image attachment",
+    messagePlaceholder: "Message",
+    selectConversationPlaceholder: "Select a conversation",
+    mentionSuggestions: "Mention suggestions",
+    sendMessage: "Send message",
+    sendingMessage: "Sending message",
+    inputHint: "Enter to send • Shift+Enter for newline",
+    noMembers: "No members",
+    actionsFor: "Actions for {name}",
+    ownerFallback: "Owner",
+    conversationActions: {
+      pin: "Pin",
+      unpin: "Unpin",
+      rename: "Rename Group",
+      mute: "Mute Notifications",
+      unmute: "Unmute Notifications",
+      clear: "Clear Chat History",
+      deleteDirect: "Delete Conversation",
+      deleteGroup: "Delete Group Chat",
+    },
+    memberActions: {
+      sendMessage: "Send Message",
+      mention: "Mention",
+      openTerminal: "Open Terminal",
+      rename: "Rename",
+      remove: "Remove",
+      renamePrompt: "Rename member",
+    },
+    roles: {
+      owner: "Owner",
+      admin: "Admin",
+      assistant: "Assistant",
+      member: "Member",
+    },
+    sections: {
+      owner: "GROUP OWNER — {count}",
+      admin: "ADMINS — {count}",
+      assistant: "ASSISTANTS — {count}",
+      member: "MEMBERS — {count}",
+    },
+    statuses: {
+      online: "Online",
+      working: "Working",
+      doNotDisturb: "Do not disturb",
+      offline: "Offline",
+    },
+    messageStatuses: {
+      sent: "sent",
+      sending: "sending",
+      failed: "failed",
+    },
+  },
+} as const satisfies Record<AppLanguage, {
+  workspaceAria: string;
+  workspaceFallback: string;
+  channels: string;
+  directMessages: string;
+  loading: string;
+  empty: string;
+  roadmap: string;
+  skills: string;
+  members: string;
+  add: string;
+  closeInviteMenu: string;
+  readOnlyTitle: string;
+  selectConversation: string;
+  directMessage: string;
+  defaultChannel: string;
+  channel: string;
+  memberCount: string;
+  defaultWorkspaceChannel: string;
+  workspaceChannel: string;
+  renameConversation: string;
+  conversationName: string;
+  saving: string;
+  save: string;
+  cancel: string;
+  messageHistory: string;
+  loadingMessages: string;
+  noMessages: string;
+  loadEarlierMessages: string;
+  loadingHistory: string;
+  quickPromptsAria: string;
+  quickPrompts: Array<{ label: string; text: string }>;
+  compositionState: string;
+  removeAttachment: string;
+  unsupportedAllMention: string;
+  emojiPanel: string;
+  emojiSearch: string;
+  emojiGroups: string;
+  emojiEmpty: string;
+  selectRoadmapTask: string;
+  noRoadmapTasks: string;
+  addRoadmapAttachment: string;
+  mentionMember: string;
+  openEmojiPanel: string;
+  addImageAttachment: string;
+  messagePlaceholder: string;
+  selectConversationPlaceholder: string;
+  mentionSuggestions: string;
+  sendMessage: string;
+  sendingMessage: string;
+  inputHint: string;
+  noMembers: string;
+  actionsFor: string;
+  ownerFallback: string;
+  conversationActions: Record<string, string>;
+  memberActions: Record<string, string>;
+  roles: Record<MemberProfile["role"], string>;
+  sections: Record<MemberProfile["role"], string>;
+  statuses: Record<MemberProfile["status"], string>;
+  messageStatuses: Record<ChatMessageProfile["status"], string>;
+}>;
+
+type FriendsParityEntry =
+  | {
+      id: string;
+      scope: "project";
+      displayName: string;
+      roleLabel: string;
+      avatar: string;
+      status: MemberProfile["status"];
+      member: MemberProfile;
+      contact: null;
+      terminalMeta: TerminalSessionStatus | null;
+      canMention: boolean;
+      canRemove: boolean;
+      canOpenTerminal: boolean;
+    }
+  | {
+      id: string;
+      scope: "global";
+      displayName: string;
+      roleLabel: string;
+      avatar: string;
+      status: MemberProfile["status"];
+      member: null;
+      contact: ContactProfile;
+      terminalMeta: TerminalSessionStatus | null;
+      canMention: boolean;
+      canRemove: boolean;
+      canOpenTerminal: boolean;
+    };
+
+function friendsParityStatusOptions(language: AppLanguage): Array<{
+  id: MemberProfile["status"];
+  label: string;
+}> {
+  const statuses = CHAT_PARITY_TEXT[language].statuses;
+
+  return [
+    { id: "online", label: statuses.online },
+    { id: "working", label: statuses.working },
+    { id: "doNotDisturb", label: statuses.doNotDisturb },
+    { id: "offline", label: statuses.offline },
+  ];
+}
+
+type FriendAvatarVars = CSSProperties & {
+  [key: `--${string}`]: string;
+};
+
+const FRIEND_AVATAR_PREFIX = "css:";
+const FRIEND_AVATAR_PRESETS: Record<string, FriendAvatarVars> = {
+  orbit: {
+    "--avatar-bg": "linear-gradient(135deg, #0b1220 0%, #1f2937 100%)",
+    "--avatar-spot":
+      "radial-gradient(circle at 30% 30%, rgba(56, 189, 248, 0.95), rgba(56, 189, 248, 0))",
+    "--avatar-spot-2":
+      "radial-gradient(circle at 70% 75%, rgba(14, 165, 233, 0.85), rgba(14, 165, 233, 0))",
+    "--avatar-ring": "rgba(125, 211, 252, 0.7)",
+    "--avatar-glow": "rgba(56, 189, 248, 0.35)",
+    "--avatar-spot-size": "78%",
+    "--avatar-spot-2-size": "48%",
+    "--avatar-spot-x": "-18%",
+    "--avatar-spot-y": "-12%",
+    "--avatar-spot-2-x": "20%",
+    "--avatar-spot-2-y": "18%",
+    "--avatar-spot-rotate": "12deg",
+    "--avatar-spot-2-rotate": "-6deg",
+  },
+  ember: {
+    "--avatar-bg": "linear-gradient(135deg, #1f1308 0%, #3a2011 100%)",
+    "--avatar-spot":
+      "radial-gradient(circle at 25% 30%, rgba(251, 146, 60, 0.95), rgba(251, 146, 60, 0))",
+    "--avatar-spot-2":
+      "radial-gradient(circle at 70% 70%, rgba(244, 63, 94, 0.8), rgba(244, 63, 94, 0))",
+    "--avatar-ring": "rgba(253, 186, 116, 0.7)",
+    "--avatar-glow": "rgba(251, 146, 60, 0.35)",
+    "--avatar-spot-size": "74%",
+    "--avatar-spot-2-size": "50%",
+    "--avatar-spot-x": "-20%",
+    "--avatar-spot-y": "-14%",
+    "--avatar-spot-2-x": "18%",
+    "--avatar-spot-2-y": "20%",
+    "--avatar-spot-rotate": "-8deg",
+    "--avatar-spot-2-rotate": "14deg",
+  },
+  mint: {
+    "--avatar-bg": "linear-gradient(135deg, #0c1f1c 0%, #123b32 100%)",
+    "--avatar-spot":
+      "radial-gradient(circle at 32% 24%, rgba(52, 211, 153, 0.95), rgba(52, 211, 153, 0))",
+    "--avatar-spot-2":
+      "radial-gradient(circle at 70% 78%, rgba(16, 185, 129, 0.85), rgba(16, 185, 129, 0))",
+    "--avatar-ring": "rgba(110, 231, 183, 0.7)",
+    "--avatar-glow": "rgba(52, 211, 153, 0.35)",
+    "--avatar-spot-size": "76%",
+    "--avatar-spot-2-size": "46%",
+    "--avatar-spot-x": "-14%",
+    "--avatar-spot-y": "-16%",
+    "--avatar-spot-2-x": "22%",
+    "--avatar-spot-2-y": "18%",
+    "--avatar-spot-rotate": "6deg",
+    "--avatar-spot-2-rotate": "-12deg",
+  },
+  canyon: {
+    "--avatar-bg": "linear-gradient(135deg, #1f140b 0%, #3b2414 100%)",
+    "--avatar-spot":
+      "radial-gradient(circle at 24% 28%, rgba(251, 191, 36, 0.9), rgba(251, 191, 36, 0))",
+    "--avatar-spot-2":
+      "radial-gradient(circle at 68% 72%, rgba(217, 119, 6, 0.85), rgba(217, 119, 6, 0))",
+    "--avatar-ring": "rgba(253, 230, 138, 0.6)",
+    "--avatar-glow": "rgba(251, 191, 36, 0.3)",
+    "--avatar-spot-size": "72%",
+    "--avatar-spot-2-size": "44%",
+    "--avatar-spot-x": "-18%",
+    "--avatar-spot-y": "-12%",
+    "--avatar-spot-2-x": "20%",
+    "--avatar-spot-2-y": "22%",
+    "--avatar-spot-rotate": "18deg",
+    "--avatar-spot-2-rotate": "-6deg",
+  },
+  storm: {
+    "--avatar-bg": "linear-gradient(135deg, #10161f 0%, #1f2937 100%)",
+    "--avatar-spot":
+      "radial-gradient(circle at 28% 35%, rgba(148, 163, 184, 0.9), rgba(148, 163, 184, 0))",
+    "--avatar-spot-2":
+      "radial-gradient(circle at 72% 68%, rgba(100, 116, 139, 0.85), rgba(100, 116, 139, 0))",
+    "--avatar-ring": "rgba(226, 232, 240, 0.5)",
+    "--avatar-glow": "rgba(148, 163, 184, 0.3)",
+    "--avatar-spot-size": "70%",
+    "--avatar-spot-2-size": "46%",
+    "--avatar-spot-x": "-16%",
+    "--avatar-spot-y": "-10%",
+    "--avatar-spot-2-x": "18%",
+    "--avatar-spot-2-y": "20%",
+    "--avatar-spot-rotate": "-10deg",
+    "--avatar-spot-2-rotate": "10deg",
+  },
+};
+
+function FriendsMembersParity({
+  language,
+  members,
+  contacts,
+  terminalActivity,
+  isLoading,
+  isInviting,
+  runtimeKind,
+  builtinRuntimeId,
+  customRuntimeCliId,
+  customRuntimeCommand,
+  builtInRuntimeOptions,
+  customCliRuntimeOptions,
+  instanceCount,
+  sandboxed,
+  unlimitedAccess,
+  onInviteTypeChange,
+  onDisplayNameChange,
+  onRuntimeKindChange,
+  onBuiltinRuntimeChange,
+  onCustomRuntimeCliChange,
+  onCustomRuntimeCommandChange,
+  onInstanceCountChange,
+  onSandboxedChange,
+  onUnlimitedAccessChange,
+  onStartPrivateConversation,
+  onStartContactConversation,
+  onOpenMemberTerminal,
+  onRenameMember,
+  onRenameContact,
+  onUpdateContactStatus,
+  onUpdateMemberStatus,
+  onRemoveMember,
+  onRemoveContact,
+  onInvite,
+  onUnavailable,
+}: {
+  language: AppLanguage;
+  members: MemberProfile[];
+  contacts: ContactProfile[];
+  terminalActivity: Record<string, MemberTerminalActivity>;
+  isLoading: boolean;
+  isInviting: boolean;
+  runtimeKind: MemberRuntimeKind;
+  builtinRuntimeId: string;
+  customRuntimeCliId: string;
+  customRuntimeCommand: string;
+  builtInRuntimeOptions: RuntimeOption[];
+  customCliRuntimeOptions: RuntimeOption[];
+  instanceCount: number;
+  sandboxed: boolean;
+  unlimitedAccess: boolean;
+  onInviteTypeChange: (value: InvitedMemberType) => void;
+  onDisplayNameChange: (value: string) => void;
+  onRuntimeKindChange: (value: MemberRuntimeKind) => void;
+  onBuiltinRuntimeChange: (value: string) => void;
+  onCustomRuntimeCliChange: (value: string) => void;
+  onCustomRuntimeCommandChange: (value: string) => void;
+  onInstanceCountChange: (value: number) => void;
+  onSandboxedChange: (value: boolean) => void;
+  onUnlimitedAccessChange: (value: boolean) => void;
+  onStartPrivateConversation: (member: MemberProfile) => void;
+  onStartContactConversation: (contact: ContactProfile) => void;
+  onOpenMemberTerminal: (member: MemberProfile) => void;
+  onRenameMember: (member: MemberProfile, displayName: string) => Promise<void>;
+  onRenameContact: (contact: ContactProfile, displayName: string) => Promise<void>;
+  onUpdateContactStatus: (contact: ContactProfile, status: MemberProfile["status"]) => void;
+  onUpdateMemberStatus: (member: MemberProfile, status: MemberProfile["status"]) => void;
+  onRemoveMember: (member: MemberProfile) => void;
+  onRemoveContact: (contact: ContactProfile) => void;
+  onInvite: () => void;
+  onUnavailable: (capability: string) => void;
+}) {
+  const text = FRIENDS_PARITY_TEXT[language];
+  const [isInviteMenuOpen, setIsInviteMenuOpen] = useState(false);
+  const [inviteModal, setInviteModal] = useState<ParityInviteKind | null>(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const [actionMenuPlacement, setActionMenuPlacement] = useState<"top" | "bottom">("bottom");
+  const [actionMenuMaxHeight, setActionMenuMaxHeight] = useState("");
+  const [managingEntry, setManagingEntry] = useState<FriendsParityEntry | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
+  const projectMemberNames = new Set(
+    members.map((member) => (member.instanceLabel || member.displayName).trim().toLowerCase()),
+  );
+  const projectMemberIds = new Set(members.map((member) => member.memberId));
+  const projectFriends: FriendsParityEntry[] = members
+    .filter((member) => member.role !== "owner")
+    .map((member) => ({
+      id: member.memberId,
+      scope: "project",
+      displayName: member.instanceLabel || member.displayName,
+      roleLabel: friendsParityRoleLabel(member.role, language),
+      avatar: memberFriendAvatar(member),
+      status: member.status,
+      member,
+      contact: null,
+      terminalMeta: terminalActivity[member.memberId]?.status ?? null,
+      canMention: member.permissions.canMention,
+      canRemove: member.permissions.canRemove,
+      canOpenTerminal: isTerminalCapableMember(member),
+    }));
+  const globalFriends: FriendsParityEntry[] = contacts
+    .filter(
+      (contact) =>
+        !projectMemberIds.has(contact.contactId) &&
+        !projectMemberNames.has(contact.displayName.trim().toLowerCase()),
+    )
+    .map((contact) => ({
+      id: contact.contactId,
+      scope: "global",
+      displayName: contact.displayName,
+      roleLabel: friendsParityContactRoleLabel(contact.contactKind, language),
+      avatar: contact.avatar || seededFriendAvatar(`contact:${contact.contactId}:${contact.displayName}`),
+      status: contact.status,
+      member: null,
+      contact,
+      terminalMeta: null,
+      canMention: false,
+      canRemove: true,
+      canOpenTerminal: false,
+    }));
+  const totalFriends = projectFriends.length + globalFriends.length;
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!openActionMenuId) {
+        return;
+      }
+
+      const target = event.target as HTMLElement | null;
+
+      if (target?.closest("[data-friend-menu]") || target?.closest("[data-friend-menu-toggle]")) {
+        return;
+      }
+
+      closeActionMenu();
+    }
+
+    document.addEventListener("click", handleClickOutside, true);
+
+    return () => {
+      document.removeEventListener("click", handleClickOutside, true);
+    };
+  }, [openActionMenuId]);
+
+  function closeActionMenu() {
+    setOpenActionMenuId(null);
+    setActionMenuPlacement("bottom");
+    setActionMenuMaxHeight("");
+  }
+
+  function updateActionMenuPlacement(anchor: HTMLElement | null) {
+    const menu = actionMenuRef.current;
+
+    if (!menu) {
+      return;
+    }
+
+    const anchorRect = anchor?.getBoundingClientRect() ?? menu.getBoundingClientRect();
+    const containerRect =
+      scrollContainerRef.current?.getBoundingClientRect() ?? {
+        top: 0,
+        bottom: window.innerHeight || document.documentElement.clientHeight,
+      };
+    const spaceBelow = Math.max(0, containerRect.bottom - anchorRect.bottom);
+    const spaceAbove = Math.max(0, anchorRect.top - containerRect.top);
+    const menuHeight = menu.offsetHeight;
+    const preferTop = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+    const available = preferTop ? spaceAbove : spaceBelow;
+
+    setActionMenuPlacement(preferTop ? "top" : "bottom");
+    setActionMenuMaxHeight(available > 0 ? `${Math.max(0, Math.floor(available - 12))}px` : "");
+  }
+
+  function toggleActionMenu(entryId: string, anchor: HTMLElement | null) {
+    if (openActionMenuId === entryId) {
+      closeActionMenu();
+      return;
+    }
+
+    setOpenActionMenuId(entryId);
+    setActionMenuPlacement("bottom");
+    setActionMenuMaxHeight("");
+    window.setTimeout(() => updateActionMenuPlacement(anchor), 0);
+  }
+
+  function openManage(entry: FriendsParityEntry) {
+    closeActionMenu();
+    setManagingEntry(entry);
+  }
+
+  function openInviteModal(kind: ParityInviteKind) {
+    setIsInviteMenuOpen(false);
+    setInviteModal(kind);
+
+    if (kind === "assistant" || kind === "member") {
+      const defaultRuntime =
+        builtInRuntimeOptions.find((runtime) => runtime.id === builtinRuntimeId) ??
+        builtInRuntimeOptions[0];
+      onInviteTypeChange(kind);
+      onRuntimeKindChange("builtInAiCli");
+      if (defaultRuntime) {
+        onBuiltinRuntimeChange(defaultRuntime.id);
+      }
+      onDisplayNameChange("");
+      onSandboxedChange(false);
+      onUnlimitedAccessChange(true);
+    }
+  }
+
+  function submitInvite() {
+    if (inviteModal === "admin") {
+      onUnavailable("管理员邀请");
+      setInviteModal(null);
+      return;
+    }
+
+    onInvite();
+    setInviteModal(null);
+  }
+
+  return (
+    <section className="friends-parity" aria-label={text.title}>
+      <header className="friends-parity__header">
+        <div className="friends-parity__title-block">
+          <span className="friends-parity__title-icon">
+            <WorkspaceMaterialSymbol name="group" />
+          </span>
+          <span>
+            <h1>{text.title}</h1>
+            <p>{isLoading ? text.loading : totalFriends}</p>
+          </span>
+        </div>
+        <div className="friends-parity__invite">
+          <button
+            type="button"
+            className={
+              isInviteMenuOpen
+                ? "friends-parity__invite-button friends-parity__invite-button--active"
+                : "friends-parity__invite-button"
+            }
+            onClick={() => setIsInviteMenuOpen((isOpen) => !isOpen)}
+          >
+            <WorkspaceMaterialSymbol name="person_add" />
+            {text.add}
+          </button>
+          {isInviteMenuOpen ? (
+            <>
+              <button
+                type="button"
+                className="friends-parity__scrim"
+                aria-label={text.closeInviteMenu}
+                onClick={() => setIsInviteMenuOpen(false)}
+              />
+              <ParityInviteMenu language={language} onSelect={openInviteModal} />
+            </>
+          ) : null}
+        </div>
+      </header>
+
+      <div ref={scrollContainerRef} className="friends-parity__content custom-scrollbar">
+        {totalFriends === 0 ? (
+          <p className="friends-parity__empty">
+            {isLoading ? text.loadingMembers : text.empty}
+          </p>
+        ) : null}
+
+        <FriendsMemberSection
+          language={language}
+          title={text.projectFriends}
+          entries={projectFriends}
+          openActionMenuId={openActionMenuId}
+          actionMenuPlacement={actionMenuPlacement}
+          actionMenuMaxHeight={actionMenuMaxHeight}
+          actionMenuRef={actionMenuRef}
+          onToggleActionMenu={toggleActionMenu}
+          onCloseActionMenu={closeActionMenu}
+          onOpenManage={openManage}
+          onStartPrivateConversation={onStartPrivateConversation}
+          onStartContactConversation={onStartContactConversation}
+          onOpenMemberTerminal={onOpenMemberTerminal}
+          onUpdateContactStatus={onUpdateContactStatus}
+          onUpdateMemberStatus={onUpdateMemberStatus}
+          onUnavailable={onUnavailable}
+          onRemoveMember={onRemoveMember}
+          onRemoveContact={onRemoveContact}
+        />
+        <FriendsMemberSection
+          language={language}
+          title={text.globalFriends}
+          entries={globalFriends}
+          openActionMenuId={openActionMenuId}
+          actionMenuPlacement={actionMenuPlacement}
+          actionMenuMaxHeight={actionMenuMaxHeight}
+          actionMenuRef={actionMenuRef}
+          onToggleActionMenu={toggleActionMenu}
+          onCloseActionMenu={closeActionMenu}
+          onOpenManage={openManage}
+          onStartPrivateConversation={onStartPrivateConversation}
+          onStartContactConversation={onStartContactConversation}
+          onOpenMemberTerminal={onOpenMemberTerminal}
+          onUpdateContactStatus={onUpdateContactStatus}
+          onUpdateMemberStatus={onUpdateMemberStatus}
+          onUnavailable={onUnavailable}
+          onRemoveMember={onRemoveMember}
+          onRemoveContact={onRemoveContact}
+        />
+      </div>
+
+      {inviteModal === "admin" ? (
+        <ParityAdminInviteModal
+          language={language}
+          onClose={() => setInviteModal(null)}
+          onSubmit={submitInvite}
+        />
+      ) : inviteModal === "assistant" || inviteModal === "member" ? (
+        <ParityAssistantInviteModal
+          language={language}
+          kind={inviteModal}
+          runtimeKind={runtimeKind}
+          builtinRuntimeId={builtinRuntimeId}
+          customRuntimeCliId={customRuntimeCliId}
+          customRuntimeCommand={customRuntimeCommand}
+          builtInRuntimeOptions={builtInRuntimeOptions}
+          customCliRuntimeOptions={customCliRuntimeOptions}
+          instanceCount={instanceCount}
+          sandboxed={sandboxed}
+          unlimitedAccess={unlimitedAccess}
+          isInviting={isInviting}
+          onClose={() => setInviteModal(null)}
+          onRuntimeKindChange={onRuntimeKindChange}
+          onBuiltinRuntimeChange={onBuiltinRuntimeChange}
+          onCustomRuntimeCliChange={onCustomRuntimeCliChange}
+          onCustomRuntimeCommandChange={onCustomRuntimeCommandChange}
+          onInstanceCountChange={onInstanceCountChange}
+          onSandboxedChange={onSandboxedChange}
+          onUnlimitedAccessChange={onUnlimitedAccessChange}
+          onSubmit={submitInvite}
+        />
+      ) : null}
+      {managingEntry ? (
+        <FriendsManageMemberModal
+          language={language}
+          entry={managingEntry}
+          onClose={() => setManagingEntry(null)}
+          onSave={async (entry, displayName) => {
+            if (entry.member) {
+              await onRenameMember(entry.member, displayName);
+            } else if (entry.contact) {
+              await onRenameContact(entry.contact, displayName);
+            }
+            setManagingEntry(null);
+          }}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function ParityInviteMenu({
+  language,
+  onSelect,
+}: {
+  language: AppLanguage;
+  onSelect: (kind: ParityInviteKind) => void;
+}) {
+  const text = PARITY_INVITE_TEXT[language];
+  const options: Array<{
+    kind: ParityInviteKind;
+    icon: string;
+    title: string;
+    subtitle: string;
+    tone: "admin" | "assistant" | "member";
+  }> = [
+    {
+      kind: "admin",
+      icon: "admin_panel_settings",
+      title: text.admin,
+      subtitle: text.adminDesc,
+      tone: "admin",
+    },
+    {
+      kind: "assistant",
+      icon: "manage_accounts",
+      title: text.assistant,
+      subtitle: text.assistantDesc,
+      tone: "assistant",
+    },
+    {
+      kind: "member",
+      icon: "person",
+      title: text.member,
+      subtitle: text.memberDesc,
+      tone: "member",
+    },
+  ];
+
+  return (
+    <div className="friends-parity__invite-menu">
+      <div className="friends-parity__invite-menu-copy">
+        <h2>{text.title}</h2>
+        <p>{text.subtitle}</p>
+      </div>
+      <div className="friends-parity__invite-menu-rule" />
+      {options.map((option) => (
+        <button
+          key={option.kind}
+          type="button"
+          className="friends-parity__invite-option"
+          onClick={() => onSelect(option.kind)}
+        >
+          <span
+            className={`friends-parity__invite-option-icon friends-parity__invite-option-icon--${option.tone}`}
+          >
+            <WorkspaceMaterialSymbol name={option.icon} />
+          </span>
+          <span>
+            <strong>{option.title}</strong>
+            <small>{option.subtitle}</small>
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function memberFriendAvatar(member: MemberProfile) {
+  const candidate = member.avatar;
+
+  if (typeof candidate === "string" && candidate.trim()) {
+    return candidate.trim();
+  }
+
+  return seededFriendAvatar(`${member.memberId}:${member.instanceLabel || member.displayName}`);
+}
+
+function ensureFriendAvatar(avatar: string | null | undefined, seed: string) {
+  const value = avatar?.trim();
+
+  if (value) {
+    return value;
+  }
+
+  return seededFriendAvatar(seed);
+}
+
+function friendAvatarVars(avatar: string): FriendAvatarVars | undefined {
+  if (!avatar.startsWith(FRIEND_AVATAR_PREFIX)) {
+    return undefined;
+  }
+
+  const presetId = avatar.slice(FRIEND_AVATAR_PREFIX.length) || "orbit";
+  return FRIEND_AVATAR_PRESETS[presetId] ?? FRIEND_AVATAR_PRESETS.orbit;
+}
+
+function friendAvatarImageSrc(avatar: string) {
+  if (!avatar || avatar.startsWith(FRIEND_AVATAR_PREFIX) || avatar.startsWith("local:")) {
+    return null;
+  }
+
+  return avatar;
+}
+
+async function renderNotificationAvatarPng(
+  avatar: string | null | undefined,
+  size = 64,
+): Promise<number[] | null> {
+  if (typeof document === "undefined" || !avatar?.trim()) {
+    return null;
+  }
+
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return null;
+    }
+
+    const imageSrc = friendAvatarImageSrc(avatar);
+    if (imageSrc) {
+      const image = await loadAvatarImage(imageSrc);
+      if (!image) {
+        return null;
+      }
+      const scale = Math.max(size / image.width, size / image.height);
+      const sw = size / scale;
+      const sh = size / scale;
+      const sx = (image.width - sw) / 2;
+      const sy = (image.height - sh) / 2;
+      context.drawImage(image, sx, sy, sw, sh, 0, 0, size, size);
+      return canvasToPngBytes(canvas);
+    }
+
+    const vars = friendAvatarVars(avatar);
+    if (!vars) {
+      return null;
+    }
+    drawNotificationAvatarSwatch(context, vars, size);
+    return canvasToPngBytes(canvas);
+  } catch {
+    return null;
+  }
+}
+
+function drawNotificationAvatarSwatch(
+  context: CanvasRenderingContext2D,
+  vars: FriendAvatarVars,
+  size: number,
+) {
+  const background = createLinearAvatarGradient(
+    context,
+    size,
+    vars["--avatar-bg"] ?? "#1f2937",
+  );
+  context.fillStyle = background;
+  context.fillRect(0, 0, size, size);
+
+  drawNotificationAvatarSpot(
+    context,
+    size,
+    vars["--avatar-spot"] ?? "rgba(255,255,255,0.35)",
+    vars["--avatar-spot-size"] ?? "72%",
+    vars["--avatar-spot-x"] ?? "0%",
+    vars["--avatar-spot-y"] ?? "0%",
+  );
+  drawNotificationAvatarSpot(
+    context,
+    size,
+    vars["--avatar-spot-2"] ?? "rgba(255,255,255,0.2)",
+    vars["--avatar-spot-2-size"] ?? "48%",
+    vars["--avatar-spot-2-x"] ?? "16%",
+    vars["--avatar-spot-2-y"] ?? "16%",
+  );
+
+  context.save();
+  context.strokeStyle = vars["--avatar-ring"] ?? "rgba(255,255,255,0.45)";
+  context.lineWidth = Math.max(1, size * 0.04);
+  context.shadowColor = vars["--avatar-glow"] ?? "rgba(255,255,255,0.25)";
+  context.shadowBlur = size * 0.18;
+  context.beginPath();
+  context.arc(size / 2, size / 2, size * 0.32, 0, Math.PI * 2);
+  context.stroke();
+  context.restore();
+}
+
+function createLinearAvatarGradient(
+  context: CanvasRenderingContext2D,
+  size: number,
+  value: string,
+) {
+  const colors = extractAvatarColors(value);
+  if (colors.length < 2) {
+    return colors[0] ?? "#1f2937";
+  }
+
+  const gradient = context.createLinearGradient(0, 0, size, size);
+  const start = colors[0] ?? "#1f2937";
+  gradient.addColorStop(0, start);
+  gradient.addColorStop(1, colors[1] ?? start);
+  return gradient;
+}
+
+function drawNotificationAvatarSpot(
+  context: CanvasRenderingContext2D,
+  size: number,
+  value: string,
+  spotSize: string,
+  offsetX: string,
+  offsetY: string,
+) {
+  const colors = extractAvatarColors(value);
+  const radius = (parseAvatarPercent(spotSize, 0.7) * size) / 2;
+  const x = size * (0.5 + parseAvatarPercent(offsetX, 0));
+  const y = size * (0.5 + parseAvatarPercent(offsetY, 0));
+  const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
+  gradient.addColorStop(0, colors[0] ?? "rgba(255,255,255,0.35)");
+  gradient.addColorStop(1, colors[1] ?? "rgba(255,255,255,0)");
+  context.fillStyle = gradient;
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fill();
+}
+
+function parseAvatarPercent(value: string, fallback: number) {
+  const numeric = Number.parseFloat(value.replace("%", ""));
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return numeric / 100;
+}
+
+function extractAvatarColors(value: string) {
+  const matches = value.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]+\)/g);
+  return matches ?? [];
+}
+
+async function loadAvatarImage(src: string) {
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
+}
+
+async function canvasToPngBytes(canvas: HTMLCanvasElement) {
+  const blob = await new Promise<Blob | null>((resolve) => {
+    canvas.toBlob((result) => resolve(result), "image/png");
+  });
+  if (!blob) {
+    return null;
+  }
+  const buffer = await blob.arrayBuffer();
+  return Array.from(new Uint8Array(buffer));
+}
+
+function seededFriendAvatar(seed: string) {
+  const presetIds = Object.keys(FRIEND_AVATAR_PRESETS);
+  const index = hashFriendAvatarSeed(seed) % presetIds.length;
+  return `${FRIEND_AVATAR_PREFIX}${presetIds[index] ?? "orbit"}`;
+}
+
+function hashFriendAvatarSeed(seed: string) {
+  let hash = 0;
+
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash << 5) - hash + seed.charCodeAt(index);
+    hash |= 0;
+  }
+
+  return Math.abs(hash);
+}
+
+function FriendsMemberSection({
+  language,
+  title,
+  entries,
+  openActionMenuId,
+  actionMenuPlacement,
+  actionMenuMaxHeight,
+  actionMenuRef,
+  onToggleActionMenu,
+  onCloseActionMenu,
+  onOpenManage,
+  onStartPrivateConversation,
+  onStartContactConversation,
+  onOpenMemberTerminal,
+  onUpdateContactStatus,
+  onUpdateMemberStatus,
+  onUnavailable,
+  onRemoveMember,
+  onRemoveContact,
+}: {
+  language: AppLanguage;
+  title: string;
+  entries: FriendsParityEntry[];
+  openActionMenuId: string | null;
+  actionMenuPlacement: "top" | "bottom";
+  actionMenuMaxHeight: string;
+  actionMenuRef: RefObject<HTMLDivElement | null>;
+  onToggleActionMenu: (entryId: string, anchor: HTMLElement | null) => void;
+  onCloseActionMenu: () => void;
+  onOpenManage: (entry: FriendsParityEntry) => void;
+  onStartPrivateConversation: (member: MemberProfile) => void;
+  onStartContactConversation: (contact: ContactProfile) => void;
+  onOpenMemberTerminal: (member: MemberProfile) => void;
+  onUpdateContactStatus: (contact: ContactProfile, status: MemberProfile["status"]) => void;
+  onUpdateMemberStatus: (member: MemberProfile, status: MemberProfile["status"]) => void;
+  onUnavailable: (capability: string) => void;
+  onRemoveMember: (member: MemberProfile) => void;
+  onRemoveContact: (contact: ContactProfile) => void;
+}) {
+  const text = FRIENDS_PARITY_TEXT[language];
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="friends-parity__section">
+      <div className="friends-parity__section-heading">
+        <span>{title}</span>
+        <span>{entries.length}</span>
+      </div>
+      <div className="friends-parity__grid">
+        {entries.map((entry) => {
+          const isMenuOpen = openActionMenuId === entry.id;
+          const canChangeStatus = Boolean(entry.member || entry.contact);
+          const canOpenTerminal = Boolean(entry.member && entry.canOpenTerminal);
+          const avatar = ensureFriendAvatar(entry.avatar, `${entry.scope}:${entry.id}:${entry.displayName}`);
+          const avatarImageSrc = friendAvatarImageSrc(avatar);
+          const statusOptions = canOpenTerminal
+            ? friendsParityStatusOptions(language).filter((option) => option.id !== "working")
+            : friendsParityStatusOptions(language);
+          const avatarClassName = [
+            "friends-parity__avatar",
+            canOpenTerminal ? "friends-parity__avatar--button" : "",
+            avatarImageSrc ? "friends-parity__avatar--image" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+          return (
+            <article
+              key={entry.id}
+              className={
+                isMenuOpen
+                  ? "friends-parity__card friends-parity__card--menu-open"
+                  : "friends-parity__card"
+              }
+            >
+              <button
+                type="button"
+                className={avatarClassName}
+                style={friendAvatarVars(avatar)}
+                aria-label={`${text.openTerminal}: ${entry.displayName}`}
+                aria-disabled={!canOpenTerminal}
+                onClick={() => {
+                  if (entry.member && canOpenTerminal) {
+                    onOpenMemberTerminal(entry.member);
+                  }
+                }}
+              >
+                {avatarImageSrc ? (
+                  <img src={avatarImageSrc} alt={entry.displayName} className="friends-parity__avatar-image" />
+                ) : (
+                  <span className="friends-parity__avatar-ring" aria-hidden="true" />
+                )}
+                <span className="friends-parity__status-group" aria-hidden="true">
+                  <span
+                    className={`friends-parity__status friends-parity__status--${entry.status}`}
+                    title={memberStatusLabel(entry.status, language)}
+                  />
+                  {entry.terminalMeta ? (
+                    <span
+                      className={`friends-parity__status friends-parity__terminal-status friends-parity__terminal-status--${entry.terminalMeta}`}
+                      title={terminalSessionStatusLabel(entry.terminalMeta)}
+                    />
+                  ) : null}
+                </span>
+              </button>
+              <span className="friends-parity__member-copy">
+                <button
+                  type="button"
+                  className="friends-parity__name-button"
+                  onClick={() => onOpenManage(entry)}
+                >
+                  <span>{entry.displayName}</span>
+                  <WorkspaceMaterialSymbol name="edit" />
+                </button>
+                <small>{entry.roleLabel}</small>
+              </span>
+              <span className="friends-parity__card-actions">
+                <button
+                  type="button"
+                  title={text.sendMessage}
+                  aria-label={`${text.sendMessage}: ${entry.displayName}`}
+                  onClick={() => {
+                    if (entry.member) {
+                      onStartPrivateConversation(entry.member);
+                    } else if (entry.contact) {
+                      onStartContactConversation(entry.contact);
+                    }
+                  }}
+                >
+                  <WorkspaceMaterialSymbol name="chat_bubble" />
+                </button>
+                <span className="friends-parity__menu-anchor">
+                  <button
+                    type="button"
+                    title={text.moreActions}
+                    aria-label={`${text.moreActions}: ${entry.displayName}`}
+                    data-friend-menu-toggle
+                    className={isMenuOpen ? "friends-parity__icon-active" : undefined}
+                    onClick={(event) => onToggleActionMenu(entry.id, event.currentTarget)}
+                  >
+                    <WorkspaceMaterialSymbol name="more_vert" />
+                  </button>
+                  {isMenuOpen ? (
+                    <div
+                      ref={actionMenuRef}
+                      data-friend-menu
+                      className={`friends-parity__action-menu friends-parity__action-menu--${actionMenuPlacement}`}
+                      style={actionMenuMaxHeight ? { maxHeight: actionMenuMaxHeight } : undefined}
+                    >
+                      <div className="friends-parity__menu-label">{text.status}</div>
+                      {statusOptions.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          className="friends-parity__status-option"
+                          disabled={!canChangeStatus}
+                          onClick={() => {
+                            if (entry.member) {
+                              onUpdateMemberStatus(entry.member, option.id);
+                            } else if (entry.contact) {
+                              onUpdateContactStatus(entry.contact, option.id);
+                            } else {
+                              onUnavailable("好友状态");
+                            }
+                            onCloseActionMenu();
+                          }}
+                        >
+                          <span
+                            className={`friends-parity__status-dot friends-parity__status-dot--${option.id}`}
+                          />
+                          {option.label}
+                          {entry.status === option.id ? (
+                            <WorkspaceMaterialSymbol name="check" />
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </span>
+                {entry.canRemove ? (
+                  <button
+                  type="button"
+                  title={text.remove}
+                  aria-label={`${text.remove}: ${entry.displayName}`}
+                    onClick={() => {
+                      if (entry.member) {
+                        onRemoveMember(entry.member);
+                      } else if (entry.contact) {
+                        onRemoveContact(entry.contact);
+                      }
+                    }}
+                  >
+                    <WorkspaceMaterialSymbol name="delete" />
+                  </button>
+                ) : null}
+              </span>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function FriendsManageMemberModal({
+  language,
+  entry,
+  onClose,
+  onSave,
+}: {
+  language: AppLanguage;
+  entry: FriendsParityEntry;
+  onClose: () => void;
+  onSave: (entry: FriendsParityEntry, displayName: string) => Promise<void>;
+}) {
+  const text = PARITY_INVITE_MODAL_TEXT[language].manage;
+  const [name, setName] = useState(entry.displayName);
+  const [isSaving, setIsSaving] = useState(false);
+  const canSave = name.trim().length > 0;
+  const avatar = ensureFriendAvatar(entry.avatar, `${entry.scope}:${entry.id}:${entry.displayName}`);
+  const avatarImageSrc = friendAvatarImageSrc(avatar);
+
+  useEffect(() => {
+    setName(entry.displayName);
+  }, [entry]);
+
+  return (
+    <div className="friends-parity__modal-backdrop friends-parity__modal-backdrop--strong" role="presentation">
+      <form
+        className="friends-parity__manage-modal"
+        aria-label={text.ariaLabel}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canSave || isSaving) {
+            return;
+          }
+          setIsSaving(true);
+          void onSave(entry, name.trim())
+            .catch(() => undefined)
+            .finally(() => setIsSaving(false));
+        }}
+      >
+        <div className="friends-parity__manage-header">
+          <h2>{text.title}</h2>
+          <button type="button" onClick={onClose} aria-label={PARITY_INVITE_MODAL_TEXT[language].close}>
+            <WorkspaceMaterialSymbol name="close" />
+          </button>
+        </div>
+        <div className="friends-parity__manage-avatar">
+          <span
+            className={avatarImageSrc ? "friends-parity__manage-avatar-art friends-parity__manage-avatar-art--image" : "friends-parity__manage-avatar-art"}
+            style={friendAvatarVars(avatar)}
+          >
+            {avatarImageSrc ? (
+              <img src={avatarImageSrc} alt={entry.displayName} className="friends-parity__avatar-image" />
+            ) : (
+              <span className="friends-parity__avatar-ring" aria-hidden="true" />
+            )}
+          </span>
+          <p>{entry.roleLabel}</p>
+        </div>
+        <label className="friends-parity__field">
+          <span>{text.displayName}</span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            autoFocus
+          />
+        </label>
+        <button type="submit" className="friends-parity__modal-submit" disabled={!canSave || isSaving}>
+          {isSaving ? text.saving : text.save}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function ParityAdminInviteModal({
+  language,
+  onClose,
+  onSubmit,
+}: {
+  language: AppLanguage;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const text = PARITY_INVITE_MODAL_TEXT[language];
+  const [identifier, setIdentifier] = useState("");
+  const permissions = text.admin.permissionsList;
+
+  return (
+    <div className="friends-parity__modal-backdrop" role="presentation">
+      <form
+        className="friends-parity__admin-modal"
+        aria-label={text.admin.ariaLabel}
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div className="friends-parity__admin-header">
+          <span>
+            <WorkspaceMaterialSymbol name="admin_panel_settings" />
+          </span>
+          <div>
+            <h2>{text.admin.title}</h2>
+            <p>{text.admin.subtitle}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label={text.close}>
+            <WorkspaceMaterialSymbol name="close" />
+          </button>
+        </div>
+        <div className="friends-parity__modal-body">
+          <label className="friends-parity__field">
+            <span>{text.admin.uniqueLink}</span>
+            <div className="friends-parity__readonly-link">
+              <WorkspaceMaterialSymbol name="link" />
+              <input readOnly value="https://sky.chat/invite/adm_9x82m..." />
+              <button type="button" aria-label={text.admin.copyInviteLink}>
+                <WorkspaceMaterialSymbol name="content_copy" />
+              </button>
+            </div>
+          </label>
+          <label className="friends-parity__field">
+            <span>{text.admin.userIdentifier}</span>
+            <input
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
+              placeholder={text.admin.userPlaceholder}
+            />
+          </label>
+          <div className="friends-parity__permissions-field">
+            <span>{text.admin.permissions}</span>
+            <div className="friends-parity__permissions">
+              {permissions.map((permission) => (
+                <label key={permission.title}>
+                  <span className="friends-parity__permission-check">
+                    <input type="checkbox" defaultChecked={permission.checked} />
+                    <span>
+                      <WorkspaceMaterialSymbol name="check" />
+                    </span>
+                  </span>
+                  <span className="friends-parity__permission-copy">
+                    <strong>{permission.title}</strong>
+                    <small>{permission.description}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
+        <button type="submit" className="friends-parity__modal-submit">
+          {text.admin.send}
+          <WorkspaceMaterialSymbol name="send" />
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function ParityAssistantInviteModal({
+  language,
+  kind,
+  runtimeKind,
+  builtinRuntimeId,
+  customRuntimeCliId,
+  customRuntimeCommand,
+  builtInRuntimeOptions,
+  customCliRuntimeOptions,
+  instanceCount,
+  sandboxed,
+  unlimitedAccess,
+  isInviting,
+  onClose,
+  onRuntimeKindChange,
+  onBuiltinRuntimeChange,
+  onCustomRuntimeCliChange,
+  onCustomRuntimeCommandChange,
+  onInstanceCountChange,
+  onSandboxedChange,
+  onUnlimitedAccessChange,
+  onSubmit,
+}: {
+  language: AppLanguage;
+  kind: InvitedMemberType;
+  runtimeKind: MemberRuntimeKind;
+  builtinRuntimeId: string;
+  customRuntimeCliId: string;
+  customRuntimeCommand: string;
+  builtInRuntimeOptions: RuntimeOption[];
+  customCliRuntimeOptions: RuntimeOption[];
+  instanceCount: number;
+  sandboxed: boolean;
+  unlimitedAccess: boolean;
+  isInviting: boolean;
+  onClose: () => void;
+  onRuntimeKindChange: (value: MemberRuntimeKind) => void;
+  onBuiltinRuntimeChange: (value: string) => void;
+  onCustomRuntimeCliChange: (value: string) => void;
+  onCustomRuntimeCommandChange: (value: string) => void;
+  onInstanceCountChange: (value: number) => void;
+  onSandboxedChange: (value: boolean) => void;
+  onUnlimitedAccessChange: (value: boolean) => void;
+  onSubmit: () => void;
+}) {
+  const text = PARITY_INVITE_MODAL_TEXT[language].assistant;
+  const customRuntime = customCliRuntimeOptions.find((runtime) => runtime.id === customRuntimeCliId);
+  const visibleBuiltInRuntimeOptions =
+    kind === "assistant"
+      ? builtInRuntimeOptions.filter((runtime) => !runtime.id.includes("terminal"))
+      : builtInRuntimeOptions;
+  const canSubmit =
+    (runtimeKind === "builtInAiCli" ||
+      (runtimeKind === "customCli" && Boolean(customRuntimeCliId || customRuntimeCommand.trim())) ||
+      (runtimeKind === "shell" && customRuntimeCommand.trim().length > 0));
+
+  return (
+    <div className="friends-parity__modal-backdrop" role="presentation">
+      <form
+        className="friends-parity__assistant-modal"
+        aria-label={kind === "assistant" ? text.assistantAriaLabel : text.memberAriaLabel}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (canSubmit) {
+            onSubmit();
+          }
+        }}
+      >
+        <button
+          type="button"
+          className="friends-parity__modal-close"
+          onClick={onClose}
+          aria-label={PARITY_INVITE_MODAL_TEXT[language].close}
+        >
+          <WorkspaceMaterialSymbol name="close" />
+        </button>
+        <div className="friends-parity__assistant-header">
+          <h2>{kind === "assistant" ? text.assistantTitle : text.memberTitle}</h2>
+          <p>{text.subtitle}</p>
+        </div>
+        <div className="friends-parity__assistant-body custom-scrollbar">
+          <div className="friends-parity__runtime-grid">
+            {visibleBuiltInRuntimeOptions.map((runtime) => (
+              <button
+                key={runtime.id}
+                type="button"
+                className={
+                  runtimeKind === "builtInAiCli" && builtinRuntimeId === runtime.id
+                    ? "friends-parity__runtime friends-parity__runtime--active"
+                    : "friends-parity__runtime"
+                }
+                onClick={() => {
+                  onRuntimeKindChange("builtInAiCli");
+                  onBuiltinRuntimeChange(runtime.id);
+                }}
+              >
+                <span className={`friends-parity__runtime-icon friends-parity__runtime-icon--${runtimeIconTone(runtime.id)}`}>
+                  <ParityRuntimeIcon runtimeId={runtime.id} />
+                </span>
+                <strong>{runtime.label}</strong>
+                {runtimeKind === "builtInAiCli" && builtinRuntimeId === runtime.id ? (
+                  <WorkspaceMaterialSymbol name="check_circle" />
+                ) : null}
+              </button>
+            ))}
+            {customCliRuntimeOptions.map((runtime) => (
+              <button
+                key={runtime.id}
+                type="button"
+                className={
+                  runtimeKind === "customCli" && customRuntimeCliId === runtime.id
+                    ? "friends-parity__runtime friends-parity__runtime--active"
+                    : "friends-parity__runtime"
+                }
+                onClick={() => {
+                  onRuntimeKindChange("customCli");
+                  onCustomRuntimeCliChange(runtime.id);
+                  onCustomRuntimeCommandChange("");
+                }}
+              >
+                <span className="friends-parity__runtime-icon friends-parity__runtime-icon--custom">
+                  <WorkspaceMaterialSymbol name="smart_toy" />
+                </span>
+                <strong>{runtime.label}</strong>
+                {runtimeKind === "customCli" && customRuntimeCliId === runtime.id ? (
+                  <WorkspaceMaterialSymbol name="check_circle" />
+                ) : null}
+              </button>
+            ))}
+          </div>
+          {runtimeKind === "customCli" && customRuntime ? (
+            <p className="friends-parity__runtime-command">{customRuntime.command}</p>
+          ) : runtimeKind !== "builtInAiCli" ? (
+            <label className="friends-parity__field">
+              <span>{runtimeKind === "shell" ? text.shellCommand : text.customCliCommand}</span>
+              <input
+                value={customRuntimeCommand}
+                onChange={(event) => onCustomRuntimeCommandChange(event.target.value)}
+                placeholder={runtimeKind === "shell" ? text.shellPlaceholder : text.customCliPlaceholder}
+              />
+            </label>
+          ) : null}
+          <div className="friends-parity__modal-options">
+            <label>
+              <span>{text.instances}</span>
+              <span className="friends-parity__stepper">
+                <button
+                  type="button"
+                  disabled={instanceCount <= 1}
+                  onClick={() => onInstanceCountChange(clampInstanceCount(instanceCount - 1))}
+                >
+                  <WorkspaceMaterialSymbol name="remove" />
+                </button>
+                <input
+                  value={instanceCount}
+                  aria-label={text.instanceCount}
+                  inputMode="numeric"
+                  onChange={(event) =>
+                    onInstanceCountChange(clampInstanceCount(Number(event.target.value)))
+                  }
+                />
+                <button
+                  type="button"
+                  onClick={() => onInstanceCountChange(clampInstanceCount(instanceCount + 1))}
+                >
+                  <WorkspaceMaterialSymbol name="add" />
+                </button>
+              </span>
+            </label>
+            <ToggleRow
+              label={text.unlimitedAccess}
+              description={text.unlimitedAccessDesc}
+              checked={unlimitedAccess}
+              onChange={onUnlimitedAccessChange}
+            />
+            <ToggleRow
+              label={text.sandboxed}
+              checked={sandboxed}
+              onChange={onSandboxedChange}
+            />
+          </div>
+        </div>
+        <button
+          type="submit"
+          className="friends-parity__modal-submit"
+          disabled={isInviting || !canSubmit}
+        >
+          {isInviting ? text.saving : text.send}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="friends-parity__toggle">
+      <span>
+        <strong>{label}</strong>
+        {description ? <small>{description}</small> : null}
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <span aria-hidden="true" />
+    </label>
+  );
+}
+
+type ParitySelectOption = {
+  value: string;
+  label: string;
+};
+
+function ParitySelect({
+  value,
+  options,
+  ariaLabel,
+  invalid = false,
+  onChange,
+}: {
+  value: string;
+  options: ParitySelectOption[];
+  ariaLabel: string;
+  invalid?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select.Root value={value} onValueChange={onChange}>
+      <Select.Trigger className="parity-select__trigger" aria-label={ariaLabel} aria-invalid={invalid}>
+        <Select.Value />
+        <Select.Icon asChild>
+          <WorkspaceMaterialSymbol name="expand_more" />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content
+          className="parity-select__content"
+          position="popper"
+          sideOffset={6}
+          collisionPadding={12}
+        >
+          <Select.Viewport className="parity-select__viewport">
+            {options.map((option) => (
+              <Select.Item key={option.value} value={option.value} className="parity-select__item">
+                <Select.ItemText>{option.label}</Select.ItemText>
+                <Select.ItemIndicator className="parity-select__indicator">
+                  <WorkspaceMaterialSymbol name="check" />
+                </Select.ItemIndicator>
+              </Select.Item>
+            ))}
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
+function ParityRuntimeIcon({ runtimeId }: { runtimeId: string }) {
+  const imageSrc = runtimeImageUrl(runtimeId);
+
+  if (imageSrc) {
+    return (
+      <span className="friends-parity__brand-icon friends-parity__brand-icon--image" aria-hidden="true">
+        <img src={imageSrc} alt="" draggable={false} />
+      </span>
+    );
+  }
+
+  return <WorkspaceMaterialSymbol name={runtimeIcon(runtimeId)} />;
+}
+
+function runtimeImageUrl(runtimeId: string) {
+  if (runtimeId.includes("gemini")) {
+    return geminiIconUrl;
+  }
+  if (runtimeId.includes("codex")) {
+    return codexIconUrl;
+  }
+  if (runtimeId.includes("claude")) {
+    return claudeCodeIconUrl;
+  }
+  if (runtimeId === "opencode") {
+    return opencodeIconUrl;
+  }
+  if (runtimeId === "qwen-code") {
+    return qwenIconUrl;
+  }
+  if (runtimeId.includes("custom") || runtimeId.includes("terminal")) {
+    return anyCliIconUrl;
+  }
+  return null;
+}
+
+function runtimeIcon(runtimeId: string) {
+  if (runtimeId.includes("claude")) {
+    return "psychology";
+  }
+  if (runtimeId.includes("codex")) {
+    return "code";
+  }
+  if (runtimeId.includes("gemini")) {
+    return "token";
+  }
+  if (runtimeId.includes("terminal")) {
+    return "terminal";
+  }
+  return "smart_toy";
+}
+
+function runtimeIconTone(runtimeId: string) {
+  if (runtimeId.includes("gemini")) {
+    return "gemini";
+  }
+  if (runtimeId.includes("codex")) {
+    return "codex";
+  }
+  if (runtimeId.includes("claude")) {
+    return "claude";
+  }
+  if (runtimeId.includes("opencode")) {
+    return "opencode";
+  }
+  if (runtimeId.includes("qwen")) {
+    return "qwen";
+  }
+  if (runtimeId.includes("terminal")) {
+    return "terminal";
+  }
+  return "custom";
+}
+
+type SettingsParitySection =
+  | "account"
+  | "appearance"
+  | "language"
+  | "members"
+  | "notifications"
+  | "keybinds"
+  | "data";
+
+type SettingsParityGroup = "userSettings" | "appSettings";
+
+const SETTINGS_PARITY_GROUPS: SettingsParityGroup[] = ["userSettings", "appSettings"];
+
+const SETTINGS_PARITY_TEXT = {
+  "zh-CN": {
+    settings: "设置",
+    preferences: "偏好设置",
+    preferencesSubtitle: "自定义账号、通知、终端默认值与本地数据。",
+    userSettings: "用户设置",
+    appSettings: "应用设置",
+    createTeam: "新建团队",
+    leaveTeam: "退出团队",
+    sections: {
+      account: {
+        label: "我的账号",
+        subtitle: "管理工作区成员可见的资料与状态。",
+      },
+      appearance: {
+        label: "外观",
+        subtitle: "切换主题并匹配你的工作环境。",
+      },
+      language: {
+        label: "语言",
+        subtitle: "文案和菜单会立即更新。",
+      },
+      members: {
+        label: "默认成员",
+        navLabel: "成员",
+        subtitle: "邀请成员时使用的 CLI 与终端命令。",
+      },
+      notifications: {
+        label: "通知",
+        subtitle: "配置桌面通知、声音、预览、提及提醒和静默时段。",
+      },
+      keybinds: {
+        label: "快捷键",
+        subtitle: "配置快捷键方案和每个操作的可用状态。",
+      },
+      data: {
+        label: "数据",
+        subtitle: "维护当前工作区聊天数据与终端输出模式。",
+      },
+    },
+    avatar: {
+      change: "更换头像",
+      title: "头像",
+      subtitle: "选择预设或上传的个人头像。",
+      presets: "头像预设",
+      selectPreset: "选择 {label} 头像预设",
+      uploads: "已上传",
+      useUploaded: "使用上传头像 {name}",
+      deleteUploaded: "删除上传头像",
+      uploading: "上传中",
+      upload: "上传图片",
+      reset: "恢复样式",
+    },
+    profile: {
+      displayName: "显示名称",
+      displayNamePlaceholder: "Owner",
+      status: "状态",
+      statuses: {
+        online: "在线",
+        working: "工作中",
+        doNotDisturb: "请勿打扰",
+        offline: "离线",
+      },
+      timezone: "时区",
+      statusMessage: "状态信息",
+      statusMessagePlaceholder: "分享你正在做的事情",
+      loading: "正在加载已保存资料",
+      updated: "更新时间：{time}",
+      saving: "正在保存资料",
+      save: "保存资料",
+    },
+    themeOptions: {
+      system: {
+        label: "系统",
+        desc: "跟随操作系统外观设置。",
+      },
+      dark: {
+        label: "深色",
+        desc: "默认深色玻璃界面。",
+      },
+      light: {
+        label: "浅色",
+        desc: "明亮的系统界面。",
+      },
+    },
+    languageOptions: {
+      "en-US": "英文（美国）",
+      "zh-CN": "中文（简体）",
+    },
+    terminal: {
+      loading: "正在加载 CLI 配置",
+      updated: "更新时间：{time}",
+      resetDefaults: "恢复默认",
+      selectMember: "选择成员",
+      notConfigured: "未配置",
+      builtIn: "内置",
+      custom: "自定义",
+      command: "{label} 命令",
+      actionsFor: "{label} 的操作",
+      test: "测试",
+      edit: "更改",
+      remove: "删除",
+      customCli: "自定义 CLI",
+      memberName: "成员名称",
+      memberNamePlaceholder: "本地评审",
+      commandInput: "命令",
+      commandPlaceholder: "reviewer --stdio",
+      cancelMember: "取消自定义成员",
+      confirmMember: "确认自定义成员",
+      selectTerminal: "选择终端",
+      auto: "自动",
+      systemShell: "系统 shell",
+      customTerminal: "自定义终端",
+      noPath: "未配置路径",
+      terminalName: "终端名称",
+      terminalNamePlaceholder: "工作区 Zsh",
+      terminalPath: "终端路径",
+      terminalPathPlaceholder: "/bin/zsh",
+      cancelTerminal: "取消自定义终端",
+      confirmTerminal: "确认自定义终端",
+      savedMeta: "已保存的终端配置会用于终端窗口和成员运行时。",
+      saving: "正在保存 CLI",
+      save: "保存 CLI 和终端",
+    },
+    notifications: {
+      desktop: "桌面通知",
+      sound: "声音提醒",
+      mentionsOnly: "仅提醒提及",
+      previews: "消息预览",
+      quietHours: "静默时段",
+      from: "开始时间",
+      to: "结束时间",
+      permission: "权限：{message}",
+      loading: "正在加载通知偏好",
+      updated: "更新时间：{time}",
+      saving: "正在保存通知",
+      save: "保存通知",
+    },
+    keybinds: {
+      profile: "键位方案",
+      default: "默认",
+      shortcutsEnabled: "启用快捷键",
+      showHints: "显示快捷键提示",
+      unavailable: "不可用",
+      enabled: "已启用",
+      disabled: "已禁用",
+      shortcutLabel: "{label} 快捷键",
+      loading: "正在加载快捷键偏好",
+      updated: "更新时间：{time}",
+      reset: "恢复默认",
+      saving: "正在保存快捷键",
+      save: "保存快捷键",
+    },
+    data: {
+      streamTitle: "聊天流式输出",
+      currentMode: "当前已保存模式：{mode}",
+      stream: "流式输出",
+      finalOnly: "仅最终输出",
+      streamToggle: "将终端输出流式写入聊天",
+      loadingOutput: "正在加载聊天输出",
+      savingOutput: "正在保存输出",
+      saveOutput: "保存聊天输出",
+      maintenanceTitle: "聊天数据维护",
+      repairing: "修复中",
+      repair: "修复消息",
+      clearing: "清空中",
+      clear: "清空所有消息",
+    },
+  },
+  "en-US": {
+    settings: "Settings",
+    preferences: "Preferences",
+    preferencesSubtitle: "Manage account, app behavior, terminal defaults, and local data.",
+    userSettings: "User Settings",
+    appSettings: "App Settings",
+    createTeam: "Create Team",
+    leaveTeam: "Leave Team",
+    sections: {
+      account: {
+        label: "My Account",
+        subtitle: "Profile and presence shown to workspace members.",
+      },
+      appearance: {
+        label: "Appearance",
+        subtitle: "Theme follows Golutra visual tokens across windows.",
+      },
+      language: {
+        label: "Language",
+        subtitle: "Copy and menus update immediately.",
+      },
+      members: {
+        label: "Default Member",
+        navLabel: "Members",
+        subtitle: "CLI and terminal commands used when members are invited.",
+      },
+      notifications: {
+        label: "Notifications",
+        subtitle: "Desktop, sound, preview, mention-only and quiet hours.",
+      },
+      keybinds: {
+        label: "Keybinds",
+        subtitle: "Shortcut profile and per-action availability.",
+      },
+      data: {
+        label: "Data",
+        subtitle: "Workspace chat maintenance and chat terminal output mode.",
+      },
+    },
+    avatar: {
+      change: "Change avatar",
+      title: "Avatar",
+      subtitle: "Choose a preset or uploaded profile image.",
+      presets: "Avatar presets",
+      selectPreset: "Select {label} avatar preset",
+      uploads: "Uploads",
+      useUploaded: "Use uploaded avatar {name}",
+      deleteUploaded: "Delete uploaded avatar",
+      uploading: "Uploading",
+      upload: "Upload",
+      reset: "Reset",
+    },
+    profile: {
+      displayName: "Display Name",
+      displayNamePlaceholder: "Owner",
+      status: "Status",
+      statuses: {
+        online: "Online",
+        working: "Working",
+        doNotDisturb: "Do not disturb",
+        offline: "Offline",
+      },
+      timezone: "Time Zone",
+      statusMessage: "Status Message",
+      statusMessagePlaceholder: "What are you working on?",
+      loading: "Loading saved profile",
+      updated: "Updated {time}",
+      saving: "Saving profile",
+      save: "Save profile",
+    },
+    themeOptions: {
+      system: {
+        label: "System",
+        desc: "Follow OS preference.",
+      },
+      dark: {
+        label: "Dark",
+        desc: "Golutra dark glass shell.",
+      },
+      light: {
+        label: "Light",
+        desc: "Bright system surfaces.",
+      },
+    },
+    languageOptions: {
+      "en-US": "English (United States)",
+      "zh-CN": "Chinese (Simplified)",
+    },
+    terminal: {
+      loading: "Loading CLI configuration",
+      updated: "Updated {time}",
+      resetDefaults: "Reset defaults",
+      selectMember: "Select Member",
+      notConfigured: "Not configured",
+      builtIn: "Built-in",
+      custom: "Custom",
+      command: "{label} command",
+      actionsFor: "Actions for {label}",
+      test: "Test",
+      edit: "Edit",
+      remove: "Remove",
+      customCli: "Custom CLI",
+      memberName: "Member Name",
+      memberNamePlaceholder: "Local Reviewer",
+      commandInput: "Command",
+      commandPlaceholder: "reviewer --stdio",
+      cancelMember: "Cancel custom member",
+      confirmMember: "Confirm custom member",
+      selectTerminal: "Select Terminal",
+      auto: "Auto",
+      systemShell: "System shell",
+      customTerminal: "Custom Terminal",
+      noPath: "No path configured",
+      terminalName: "Terminal Name",
+      terminalNamePlaceholder: "Workspace Zsh",
+      terminalPath: "Terminal Path",
+      terminalPathPlaceholder: "/bin/zsh",
+      cancelTerminal: "Cancel custom terminal",
+      confirmTerminal: "Confirm custom terminal",
+      savedMeta: "Saved terminal configuration is used by terminal windows and member runtimes.",
+      saving: "Saving CLI",
+      save: "Save CLI and terminal",
+    },
+    notifications: {
+      desktop: "Desktop notifications",
+      sound: "Sound",
+      mentionsOnly: "Mentions only",
+      previews: "Message previews",
+      quietHours: "Quiet hours",
+      from: "From",
+      to: "To",
+      permission: "Permission: {message}",
+      loading: "Loading notification preferences",
+      updated: "Updated {time}",
+      saving: "Saving notifications",
+      save: "Save notifications",
+    },
+    keybinds: {
+      profile: "Profile",
+      default: "Default",
+      shortcutsEnabled: "Shortcuts enabled",
+      showHints: "Show hints",
+      unavailable: "Unavailable",
+      enabled: "Enabled",
+      disabled: "Disabled",
+      shortcutLabel: "{label} shortcut",
+      loading: "Loading shortcut preferences",
+      updated: "Updated {time}",
+      reset: "Reset",
+      saving: "Saving shortcuts",
+      save: "Save shortcuts",
+    },
+    data: {
+      streamTitle: "Chat stream output",
+      currentMode: "Current saved mode: {mode}",
+      stream: "Stream",
+      finalOnly: "Final only",
+      streamToggle: "Stream terminal output into chat",
+      loadingOutput: "Loading chat output",
+      savingOutput: "Saving output",
+      saveOutput: "Save chat output",
+      maintenanceTitle: "Chat data maintenance",
+      repairing: "Repairing",
+      repair: "Repair messages",
+      clearing: "Clearing",
+      clear: "Clear all messages",
+    },
+  },
+} as const;
+
+function SettingsParity({
+  profileDraft,
+  savedProfile,
+  notificationDraft,
+  savedNotificationPreferences,
+  shortcutDraft,
+  savedShortcutPreferences,
+  chatTerminalOutputDraft,
+  savedChatTerminalOutputPreferences,
+  terminalDraft,
+  savedTerminalConfiguration,
+  activeWorkspaceId,
+  activeWorkspaceName,
+  chatMaintenanceResult,
+  fieldError,
+  notificationError,
+  shortcutError,
+  chatTerminalOutputError,
+  terminalError,
+  isLoading,
+  isSaving,
+  isNotificationLoading,
+  isNotificationSaving,
+  isShortcutLoading,
+  isShortcutSaving,
+  isChatTerminalOutputLoading,
+  isChatTerminalOutputSaving,
+  isRepairingChatData,
+  isClearingWorkspaceChatData,
+  isTerminalLoading,
+  isTerminalSaving,
+  pendingAvatarAction,
+  theme,
+  language,
+  onDraftChange,
+  onNotificationDraftChange,
+  onShortcutDraftChange,
+  onChatTerminalOutputDraftChange,
+  onTerminalDraftChange,
+  onUploadAvatar,
+  onSelectAvatarPreset,
+  onResetAvatar,
+  onDeleteUploadedAvatar,
+  onSave,
+  onSaveNotifications,
+  onSaveShortcuts,
+  onResetShortcuts,
+  onSaveChatTerminalOutput,
+  onRepairChatData,
+  onClearWorkspaceChatData,
+  onSaveTerminalConfiguration,
+  onResetTerminalConfiguration,
+  onTestTerminal,
+  onThemeChange,
+  onLanguageChange,
+}: {
+  profileDraft: ProfileSettingsDraft;
+  savedProfile: ProfileSettingsSnapshot;
+  notificationDraft: NotificationPreferencesDraft;
+  savedNotificationPreferences: NotificationPreferencesSnapshot;
+  shortcutDraft: ShortcutPreferencesDraft;
+  savedShortcutPreferences: ShortcutPreferencesSnapshot;
+  chatTerminalOutputDraft: ChatTerminalOutputPreferencesDraft;
+  savedChatTerminalOutputPreferences: ChatTerminalOutputPreferencesSnapshot;
+  terminalDraft: TerminalConfigurationDraft;
+  savedTerminalConfiguration: TerminalConfigurationSnapshot;
+  activeWorkspaceId: string | null;
+  activeWorkspaceName: string | null;
+  chatMaintenanceResult: ChatMaintenanceResultView | null;
+  fieldError: { field: ProfileSettingsField; message: string } | null;
+  notificationError: string | null;
+  shortcutError: string | null;
+  chatTerminalOutputError: string | null;
+  terminalError: string | null;
+  isLoading: boolean;
+  isSaving: boolean;
+  isNotificationLoading: boolean;
+  isNotificationSaving: boolean;
+  isShortcutLoading: boolean;
+  isShortcutSaving: boolean;
+  isChatTerminalOutputLoading: boolean;
+  isChatTerminalOutputSaving: boolean;
+  isRepairingChatData: boolean;
+  isClearingWorkspaceChatData: boolean;
+  isTerminalLoading: boolean;
+  isTerminalSaving: boolean;
+  pendingAvatarAction: ProfileAvatarAction | null;
+  theme: AppTheme;
+  language: AppLanguage;
+  onDraftChange: (draft: ProfileSettingsDraft) => void;
+  onNotificationDraftChange: (draft: NotificationPreferencesDraft) => void;
+  onShortcutDraftChange: (draft: ShortcutPreferencesDraft) => void;
+  onChatTerminalOutputDraftChange: (draft: ChatTerminalOutputPreferencesDraft) => void;
+  onTerminalDraftChange: (draft: TerminalConfigurationDraft) => void;
+  onUploadAvatar: () => void;
+  onSelectAvatarPreset: (presetId: string) => void;
+  onResetAvatar: () => void;
+  onDeleteUploadedAvatar: () => void;
+  onSave: () => void;
+  onSaveNotifications: () => void;
+  onSaveShortcuts: () => void;
+  onResetShortcuts: () => void;
+  onSaveChatTerminalOutput: () => void;
+  onRepairChatData: () => void;
+  onClearWorkspaceChatData: () => void;
+  onSaveTerminalConfiguration: () => void;
+  onResetTerminalConfiguration: () => void;
+  onTestTerminal: () => void;
+  onThemeChange: (theme: AppTheme) => void;
+  onLanguageChange: (language: AppLanguage) => void;
+}) {
+  const [activeSection, setActiveSection] = useState<SettingsParitySection>("account");
+  const settingsText = SETTINGS_PARITY_TEXT[language];
+  const canSaveProfile =
+    profileDraft.displayName.trim().length > 0 && profileDraft.timezone.trim().length > 0;
+  const canSaveNotifications =
+    !isNotificationSaving &&
+    notificationDraft.dndStartTime.length === 5 &&
+    notificationDraft.dndEndTime.length === 5;
+  const disabledShortcutIds = new Set(shortcutDraft.disabledActionIds);
+  const displayedShortcutBindings = shortcutBindingsForDraftProfile(
+    shortcutDraft.profile,
+    shortcutDraft.disabledActionIds,
+  );
+  const workspaceScope = activeWorkspaceName
+    ? `${activeWorkspaceName} · ${activeWorkspaceId ?? "browser-workspace"}`
+    : (activeWorkspaceId ?? "No workspace");
+  const [isAvatarMenuOpen, setIsAvatarMenuOpen] = useState(false);
+  const [avatarMenuPosition, setAvatarMenuPosition] = useState({ left: 0, top: 0 });
+  const avatarButtonRef = useRef<HTMLButtonElement | null>(null);
+  const avatarMenuRef = useRef<HTMLDivElement | null>(null);
+  const selectedPresetId =
+    savedProfile.avatar?.kind === "preset" ? savedProfile.avatar.presetId : null;
+  const currentUploadedAvatar =
+    savedProfile.avatar?.kind === "uploaded" ? savedProfile.avatar : null;
+  const avatarMenuStyle: CSSProperties = {
+    left: avatarMenuPosition.left,
+    top: avatarMenuPosition.top,
+  };
+  const [openMemberMenuId, setOpenMemberMenuId] = useState<string | null>(null);
+  const [customMemberForm, setCustomMemberForm] = useState<{
+    mode: "add" | "edit";
+    index: number | null;
+    label: string;
+    command: string;
+  } | null>(null);
+  const [openTerminalMenuId, setOpenTerminalMenuId] = useState<string | null>(null);
+  const [customTerminalForm, setCustomTerminalForm] = useState<{
+    mode: "add" | "edit";
+    index: number | null;
+    label: string;
+    command: string;
+  } | null>(null);
+
+  const settingSections: Array<{
+    id: SettingsParitySection;
+    icon: string;
+    label: string;
+    group: SettingsParityGroup;
+  }> = [
+    { id: "account", icon: "person", label: settingsText.sections.account.label, group: "userSettings" },
+    { id: "appearance", icon: "palette", label: settingsText.sections.appearance.label, group: "appSettings" },
+    { id: "language", icon: "translate", label: settingsText.sections.language.label, group: "appSettings" },
+    {
+      id: "members",
+      icon: "groups",
+      label: settingsText.sections.members.navLabel,
+      group: "appSettings",
+    },
+    {
+      id: "notifications",
+      icon: "notifications",
+      label: settingsText.sections.notifications.label,
+      group: "appSettings",
+    },
+    {
+      id: "keybinds",
+      icon: "keyboard_command_key",
+      label: settingsText.sections.keybinds.label,
+      group: "appSettings",
+    },
+    { id: "data", icon: "database", label: settingsText.sections.data.label, group: "appSettings" },
+  ];
+
+  const updateShortcutActionEnabled = (actionId: string, enabled: boolean) => {
+    const disabledActionIds = enabled
+      ? shortcutDraft.disabledActionIds.filter((item) => item !== actionId)
+      : Array.from(new Set([...shortcutDraft.disabledActionIds, actionId])).sort();
+
+    onShortcutDraftChange({ ...shortcutDraft, disabledActionIds });
+  };
+
+  const updateBuiltInCommand = (runtimeId: string, command: string) => {
+    onTerminalDraftChange({
+      ...terminalDraft,
+      builtInCliEntries: terminalDraft.builtInCliEntries.map((entry) =>
+        entry.runtimeId === runtimeId ? { ...entry, command } : entry,
+      ),
+    });
+  };
+
+  const clampAvatarMenu = () => {
+    const menu = avatarMenuRef.current;
+
+    if (!menu) {
+      return;
+    }
+
+    const rect = menu.getBoundingClientRect();
+    const padding = 12;
+    const maxLeft = window.innerWidth - rect.width - padding;
+    const maxTop = window.innerHeight - rect.height - padding;
+
+    setAvatarMenuPosition((position) => ({
+      left: Math.max(padding, Math.min(position.left, maxLeft)),
+      top: Math.max(padding, Math.min(position.top, maxTop)),
+    }));
+  };
+
+  const toggleAvatarMenu = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (isAvatarMenuOpen) {
+      setIsAvatarMenuOpen(false);
+      return;
+    }
+
+    const buttonRect = avatarButtonRef.current?.getBoundingClientRect();
+    setAvatarMenuPosition({
+      left: event.clientX || buttonRect?.left || 12,
+      top: event.clientY || (buttonRect ? buttonRect.bottom + 8 : 12),
+    });
+    setIsAvatarMenuOpen(true);
+  };
+
+  useEffect(() => {
+    if (!isAvatarMenuOpen) {
+      return undefined;
+    }
+
+    const animationFrame = window.requestAnimationFrame(clampAvatarMenu);
+    const closeOnPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+
+      if (
+        target &&
+        (avatarMenuRef.current?.contains(target) || avatarButtonRef.current?.contains(target))
+      ) {
+        return;
+      }
+
+      setIsAvatarMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsAvatarMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", clampAvatarMenu);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("pointerdown", closeOnPointerDown);
+      window.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", clampAvatarMenu);
+    };
+  }, [isAvatarMenuOpen]);
+
+  const closeActionMenus = () => {
+    setOpenMemberMenuId(null);
+    setOpenTerminalMenuId(null);
+  };
+
+  const openCustomMemberForm = () => {
+    closeActionMenus();
+    setCustomMemberForm({ mode: "add", index: null, label: "", command: "" });
+  };
+
+  const startEditCustomMember = (entry: TerminalCustomCliEntry, index: number) => {
+    closeActionMenus();
+    setCustomMemberForm({
+      mode: "edit",
+      index,
+      label: entry.label,
+      command: entry.command,
+    });
+  };
+
+  const applyCustomMember = () => {
+    if (!customMemberForm) {
+      return;
+    }
+
+    const label = customMemberForm.label.trim() || settingsText.terminal.customCli;
+    const command = customMemberForm.command.trim();
+
+    if (!command) {
+      return;
+    }
+
+    if (customMemberForm.mode === "edit" && customMemberForm.index !== null) {
+      onTerminalDraftChange({
+        ...terminalDraft,
+        customCliEntries: terminalDraft.customCliEntries.map((entry, index) =>
+          index === customMemberForm.index ? { ...entry, label, command } : entry,
+        ),
+      });
+    } else {
+      onTerminalDraftChange({
+        ...terminalDraft,
+        customCliEntries: [
+          ...terminalDraft.customCliEntries,
+          {
+            cliId: nextTerminalConfigId(
+              "custom-cli",
+              terminalDraft.customCliEntries.map((entry) => entry.cliId),
+            ),
+            label,
+            command,
+          },
+        ],
+      });
+    }
+
+    setCustomMemberForm(null);
+  };
+
+  const removeCustomMember = (entryIndex: number) => {
+    closeActionMenus();
+    onTerminalDraftChange({
+      ...terminalDraft,
+      customCliEntries: terminalDraft.customCliEntries.filter((_, index) => index !== entryIndex),
+    });
+
+    if (customMemberForm?.index === entryIndex) {
+      setCustomMemberForm(null);
+    }
+  };
+
+  const openCustomTerminalForm = () => {
+    closeActionMenus();
+    setCustomTerminalForm({ mode: "add", index: null, label: "", command: "" });
+  };
+
+  const startEditCustomTerminal = (entry: TerminalCustomTerminalEntry, index: number) => {
+    closeActionMenus();
+    setCustomTerminalForm({
+      mode: "edit",
+      index,
+      label: entry.label,
+      command: entry.command,
+    });
+  };
+
+  const applyCustomTerminal = () => {
+    if (!customTerminalForm) {
+      return;
+    }
+
+    const label = customTerminalForm.label.trim() || settingsText.terminal.customTerminal;
+    const command = customTerminalForm.command.trim();
+
+    if (!command) {
+      return;
+    }
+
+    if (customTerminalForm.mode === "edit" && customTerminalForm.index !== null) {
+      onTerminalDraftChange({
+        ...terminalDraft,
+        customTerminalEntries: terminalDraft.customTerminalEntries.map((entry, index) =>
+          index === customTerminalForm.index ? { ...entry, label, command } : entry,
+        ),
+      });
+    } else {
+      const terminalId = nextTerminalConfigId(
+        "terminal",
+        terminalDraft.customTerminalEntries.map((entry) => entry.terminalId),
+      );
+      onTerminalDraftChange({
+        ...terminalDraft,
+        customTerminalEntries: [
+          ...terminalDraft.customTerminalEntries,
+          {
+            terminalId,
+            label,
+            command,
+          },
+        ],
+        defaultTerminalId: terminalDraft.defaultTerminalId ?? terminalId,
+      });
+    }
+
+    setCustomTerminalForm(null);
+  };
+
+  const removeCustomTerminal = (entryIndex: number) => {
+    closeActionMenus();
+    const removedEntry = terminalDraft.customTerminalEntries[entryIndex];
+
+    onTerminalDraftChange({
+      ...terminalDraft,
+      customTerminalEntries: terminalDraft.customTerminalEntries.filter(
+        (_, index) => index !== entryIndex,
+      ),
+      defaultTerminalId:
+        terminalDraft.defaultTerminalId === removedEntry?.terminalId
+          ? null
+          : terminalDraft.defaultTerminalId,
+    });
+
+    if (customTerminalForm?.index === entryIndex) {
+      setCustomTerminalForm(null);
+    }
+  };
+
+  return (
+    <section className="settings-parity" aria-label={settingsText.settings}>
+      <aside className="settings-parity__rail">
+        <div className="settings-parity__rail-title">
+          <h1>{settingsText.settings}</h1>
+        </div>
+        <div className="settings-parity__rail-scroll custom-scrollbar">
+          {SETTINGS_PARITY_GROUPS.map((group) => (
+            <div key={group} className="settings-parity__rail-group">
+              <h2>{settingsText[group]}</h2>
+              <div className="settings-parity__rail-items">
+                {settingSections
+                  .filter((section) => section.group === group)
+                  .map((section) => (
+                    <button
+                      key={section.id}
+                      type="button"
+                      title={section.label}
+                      className={
+                        activeSection === section.id
+                          ? "settings-parity__rail-button settings-parity__rail-button--active"
+                          : "settings-parity__rail-button"
+                      }
+                      onClick={() => {
+                        setActiveSection(section.id);
+                        document
+                          .getElementById(`settings-${section.id}`)
+                          ?.scrollIntoView({ block: "start", behavior: "smooth" });
+                      }}
+                    >
+                      <WorkspaceMaterialSymbol name={section.icon} />
+                      <span>{section.label}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          ))}
+          <div className="settings-parity__rail-actions">
+            <button type="button" onClick={() => setActiveSection("members")}>
+              <WorkspaceMaterialSymbol name="group_add" />
+              <span>{settingsText.createTeam}</span>
+            </button>
+            <button type="button" className="settings-parity__danger">
+              <WorkspaceMaterialSymbol name="logout" />
+              <span>{settingsText.leaveTeam}</span>
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      <main className="settings-parity__content custom-scrollbar">
+        <div className="settings-parity__content-inner">
+          <header className="settings-parity__header">
+            <h1>{settingsText.preferences}</h1>
+            <p>{settingsText.preferencesSubtitle}</p>
+          </header>
+
+          <SettingsSection
+            id="settings-account"
+            icon="person"
+            title={settingsText.sections.account.label}
+            subtitle={settingsText.sections.account.subtitle}
+          >
+            <div className="settings-parity__account-card">
+              <div className="settings-parity__avatar-stack">
+                <button
+                  ref={avatarButtonRef}
+                  type="button"
+                  className="settings-parity__avatar-button"
+                  aria-haspopup="menu"
+                  aria-expanded={isAvatarMenuOpen}
+                  aria-label={settingsText.avatar.change}
+                  onClick={toggleAvatarMenu}
+                >
+                  <AvatarPreview
+                    avatar={savedProfile.avatar}
+                    displayName={profileDraft.displayName}
+                    size="lg"
+                  />
+                  <i aria-hidden="true">
+                    <WorkspaceMaterialSymbol name="edit" />
+                  </i>
+                </button>
+                <span>{profileAvatarLabel(savedProfile.avatar, language)}</span>
+                {isAvatarMenuOpen ? (
+                  <div
+                    ref={avatarMenuRef}
+                    className="settings-parity__avatar-menu"
+                    role="menu"
+                    style={avatarMenuStyle}
+                  >
+                    <div className="settings-parity__avatar-menu-head">
+                      <strong>{settingsText.avatar.title}</strong>
+                      <span>{settingsText.avatar.subtitle}</span>
+                    </div>
+                    <div className="settings-parity__avatar-grid" aria-label={settingsText.avatar.presets}>
+                      {PROFILE_AVATAR_PRESETS.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          role="menuitem"
+                          aria-label={settingsText.avatar.selectPreset.replace("{label}", preset.label)}
+                          className="settings-parity__avatar-choice"
+                          disabled={pendingAvatarAction !== null}
+                          onClick={() => {
+                            setIsAvatarMenuOpen(false);
+                            onSelectAvatarPreset(preset.id);
+                          }}
+                        >
+                          <span
+                            className={`settings-parity__avatar-choice-swatch ${preset.className}`}
+                          >
+                            {preset.label.slice(0, 1)}
+                          </span>
+                          {selectedPresetId === preset.id ? (
+                            <b aria-hidden="true">
+                              <WorkspaceMaterialSymbol name="check" />
+                            </b>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                    {currentUploadedAvatar ? (
+                      <div className="settings-parity__avatar-uploads">
+                        <strong>{settingsText.avatar.uploads}</strong>
+                        <div className="settings-parity__avatar-grid">
+                          <div className="settings-parity__avatar-upload-tile">
+                            <button
+                              type="button"
+                              role="menuitem"
+                              aria-label={settingsText.avatar.useUploaded.replace(
+                                "{name}",
+                                currentUploadedAvatar.sourceFileName ?? "upload",
+                              )}
+                              onClick={() => setIsAvatarMenuOpen(false)}
+                            >
+                              <AvatarPreview
+                                avatar={currentUploadedAvatar}
+                                displayName={profileDraft.displayName}
+                                size="md"
+                              />
+                              <b aria-hidden="true">
+                                <WorkspaceMaterialSymbol name="check" />
+                              </b>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={settingsText.avatar.deleteUploaded}
+                              disabled={pendingAvatarAction !== null}
+                              onClick={() => {
+                                setIsAvatarMenuOpen(false);
+                                onDeleteUploadedAvatar();
+                              }}
+                            >
+                              <WorkspaceMaterialSymbol name="close" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                    <div className="settings-parity__avatar-menu-actions">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        disabled={pendingAvatarAction !== null}
+                        onClick={() => {
+                          setIsAvatarMenuOpen(false);
+                          onUploadAvatar();
+                        }}
+                      >
+                        <WorkspaceMaterialSymbol name="upload" />
+                        {pendingAvatarAction === "upload"
+                          ? settingsText.avatar.uploading
+                          : settingsText.avatar.upload}
+                      </button>
+                      {currentUploadedAvatar ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={pendingAvatarAction !== null}
+                          onClick={() => {
+                            setIsAvatarMenuOpen(false);
+                            onResetAvatar();
+                          }}
+                        >
+                          <WorkspaceMaterialSymbol name="restart_alt" />
+                          {settingsText.avatar.reset}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="settings-parity__form-grid">
+                <label className="settings-parity__field">
+                  <span>{settingsText.profile.displayName}</span>
+                  <input
+                    value={profileDraft.displayName}
+                    aria-invalid={fieldError?.field === "displayName"}
+                    onChange={(event) =>
+                      onDraftChange({ ...profileDraft, displayName: event.target.value })
+                    }
+                    placeholder={settingsText.profile.displayNamePlaceholder}
+                  />
+                  {fieldError?.field === "displayName" ? <em>{fieldError.message}</em> : null}
+                </label>
+                <div className="settings-parity__field">
+                  <span>{settingsText.profile.status}</span>
+                  <ParitySelect
+                    value={profileDraft.status}
+                    ariaLabel={settingsText.profile.status}
+                    options={[
+                      { value: "online", label: settingsText.profile.statuses.online },
+                      { value: "working", label: settingsText.profile.statuses.working },
+                      { value: "doNotDisturb", label: settingsText.profile.statuses.doNotDisturb },
+                      { value: "offline", label: settingsText.profile.statuses.offline },
+                    ]}
+                    onChange={(value) =>
+                      onDraftChange({
+                        ...profileDraft,
+                        status: value as ProfileStatus,
+                      })
+                    }
+                  />
+                </div>
+                <div className="settings-parity__field">
+                  <span>{settingsText.profile.timezone}</span>
+                  <ParitySelect
+                    value={profileDraft.timezone}
+                    ariaLabel={settingsText.profile.timezone}
+                    invalid={fieldError?.field === "timezone"}
+                    options={PROFILE_TIMEZONE_OPTIONS.map((timezone) => ({
+                      value: timezone,
+                      label: timezone,
+                    }))}
+                    onChange={(value) =>
+                      onDraftChange({ ...profileDraft, timezone: value })
+                    }
+                  />
+                  {fieldError?.field === "timezone" ? <em>{fieldError.message}</em> : null}
+                </div>
+                <label className="settings-parity__field settings-parity__field--wide">
+                  <span>{settingsText.profile.statusMessage}</span>
+                  <textarea
+                    value={profileDraft.statusMessage}
+                    maxLength={160}
+                    rows={3}
+                    onChange={(event) =>
+                      onDraftChange({ ...profileDraft, statusMessage: event.target.value })
+                    }
+                    placeholder={settingsText.profile.statusMessagePlaceholder}
+                  />
+                </label>
+              </div>
+            </div>
+            <SettingsActions
+              meta={
+                isLoading
+                  ? settingsText.profile.loading
+                  : settingsText.profile.updated.replace(
+                      "{time}",
+                      formatDateTime(savedProfile.updatedAtMs),
+                    )
+              }
+              primaryLabel={isSaving ? settingsText.profile.saving : settingsText.profile.save}
+              primaryDisabled={isSaving || !canSaveProfile}
+              onPrimary={onSave}
+            />
+          </SettingsSection>
+
+          <SettingsDivider />
+
+          <SettingsSection
+            id="settings-appearance"
+            icon="palette"
+            title={settingsText.sections.appearance.label}
+            subtitle={settingsText.sections.appearance.subtitle}
+          >
+            <div className="settings-parity__theme-grid">
+              {(["system", "dark", "light"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={
+                    theme === option
+                      ? "settings-parity__theme settings-parity__theme--active"
+                      : "settings-parity__theme"
+                  }
+                  onClick={() => onThemeChange(option)}
+                >
+                  <span>
+                    <strong>{themeOptionLabel(option, language)}</strong>
+                    {theme === option ? <WorkspaceMaterialSymbol name="check" /> : null}
+                  </span>
+                  <i data-theme-preview={option}>
+                    <b />
+                    <b />
+                    <b />
+                  </i>
+                  <small>{themeOptionDescription(option, language)}</small>
+                </button>
+              ))}
+            </div>
+          </SettingsSection>
+
+          <SettingsDivider />
+
+          <SettingsSection
+            id="settings-language"
+            icon="translate"
+            title={settingsText.sections.language.label}
+            subtitle={settingsText.sections.language.subtitle}
+          >
+            <div className="settings-parity__language-card">
+              {(["en-US", "zh-CN"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={
+                    language === option
+                      ? "settings-parity__language-row settings-parity__language-row--active"
+                      : "settings-parity__language-row"
+                  }
+                  onClick={() => onLanguageChange(option)}
+                >
+                  <span>{option === "en-US" ? "🇺🇸" : "🇨🇳"}</span>
+                  <strong>{settingsText.languageOptions[option]}</strong>
+                  {language === option ? <WorkspaceMaterialSymbol name="check" /> : null}
+                </button>
+              ))}
+            </div>
+          </SettingsSection>
+
+          <SettingsDivider />
+
+          <SettingsSection
+            id="settings-members"
+            icon="groups"
+            title={settingsText.sections.members.label}
+            subtitle={settingsText.sections.members.subtitle}
+          >
+            <div className="settings-parity__terminal-card">
+              <div className="settings-parity__card-head">
+                <span>
+                  {isTerminalLoading
+                    ? settingsText.terminal.loading
+                    : settingsText.terminal.updated.replace(
+                        "{time}",
+                        formatDateTime(savedConfigurationDate(savedTerminalConfiguration)),
+                      )}
+                </span>
+                <button type="button" onClick={onResetTerminalConfiguration} disabled={isTerminalSaving}>
+                  {settingsText.terminal.resetDefaults}
+                </button>
+              </div>
+
+              <div className="settings-parity__settings-block">
+                <div className="settings-parity__subhead">
+                  <span>{settingsText.terminal.selectMember}</span>
+                </div>
+                <div className="settings-parity__member-grid" onClick={closeActionMenus}>
+                  {terminalDraft.builtInCliEntries.map((entry) => (
+                    <div
+                      key={entry.runtimeId}
+                      className="settings-parity__member-card"
+                      data-runtime-tone={runtimeIconTone(entry.runtimeId)}
+                    >
+                      <div className="settings-parity__member-icon">
+                        <ParityRuntimeIcon runtimeId={entry.runtimeId} />
+                      </div>
+                      <div className="settings-parity__member-card-copy">
+                        <strong>{entry.label}</strong>
+                        <span>{entry.command || settingsText.terminal.notConfigured}</span>
+                        <em>{settingsText.terminal.builtIn}</em>
+                      </div>
+                      <label className="settings-parity__card-command" onClick={(event) => event.stopPropagation()}>
+                        <span>{settingsText.terminal.command.replace("{label}", entry.label)}</span>
+                        <input
+                          aria-label={settingsText.terminal.command.replace("{label}", entry.label)}
+                          value={entry.command}
+                          onChange={(event) => updateBuiltInCommand(entry.runtimeId, event.target.value)}
+                        />
+                      </label>
+                      <div className="settings-parity__card-menu-anchor">
+                        <button
+                          type="button"
+                          aria-label={settingsText.terminal.actionsFor.replace("{label}", entry.label)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setOpenMemberMenuId(
+                              openMemberMenuId === entry.runtimeId ? null : entry.runtimeId,
+                            );
+                          }}
+                        >
+                          <WorkspaceMaterialSymbol name="more_vert" />
+                        </button>
+                        {openMemberMenuId === entry.runtimeId ? (
+                          <div className="settings-parity__card-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+                            <button type="button" role="menuitem" onClick={onTestTerminal}>
+                              {settingsText.terminal.test}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+
+                  {terminalDraft.customCliEntries.map((entry, index) => (
+                    <div
+                      key={entry.cliId}
+                      className="settings-parity__member-card"
+                      data-runtime-tone="custom"
+                    >
+                      <div className="settings-parity__member-icon">
+                        <WorkspaceMaterialSymbol name="smart_toy" />
+                      </div>
+                      <div className="settings-parity__member-card-copy">
+                        <strong>{entry.label || settingsText.terminal.customCli}</strong>
+                        <span>{entry.command || settingsText.terminal.notConfigured}</span>
+                        <em>{settingsText.terminal.custom}</em>
+                      </div>
+                      <div className="settings-parity__card-menu-anchor">
+                        <button
+                          type="button"
+                          aria-label={settingsText.terminal.actionsFor.replace(
+                            "{label}",
+                            entry.label || entry.cliId,
+                          )}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setOpenMemberMenuId(
+                              openMemberMenuId === entry.cliId ? null : entry.cliId,
+                            );
+                          }}
+                        >
+                          <WorkspaceMaterialSymbol name="more_vert" />
+                        </button>
+                        {openMemberMenuId === entry.cliId ? (
+                          <div className="settings-parity__card-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+                            <button type="button" role="menuitem" onClick={onTestTerminal}>
+                              {settingsText.terminal.test}
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => startEditCustomMember(entry, index)}
+                            >
+                              {settingsText.terminal.edit}
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="settings-parity__menu-danger"
+                              onClick={() => removeCustomMember(index)}
+                            >
+                              {settingsText.terminal.remove}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    className="settings-parity__add-card"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openCustomMemberForm();
+                    }}
+                  >
+                    <span>
+                      <WorkspaceMaterialSymbol name="add" />
+                    </span>
+                    <strong>{settingsText.terminal.customCli}</strong>
+                  </button>
+                </div>
+
+                {customMemberForm ? (
+                  <div className="settings-parity__inline-form">
+                    <label className="settings-parity__field">
+                      <span>{settingsText.terminal.memberName}</span>
+                      <input
+                        value={customMemberForm.label}
+                        placeholder={settingsText.terminal.memberNamePlaceholder}
+                        onChange={(event) =>
+                          setCustomMemberForm({ ...customMemberForm, label: event.target.value })
+                        }
+                      />
+                    </label>
+                    <label className="settings-parity__field settings-parity__field--wide">
+                      <span>{settingsText.terminal.commandInput}</span>
+                      <div className="settings-parity__command-input">
+                        <b aria-hidden="true">$</b>
+                        <input
+                          value={customMemberForm.command}
+                          placeholder={settingsText.terminal.commandPlaceholder}
+                          onChange={(event) =>
+                            setCustomMemberForm({
+                              ...customMemberForm,
+                              command: event.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                    </label>
+                    <div className="settings-parity__form-icon-actions">
+                      <button
+                        type="button"
+                        aria-label={settingsText.terminal.cancelMember}
+                        onClick={() => setCustomMemberForm(null)}
+                      >
+                        <WorkspaceMaterialSymbol name="close" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={settingsText.terminal.confirmMember}
+                        disabled={!customMemberForm.command.trim()}
+                        onClick={applyCustomMember}
+                      >
+                        <WorkspaceMaterialSymbol name="check" />
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="settings-parity__settings-block">
+                <div className="settings-parity__subhead">
+                  <span>{settingsText.terminal.selectTerminal}</span>
+                </div>
+                <div className="settings-parity__member-grid" onClick={closeActionMenus}>
+                  <div
+                    className={
+                      terminalDraft.defaultTerminalId
+                        ? "settings-parity__terminal-option"
+                        : "settings-parity__terminal-option settings-parity__terminal-option--selected"
+                    }
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      closeActionMenus();
+                      onTerminalDraftChange({ ...terminalDraft, defaultTerminalId: null });
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        onTerminalDraftChange({ ...terminalDraft, defaultTerminalId: null });
+                      }
+                    }}
+                  >
+                    <strong>{settingsText.terminal.auto}</strong>
+                    <span>{settingsText.terminal.systemShell}</span>
+                    {!terminalDraft.defaultTerminalId ? (
+                      <b aria-hidden="true">
+                        <WorkspaceMaterialSymbol name="check" />
+                      </b>
+                    ) : null}
+                  </div>
+
+                  {terminalDraft.customTerminalEntries.map((entry, index) => (
+                    <div
+                      key={entry.terminalId}
+                      className={
+                        terminalDraft.defaultTerminalId === entry.terminalId
+                          ? "settings-parity__terminal-option settings-parity__terminal-option--selected"
+                          : "settings-parity__terminal-option"
+                      }
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        closeActionMenus();
+                        onTerminalDraftChange({
+                          ...terminalDraft,
+                          defaultTerminalId: entry.terminalId,
+                        });
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          onTerminalDraftChange({
+                            ...terminalDraft,
+                            defaultTerminalId: entry.terminalId,
+                          });
+                        }
+                      }}
+                    >
+                      <strong>{entry.label || settingsText.terminal.customTerminal}</strong>
+                      <span>{entry.command || settingsText.terminal.noPath}</span>
+                      {terminalDraft.defaultTerminalId === entry.terminalId ? (
+                        <b aria-hidden="true">
+                          <WorkspaceMaterialSymbol name="check" />
+                        </b>
+                      ) : null}
+                      <div className="settings-parity__card-menu-anchor">
+                        <button
+                          type="button"
+                          aria-label={settingsText.terminal.actionsFor.replace(
+                            "{label}",
+                            entry.label || entry.terminalId,
+                          )}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setOpenTerminalMenuId(
+                              openTerminalMenuId === entry.terminalId
+                                ? null
+                                : entry.terminalId,
+                            );
+                          }}
+                        >
+                          <WorkspaceMaterialSymbol name="more_vert" />
+                        </button>
+                        {openTerminalMenuId === entry.terminalId ? (
+                          <div className="settings-parity__card-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+                            <button type="button" role="menuitem" onClick={onTestTerminal}>
+                              {settingsText.terminal.test}
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => startEditCustomTerminal(entry, index)}
+                            >
+                              {settingsText.terminal.edit}
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              className="settings-parity__menu-danger"
+                              onClick={() => removeCustomTerminal(index)}
+                            >
+                              {settingsText.terminal.remove}
+                            </button>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    className="settings-parity__add-card"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openCustomTerminalForm();
+                    }}
+                  >
+                    <span>
+                      <WorkspaceMaterialSymbol name="add" />
+                    </span>
+                    <strong>{settingsText.terminal.customTerminal}</strong>
+                  </button>
+                </div>
+
+                {customTerminalForm ? (
+                  <div className="settings-parity__inline-form">
+                    <label className="settings-parity__field">
+                      <span>{settingsText.terminal.terminalName}</span>
+                      <input
+                        value={customTerminalForm.label}
+                        placeholder={settingsText.terminal.terminalNamePlaceholder}
+                        onChange={(event) =>
+                          setCustomTerminalForm({
+                            ...customTerminalForm,
+                            label: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="settings-parity__field settings-parity__field--wide">
+                      <span>{settingsText.terminal.terminalPath}</span>
+                      <input
+                        value={customTerminalForm.command}
+                        placeholder={settingsText.terminal.terminalPathPlaceholder}
+                        onChange={(event) =>
+                          setCustomTerminalForm({
+                            ...customTerminalForm,
+                            command: event.target.value,
+                          })
+                        }
+                      />
+                    </label>
+                    <div className="settings-parity__form-icon-actions">
+                      <button
+                        type="button"
+                        aria-label={settingsText.terminal.cancelTerminal}
+                        onClick={() => setCustomTerminalForm(null)}
+                      >
+                        <WorkspaceMaterialSymbol name="close" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={settingsText.terminal.confirmTerminal}
+                        disabled={!customTerminalForm.command.trim()}
+                        onClick={applyCustomTerminal}
+                      >
+                        <WorkspaceMaterialSymbol name="check" />
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              {terminalError ? <p className="settings-parity__error">{terminalError}</p> : null}
+              <SettingsActions
+                meta={settingsText.terminal.savedMeta}
+                primaryLabel={isTerminalSaving ? settingsText.terminal.saving : settingsText.terminal.save}
+                primaryDisabled={isTerminalSaving}
+                onPrimary={onSaveTerminalConfiguration}
+              />
+            </div>
+          </SettingsSection>
+
+          <SettingsDivider />
+
+          <SettingsSection
+            id="settings-notifications"
+            icon="notifications"
+            title={settingsText.sections.notifications.label}
+            subtitle={settingsText.sections.notifications.subtitle}
+          >
+            <div className="settings-parity__toggle-list">
+              <SettingsToggle
+                icon="notifications"
+                label={settingsText.notifications.desktop}
+                checked={notificationDraft.desktopNotificationsEnabled}
+                onChange={(checked) =>
+                  onNotificationDraftChange({
+                    ...notificationDraft,
+                    desktopNotificationsEnabled: checked,
+                  })
+                }
+              />
+              <SettingsToggle
+                icon="volume_up"
+                label={settingsText.notifications.sound}
+                checked={notificationDraft.soundEnabled}
+                onChange={(checked) =>
+                  onNotificationDraftChange({ ...notificationDraft, soundEnabled: checked })
+                }
+              />
+              <SettingsToggle
+                icon="alternate_email"
+                label={settingsText.notifications.mentionsOnly}
+                checked={notificationDraft.mentionsOnly}
+                onChange={(checked) =>
+                  onNotificationDraftChange({ ...notificationDraft, mentionsOnly: checked })
+                }
+              />
+              <SettingsToggle
+                icon="visibility"
+                label={settingsText.notifications.previews}
+                checked={notificationDraft.messagePreviewEnabled}
+                onChange={(checked) =>
+                  onNotificationDraftChange({
+                    ...notificationDraft,
+                    messagePreviewEnabled: checked,
+                  })
+                }
+              />
+              <SettingsToggle
+                icon="bedtime"
+                label={settingsText.notifications.quietHours}
+                checked={notificationDraft.dndEnabled}
+                onChange={(checked) =>
+                  onNotificationDraftChange({ ...notificationDraft, dndEnabled: checked })
+                }
+              />
+            </div>
+            {notificationDraft.dndEnabled ? (
+              <div className="settings-parity__time-row">
+                <label className="settings-parity__field">
+                  <span>{settingsText.notifications.from}</span>
+                  <input
+                    type="time"
+                    value={notificationDraft.dndStartTime}
+                    onChange={(event) =>
+                      onNotificationDraftChange({
+                        ...notificationDraft,
+                        dndStartTime: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+                <label className="settings-parity__field">
+                  <span>{settingsText.notifications.to}</span>
+                  <input
+                    type="time"
+                    value={notificationDraft.dndEndTime}
+                    onChange={(event) =>
+                      onNotificationDraftChange({
+                        ...notificationDraft,
+                        dndEndTime: event.target.value,
+                      })
+                    }
+                  />
+                </label>
+              </div>
+            ) : null}
+            <p className="settings-parity__muted">
+              {settingsText.notifications.permission.replace(
+                "{message}",
+                savedNotificationPreferences.permission.message,
+              )}
+            </p>
+            {notificationError ? <p className="settings-parity__error">{notificationError}</p> : null}
+            <SettingsActions
+              meta={
+                isNotificationLoading
+                  ? settingsText.notifications.loading
+                  : settingsText.notifications.updated.replace(
+                      "{time}",
+                      formatDateTime(savedNotificationPreferences.updatedAtMs),
+                    )
+              }
+              primaryLabel={
+                isNotificationSaving
+                  ? settingsText.notifications.saving
+                  : settingsText.notifications.save
+              }
+              primaryDisabled={!canSaveNotifications}
+              onPrimary={onSaveNotifications}
+            />
+          </SettingsSection>
+
+          <SettingsDivider />
+
+          <SettingsSection
+            id="settings-keybinds"
+            icon="keyboard_command_key"
+            title={settingsText.sections.keybinds.label}
+            subtitle={settingsText.sections.keybinds.subtitle}
+          >
+            <div className="settings-parity__keybind-controls">
+              <div className="settings-parity__field">
+                <span>{settingsText.keybinds.profile}</span>
+                <ParitySelect
+                  value={shortcutDraft.profile}
+                  ariaLabel={settingsText.keybinds.profile}
+                  options={[
+                    { value: "default", label: settingsText.keybinds.default },
+                    { value: "vscode", label: "VS Code" },
+                    { value: "slack", label: "Slack" },
+                  ]}
+                  onChange={(value) =>
+                    onShortcutDraftChange({
+                      ...shortcutDraft,
+                      profile: value as ShortcutKeymapProfile,
+                    })
+                  }
+                />
+              </div>
+              <SettingsToggle
+                icon="keyboard"
+                label={settingsText.keybinds.shortcutsEnabled}
+                checked={shortcutDraft.shortcutsEnabled}
+                onChange={(checked) =>
+                  onShortcutDraftChange({ ...shortcutDraft, shortcutsEnabled: checked })
+                }
+              />
+              <SettingsToggle
+                icon="tips_and_updates"
+                label={settingsText.keybinds.showHints}
+                checked={shortcutDraft.shortcutHintsEnabled}
+                onChange={(checked) =>
+                  onShortcutDraftChange({ ...shortcutDraft, shortcutHintsEnabled: checked })
+                }
+              />
+            </div>
+            <div className="settings-parity__binding-list">
+              {displayedShortcutBindings.map((binding) => {
+                const actionDisabled = disabledShortcutIds.has(binding.actionId);
+                const isEffectivelyEnabled =
+                  shortcutDraft.shortcutsEnabled && binding.available && !actionDisabled;
+                const canToggle = binding.available;
+
+                return (
+                  <div
+                    key={binding.actionId}
+                    className={
+                      canToggle
+                        ? "settings-parity__binding-row"
+                        : "settings-parity__binding-row settings-parity__binding-row--unavailable"
+                    }
+                  >
+                    <span>
+                      <strong>{binding.label}</strong>
+                      {binding.unavailableReason ? <em>{binding.unavailableReason}</em> : null}
+                    </span>
+                    <div className="settings-parity__binding-meta">
+                      <small>{binding.keys.join(" / ")}</small>
+                      {!canToggle ? (
+                        <b>{settingsText.keybinds.unavailable}</b>
+                      ) : isEffectivelyEnabled ? (
+                        <b data-state="enabled">{settingsText.keybinds.enabled}</b>
+                      ) : (
+                        <b data-state="disabled">{settingsText.keybinds.disabled}</b>
+                      )}
+                      <label>
+                        <span className="sr-only">
+                          {settingsText.keybinds.shortcutLabel.replace("{label}", binding.label)}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={!actionDisabled}
+                          disabled={!canToggle}
+                          onChange={(event) =>
+                            updateShortcutActionEnabled(binding.actionId, event.target.checked)
+                          }
+                        />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {shortcutError ? <p className="settings-parity__error">{shortcutError}</p> : null}
+            <SettingsActions
+              meta={
+                isShortcutLoading
+                  ? settingsText.keybinds.loading
+                  : settingsText.keybinds.updated.replace(
+                      "{time}",
+                      formatDateTime(savedShortcutPreferences.updatedAtMs),
+                    )
+              }
+              secondaryLabel={settingsText.keybinds.reset}
+              secondaryDisabled={isShortcutSaving}
+              onSecondary={onResetShortcuts}
+              primaryLabel={isShortcutSaving ? settingsText.keybinds.saving : settingsText.keybinds.save}
+              primaryDisabled={isShortcutSaving}
+              onPrimary={onSaveShortcuts}
+            />
+          </SettingsSection>
+
+          <SettingsDivider />
+
+          <SettingsSection
+            id="settings-data"
+            icon="database"
+            title={settingsText.sections.data.label}
+            subtitle={settingsText.sections.data.subtitle}
+          >
+            <div className="settings-parity__data-card">
+              <div>
+                <strong>{settingsText.data.streamTitle}</strong>
+                <span>
+                  {settingsText.data.currentMode.replace(
+                    "{mode}",
+                    savedChatTerminalOutputPreferences.displayMode === "stream"
+                      ? settingsText.data.stream
+                      : settingsText.data.finalOnly,
+                  )}
+                </span>
+              </div>
+              <SettingsToggle
+                icon="terminal"
+                label={settingsText.data.streamToggle}
+                checked={chatTerminalOutputDraft.displayMode === "stream"}
+                onChange={(checked) =>
+                  onChatTerminalOutputDraftChange({
+                    displayMode: checked ? "stream" : "finalOnly",
+                  })
+                }
+              />
+              {chatTerminalOutputError ? (
+                <p className="settings-parity__error">{chatTerminalOutputError}</p>
+              ) : null}
+              <button
+                type="button"
+                className="settings-parity__subtle-action"
+                disabled={isChatTerminalOutputSaving}
+                onClick={onSaveChatTerminalOutput}
+              >
+                {isChatTerminalOutputLoading
+                  ? settingsText.data.loadingOutput
+                  : isChatTerminalOutputSaving
+                    ? settingsText.data.savingOutput
+                    : settingsText.data.saveOutput}
+              </button>
+            </div>
+
+            <div className="settings-parity__data-card">
+              <div>
+                <strong>{settingsText.data.maintenanceTitle}</strong>
+                <span>{workspaceScope}</span>
+              </div>
+              <div className="settings-parity__button-row">
+                <button
+                  type="button"
+                  disabled={!activeWorkspaceId || isRepairingChatData || isClearingWorkspaceChatData}
+                  onClick={onRepairChatData}
+                >
+                  <WorkspaceMaterialSymbol name="build_circle" />
+                  {isRepairingChatData ? settingsText.data.repairing : settingsText.data.repair}
+                </button>
+                <button
+                  type="button"
+                  className="settings-parity__danger"
+                  disabled={!activeWorkspaceId || isRepairingChatData || isClearingWorkspaceChatData}
+                  onClick={onClearWorkspaceChatData}
+                >
+                  <WorkspaceMaterialSymbol name="delete_sweep" />
+                  {isClearingWorkspaceChatData ? settingsText.data.clearing : settingsText.data.clear}
+                </button>
+              </div>
+              {chatMaintenanceResult ? (
+                <div className="settings-parity__maintenance" role="status">
+                  <strong>{chatMaintenanceResult.title}</strong>
+                  <p>{chatMaintenanceResult.summary}</p>
+                  {chatMaintenanceResult.action ? <span>{chatMaintenanceResult.action}</span> : null}
+                </div>
+              ) : null}
+            </div>
+          </SettingsSection>
+        </div>
+      </main>
+    </section>
+  );
+}
+
+function SettingsSection({
+  id,
+  icon,
+  title,
+  subtitle,
+  children,
+}: {
+  id: string;
+  icon: string;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className="settings-parity__section" role="region" aria-labelledby={`${id}-title`}>
+      <h2 id={`${id}-title`}>
+        <WorkspaceMaterialSymbol name={icon} />
+        {title}
+      </h2>
+      <p>{subtitle}</p>
+      {children}
+    </section>
+  );
+}
+
+function SettingsDivider() {
+  return <div className="settings-parity__divider" aria-hidden="true" />;
+}
+
+function SettingsToggle({
+  icon,
+  label,
+  checked,
+  disabled = false,
+  onChange,
+}: {
+  icon: string;
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="settings-parity__toggle">
+      <span>
+        <WorkspaceMaterialSymbol name={icon} />
+        {label}
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+      <i aria-hidden="true" />
+    </label>
+  );
+}
+
+function SettingsActions({
+  meta,
+  primaryLabel,
+  primaryDisabled,
+  onPrimary,
+  secondaryLabel,
+  secondaryDisabled = false,
+  onSecondary,
+}: {
+  meta: string;
+  primaryLabel: string;
+  primaryDisabled: boolean;
+  onPrimary: () => void;
+  secondaryLabel?: string;
+  secondaryDisabled?: boolean;
+  onSecondary?: () => void;
+}) {
+  return (
+    <div className="settings-parity__actions">
+      <span>{meta}</span>
+      <div>
+        {secondaryLabel && onSecondary ? (
+          <button type="button" disabled={secondaryDisabled} onClick={onSecondary}>
+            {secondaryLabel}
+          </button>
+        ) : null}
+        <button type="button" disabled={primaryDisabled} onClick={onPrimary}>
+          {primaryLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function formatDateTime(timestamp: number) {
+  return new Date(timestamp).toLocaleString();
+}
+
+function savedConfigurationDate(configuration: TerminalConfigurationSnapshot) {
+  return configuration.updatedAtMs;
+}
+
+function themeOptionLabel(theme: AppTheme, language: AppLanguage) {
+  return SETTINGS_PARITY_TEXT[language].themeOptions[theme].label;
+}
+
+function themeOptionDescription(theme: AppTheme, language: AppLanguage) {
+  return SETTINGS_PARITY_TEXT[language].themeOptions[theme].desc;
+}
+
+type MarketplaceTab = "store" | "installed";
+
+type SkillStoreRemoteSkill = {
+  id: number;
+  title: string;
+  description: string;
+  icon: string;
+  colorClass: string;
+  bgClass: string;
+  rating: string;
+};
+
+type PluginMarketplaceItem = {
+  id: number;
+  title: string;
+  description: string;
+  icon: string;
+  bgClass: string;
+  rating: string;
+  installed: boolean;
+};
+
+const SKILL_STORE_REMOTE_SKILLS: SkillStoreRemoteSkill[] = [];
+const PLUGIN_MARKETPLACE_ITEMS: PluginMarketplaceItem[] = [];
+
+const SKILL_STORE_TEXT = {
+  "zh-CN": {
+    title: "技能商店",
+    searchPlaceholder: "搜索技能文件夹、模板和工具包...",
+    tabs: {
+      store: "商店",
+      installed: "我的技能",
+    },
+    filters: ["工程", "设计", "管理", "营销", "财务"],
+    all: "全部技能",
+    syncPlaceholder: "粘贴同步 URL...",
+    syncNow: "立即同步",
+    installFolder: "安装文件夹",
+    installed: "我的技能",
+    importTitle: "导入技能",
+    importSubtitle: "从 URL 或本地文件",
+    localSource: "本地技能",
+    loading: "正在加载技能库",
+    empty: "我的技能库里暂无可用技能",
+    openFolder: "打开文件夹",
+    deleteSkill: "删除技能",
+    link: "关联",
+    unlink: "取消关联",
+    linked: "已关联",
+    linking: "关联中",
+    unlinking: "移除中",
+    deleting: "删除中",
+    opening: "打开中",
+    importing: "导入中",
+    manifestLink: "清单链接",
+  },
+  "en-US": {
+    title: "Skill Store",
+    searchPlaceholder: "Search skill folders, templates, and toolkits...",
+    tabs: {
+      store: "Store",
+      installed: "My Skills",
+    },
+    filters: ["Engineering", "Design", "Management", "Marketing", "Finance"],
+    all: "All Skills",
+    syncPlaceholder: "Paste sync URL...",
+    syncNow: "Sync now",
+    installFolder: "Install Folder",
+    installed: "My Skills",
+    importTitle: "Import Skill",
+    importSubtitle: "From URL or Local File",
+    localSource: "Local skill",
+    loading: "Loading skill library",
+    empty: "No local skills available",
+    openFolder: "Open folder",
+    deleteSkill: "Delete skill",
+    link: "Link",
+    unlink: "Unlink",
+    linked: "Linked",
+    linking: "Linking",
+    unlinking: "Removing",
+    deleting: "Deleting",
+    opening: "Opening",
+    importing: "Importing",
+    manifestLink: "Manifest link",
+  },
+} as const satisfies Record<AppLanguage, {
+  title: string;
+  searchPlaceholder: string;
+  tabs: Record<MarketplaceTab, string>;
+  filters: string[];
+  all: string;
+  syncPlaceholder: string;
+  syncNow: string;
+  installFolder: string;
+  installed: string;
+  importTitle: string;
+  importSubtitle: string;
+  localSource: string;
+  loading: string;
+  empty: string;
+  openFolder: string;
+  deleteSkill: string;
+  link: string;
+  unlink: string;
+  linked: string;
+  linking: string;
+  unlinking: string;
+  deleting: string;
+  opening: string;
+  importing: string;
+  manifestLink: string;
+}>;
+
+const PLUGIN_MARKETPLACE_TEXT = {
+  "zh-CN": {
+    title: "插件市场",
+    searchPlaceholder: "搜索插件、集成和主题...",
+    tabs: {
+      store: "浏览商店",
+      installed: "我的插件",
+    },
+    all: "全部插件",
+    categories: ["效率", "开发", "设计", "沟通", "音乐"],
+    install: "安装",
+    installed: "已安装",
+    importTitle: "导入插件",
+    importSubtitle: "从 URL 或本地文件",
+  },
+  "en-US": {
+    title: "Plugin Marketplace",
+    searchPlaceholder: "Search plugins, integrations, and themes...",
+    tabs: {
+      store: "Browse Store",
+      installed: "My Plugins",
+    },
+    all: "All Plugins",
+    categories: ["Productivity", "Development", "Design", "Communication", "Music"],
+    install: "Install",
+    installed: "Installed",
+    importTitle: "Import Plugin",
+    importSubtitle: "From URL or Local File",
+  },
+} as const satisfies Record<AppLanguage, {
+  title: string;
+  searchPlaceholder: string;
+  tabs: Record<MarketplaceTab, string>;
+  all: string;
+  categories: string[];
+  install: string;
+  installed: string;
+  importTitle: string;
+  importSubtitle: string;
+}>;
+
+function SkillStoreParity({
+  language,
+  skills,
+  linkedSkillIds,
+  isLoading,
+  isLoadingLinks,
+  isImporting,
+  pendingOpenId,
+  pendingDeleteId,
+  pendingLinkId,
+  pendingUnlinkId,
+  onImport,
+  onOpen,
+  onDelete,
+  onLink,
+  onUnlink,
+}: {
+  language: AppLanguage;
+  skills: SkillLibraryEntry[];
+  linkedSkillIds: Set<string>;
+  isLoading: boolean;
+  isLoadingLinks: boolean;
+  isImporting: boolean;
+  pendingOpenId: string | null;
+  pendingDeleteId: string | null;
+  pendingLinkId: string | null;
+  pendingUnlinkId: string | null;
+  onImport: () => void;
+  onOpen: (skillId: string) => void;
+  onDelete: (skillId: string) => void;
+  onLink: (skillId: string) => void;
+  onUnlink: (skillId: string) => void;
+}) {
+  const text = SKILL_STORE_TEXT[language];
+  const [activeTab, setActiveTab] = useState<MarketplaceTab>("store");
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const storeSkills = SKILL_STORE_REMOTE_SKILLS.filter((skill) =>
+    skillSearchText(skill.title, skill.description).includes(normalizedQuery),
+  );
+  const localSkills = skills.filter((skill) =>
+    skillSearchText(skill.name, skill.description, skill.sourcePath).includes(normalizedQuery),
+  );
+
+  return (
+    <section className="skill-store-parity" aria-labelledby="skill-store-parity-title">
+      <header className="marketplace-parity__header">
+        <h1 id="skill-store-parity-title">{text.title}</h1>
+        <MarketplaceSearch
+          value={query}
+          placeholder={text.searchPlaceholder}
+          onChange={setQuery}
+        />
+        <MarketplaceSegment
+          activeTab={activeTab}
+          storeLabel={text.tabs.store}
+          installedLabel={text.tabs.installed}
+          onChange={setActiveTab}
+        />
+        <MarketplaceFilters allLabel={text.all} filters={text.filters} />
+      </header>
+
+      <div className="marketplace-parity__content custom-scrollbar">
+        {activeTab === "store" ? (
+          <div className="marketplace-parity__grid marketplace-parity__grid--store">
+            {storeSkills.map((skill) => (
+              <article key={skill.id} className="marketplace-parity__card">
+                <div className="marketplace-parity__card-head">
+                  <span className={`marketplace-parity__icon ${skill.bgClass} ${skill.colorClass}`}>
+                    <WorkspaceMaterialSymbol name={skill.icon} />
+                  </span>
+                  <span className="marketplace-parity__rating">
+                    <WorkspaceMaterialSymbol name="star" />
+                    {skill.rating}
+                  </span>
+                </div>
+                <h2>{skill.title}</h2>
+                <p>{skill.description}</p>
+                <div className="skill-store-parity__sync">
+                  <WorkspaceMaterialSymbol name="link" />
+                  <input type="text" placeholder={text.syncPlaceholder} aria-label={text.syncPlaceholder} />
+                  <button type="button" title={text.syncNow} aria-label={text.syncNow}>
+                    <WorkspaceMaterialSymbol name="sync" />
+                  </button>
+                </div>
+                <button type="button" className="marketplace-parity__primary">
+                  <WorkspaceMaterialSymbol name="add_to_drive" />
+                  {text.installFolder}
+                </button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="marketplace-parity__grid marketplace-parity__grid--installed">
+            {!isLoading && localSkills.map((skill, index) => {
+              const linked = linkedSkillIds.has(skill.skillId);
+              const isOpening = pendingOpenId === skill.skillId;
+              const isDeleting = pendingDeleteId === skill.skillId;
+              const isLinking = pendingLinkId === skill.skillId;
+              const isUnlinking = pendingUnlinkId === skill.skillId;
+
+              return (
+                <article key={skill.skillId} className="marketplace-parity__card skill-store-parity__local-card">
+                  <span className={`marketplace-parity__corner ${skillCornerClass(index)}`} />
+                  <div className="marketplace-parity__card-head">
+                    <span className={`marketplace-parity__icon ${skillIconClass(index)}`}>
+                      <WorkspaceMaterialSymbol name="folder" />
+                    </span>
+                    <span className="marketplace-parity__icon-actions">
+                      <button
+                        type="button"
+                        onClick={() => onOpen(skill.skillId)}
+                        disabled={isOpening || isDeleting}
+                        aria-label={text.openFolder}
+                        title={text.openFolder}
+                      >
+                        <WorkspaceMaterialSymbol name="folder_open" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(skill.skillId)}
+                        disabled={isDeleting}
+                        aria-label={text.deleteSkill}
+                        title={text.deleteSkill}
+                        className="marketplace-parity__danger-icon"
+                      >
+                        <WorkspaceMaterialSymbol name="delete" />
+                      </button>
+                    </span>
+                  </div>
+                  <h2>{skill.name}</h2>
+                  <p>{skill.description ?? text.localSource}</p>
+                  <p className="skill-store-parity__path" title={skill.sourcePath}>
+                    {formatWorkspacePath(skill.sourcePath)}
+                  </p>
+                  <div className="skill-store-parity__footer">
+                    <span>
+                      <b>{text.localSource}</b>
+                    </span>
+                    {linked ? (
+                      <button
+                        type="button"
+                        onClick={() => onUnlink(skill.skillId)}
+                        disabled={isUnlinking || isLoadingLinks}
+                        className="skill-store-parity__link-button skill-store-parity__link-button--linked"
+                      >
+                        {isUnlinking ? text.unlinking : text.unlink}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onLink(skill.skillId)}
+                        disabled={isLinking || isLoadingLinks}
+                        className="skill-store-parity__link-button"
+                      >
+                        {isLinking ? text.linking : text.link}
+                      </button>
+                    )}
+                  </div>
+                  {linked ? <span className="skill-store-parity__linked-badge">{text.linked}</span> : null}
+                </article>
+              );
+            })}
+
+            <button
+              type="button"
+              onClick={onImport}
+              disabled={isImporting}
+              className="marketplace-parity__import-card"
+            >
+              <span>
+                <WorkspaceMaterialSymbol name="add" />
+              </span>
+              <strong>{isImporting ? text.importing : text.importTitle}</strong>
+              <small>{text.importSubtitle}</small>
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PluginMarketplaceParity({
+  language,
+  onUnavailableCapability,
+}: {
+  language: AppLanguage;
+  onUnavailableCapability: (title: string, status: CapabilityStatus) => void;
+}) {
+  const text = PLUGIN_MARKETPLACE_TEXT[language];
+  const [activeTab, setActiveTab] = useState<MarketplaceTab>("store");
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visiblePlugins = PLUGIN_MARKETPLACE_ITEMS.filter((plugin) => {
+    const matchesQuery = skillSearchText(plugin.title, plugin.description).includes(normalizedQuery);
+    return activeTab === "installed" ? plugin.installed && matchesQuery : matchesQuery;
+  });
+
+  return (
+    <section className="plugin-marketplace-parity" aria-labelledby="plugin-marketplace-parity-title">
+      <header className="marketplace-parity__header">
+        <h1 id="plugin-marketplace-parity-title">{text.title}</h1>
+        <MarketplaceSearch
+          value={query}
+          placeholder={text.searchPlaceholder}
+          onChange={setQuery}
+        />
+        <MarketplaceSegment
+          activeTab={activeTab}
+          storeLabel={text.tabs.store}
+          installedLabel={text.tabs.installed}
+          onChange={setActiveTab}
+        />
+        <MarketplaceFilters allLabel={text.all} filters={text.categories} />
+      </header>
+
+      <div className="marketplace-parity__content custom-scrollbar">
+        <div className="marketplace-parity__grid marketplace-parity__grid--installed">
+          {visiblePlugins.map((plugin) => (
+            <article key={plugin.id} className="marketplace-parity__card">
+              <button type="button" className="marketplace-parity__more" aria-label="More">
+                <WorkspaceMaterialSymbol name="more_horiz" />
+              </button>
+              <div className="marketplace-parity__card-head">
+                <span className={`marketplace-parity__icon marketplace-parity__icon--gradient ${plugin.bgClass}`}>
+                  <WorkspaceMaterialSymbol name={plugin.icon} />
+                </span>
+                <span className="marketplace-parity__rating">
+                  <WorkspaceMaterialSymbol name="star" />
+                  {plugin.rating}
+                </span>
+              </div>
+              <h2>{plugin.title}</h2>
+              <p>{plugin.description}</p>
+              {plugin.installed && activeTab === "installed" ? (
+                <div className="marketplace-parity__split-actions">
+                  <span>{text.installed}</span>
+                  <button
+                    type="button"
+                    onClick={() => onUnavailableCapability(text.title, "placeholder")}
+                  >
+                    <WorkspaceMaterialSymbol name="delete" />
+                    Remove
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className={plugin.installed ? "marketplace-parity__secondary" : "marketplace-parity__primary"}
+                  onClick={() => onUnavailableCapability(text.title, "placeholder")}
+                >
+                  {!plugin.installed ? <WorkspaceMaterialSymbol name="download" /> : null}
+                  {plugin.installed ? text.installed : text.install}
+                </button>
+              )}
+            </article>
+          ))}
+
+          {activeTab === "installed" ? (
+            <button
+              type="button"
+              className="marketplace-parity__import-card marketplace-parity__import-card--tall"
+              onClick={() => onUnavailableCapability(text.title, "placeholder")}
+            >
+              <span>
+                <WorkspaceMaterialSymbol name="add" />
+              </span>
+              <strong>{text.importTitle}</strong>
+              <small>{text.importSubtitle}</small>
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MarketplaceSearch({
+  value,
+  placeholder,
+  onChange,
+}: {
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="marketplace-parity__search">
+      <span>
+        <WorkspaceMaterialSymbol name="search" />
+      </span>
+      <input
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      <button type="button" aria-label="Command K">
+        CMD+K
+      </button>
+    </div>
+  );
+}
+
+function MarketplaceSegment({
+  activeTab,
+  storeLabel,
+  installedLabel,
+  onChange,
+}: {
+  activeTab: MarketplaceTab;
+  storeLabel: string;
+  installedLabel: string;
+  onChange: (tab: MarketplaceTab) => void;
+}) {
+  return (
+    <div className="marketplace-parity__segment" role="tablist" aria-label="Marketplace tabs">
+      <span
+        className="marketplace-parity__segment-thumb"
+        data-active={activeTab}
+        aria-hidden="true"
+      />
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === "store"}
+        onClick={() => onChange("store")}
+      >
+        {storeLabel}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === "installed"}
+        onClick={() => onChange("installed")}
+      >
+        {installedLabel}
+      </button>
+    </div>
+  );
+}
+
+function MarketplaceFilters({ allLabel, filters }: { allLabel: string; filters: string[] }) {
+  return (
+    <div className="marketplace-parity__filters" aria-label="Marketplace filters">
+      <button type="button" className="marketplace-parity__filter marketplace-parity__filter--active">
+        {allLabel}
+      </button>
+      {filters.map((filter) => (
+        <button key={filter} type="button" className="marketplace-parity__filter">
+          {filter}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function skillSearchText(...parts: Array<string | null | undefined>) {
+  return parts.filter(Boolean).join(" ").toLocaleLowerCase();
+}
+
+function skillIconClass(index: number) {
+  const classes = [
+    "marketplace-parity__icon--sky",
+    "marketplace-parity__icon--violet",
+    "marketplace-parity__icon--emerald",
+    "marketplace-parity__icon--amber",
+  ];
+  return classes[index % classes.length];
+}
+
+function skillCornerClass(index: number) {
+  const classes = [
+    "marketplace-parity__corner--sky",
+    "marketplace-parity__corner--violet",
+    "marketplace-parity__corner--emerald",
+    "marketplace-parity__corner--amber",
+  ];
+  return classes[index % classes.length];
+}
+
+function ParityTabPlaceholder({
+  tab,
+}: {
+  tab: "workspaces" | "store" | "plugins" | "settings";
+}) {
+  const meta = {
+    workspaces: ["folder_open", "Workspaces", "Open or switch workspace from the workspace window."],
+    store: ["storefront", "Skill store", "Golutra skill store parity is the next slice."],
+    plugins: ["extension", "Plugins", "Plugin marketplace parity is the next slice."],
+    settings: ["settings", "Settings", "Settings parity is the next slice."],
+  } as const;
+  const [icon, title, subtitle] = meta[tab];
+
+  return (
+    <section className="parity-placeholder" aria-label={title}>
+      <span className="parity-placeholder__icon">
+        <WorkspaceMaterialSymbol name={icon} />
+      </span>
+      <h1>{title}</h1>
+      <p>{subtitle}</p>
+    </section>
+  );
+}
+
+function ChatWorkbenchParity({
+  language,
+  activeWorkspace,
+  conversations,
+  selectedConversation,
+  messages,
+  members,
+  messageDraft,
+  mentionedMemberIds,
+  attachmentEntries,
+  roadmapTasks,
+  isRoadmapAttachmentPickerOpen,
+  isLoadingConversations,
+  isLoadingMessages,
+  isLoadingOlderMessages,
+  hasOlderMessages,
+  isSendingMessage,
+  isUpdatingSettings,
+  renameDraft,
+  inviteRuntimeKind,
+  inviteBuiltinRuntimeId,
+  inviteCustomRuntimeCliId,
+  inviteCustomRuntimeCommand,
+  builtInRuntimeOptions,
+  customCliRuntimeOptions,
+  inviteInstanceCount,
+  inviteSandboxed,
+  inviteUnlimitedAccess,
+  isInviting,
+  onSelectConversation,
+  onMessageDraftChange,
+  onAddMention,
+  onRemoveMention,
+  onAddImageAttachment,
+  onOpenRoadmapAttachmentPicker,
+  onSelectRoadmapAttachment,
+  onOpenRoadmapReference,
+  onRemoveAttachmentEntry,
+  onSendMessage,
+  onLoadOlderMessages,
+  onTogglePinned,
+  onToggleMuted,
+  onRenameDraftChange,
+  onRenameConversation,
+  onClearConversation,
+  onDeleteConversation,
+  onOpenRoadmap,
+  onOpenSkills,
+  onOpenMembers,
+  onInviteTypeChange,
+  onInviteDisplayNameChange,
+  onInviteRuntimeKindChange,
+  onInviteBuiltinRuntimeChange,
+  onInviteCustomRuntimeCliChange,
+  onInviteCustomRuntimeCommandChange,
+  onInviteInstanceCountChange,
+  onInviteSandboxedChange,
+  onInviteUnlimitedAccessChange,
+  onInviteMember,
+  onStartPrivateConversation,
+  onOpenMemberTerminal,
+  onMentionMember,
+  onRenameMember,
+  onUpdateMemberStatus,
+  onRemoveMember,
+  onUnavailable,
+}: {
+  language: AppLanguage;
+  activeWorkspace: OpenedWorkspace;
+  conversations: ConversationProfile[];
+  selectedConversation: ConversationProfile | null;
+  messages: ChatMessageProfile[];
+  members: MemberProfile[];
+  messageDraft: string;
+  mentionedMemberIds: string[];
+  attachmentEntries: AttachmentEntry[];
+  roadmapTasks: RoadmapTaskEntry[];
+  isRoadmapAttachmentPickerOpen: boolean;
+  isLoadingConversations: boolean;
+  isLoadingMessages: boolean;
+  isLoadingOlderMessages: boolean;
+  hasOlderMessages: boolean;
+  isSendingMessage: boolean;
+  isUpdatingSettings: boolean;
+  isClearingConversation: boolean;
+  isDeletingConversation: boolean;
+  renameDraft: string;
+  inviteRuntimeKind: MemberRuntimeKind;
+  inviteBuiltinRuntimeId: string;
+  inviteCustomRuntimeCliId: string;
+  inviteCustomRuntimeCommand: string;
+  builtInRuntimeOptions: RuntimeOption[];
+  customCliRuntimeOptions: RuntimeOption[];
+  inviteInstanceCount: number;
+  inviteSandboxed: boolean;
+  inviteUnlimitedAccess: boolean;
+  isInviting: boolean;
+  onSelectConversation: (conversationId: string) => void;
+  onMessageDraftChange: (value: string) => void;
+  onAddMention: (member: MemberProfile) => void;
+  onRemoveMention: (memberId: string) => void;
+  onAddImageAttachment: () => void;
+  onOpenRoadmapAttachmentPicker: () => void;
+  onSelectRoadmapAttachment: (task: RoadmapTaskEntry) => void;
+  onOpenRoadmapReference: (taskId: string) => void;
+  onRemoveAttachmentEntry: (entry: AttachmentEntry) => void;
+  onSendMessage: () => void;
+  onLoadOlderMessages: () => void;
+  onTogglePinned: (conversation: ConversationProfile) => void;
+  onToggleMuted: (conversation: ConversationProfile) => void;
+  onRenameDraftChange: (value: string) => void;
+  onRenameConversation: () => void;
+  onClearConversation: (conversation: ConversationProfile) => void;
+  onDeleteConversation: (conversation: ConversationProfile) => void;
+  onOpenRoadmap: () => void;
+  onOpenSkills: () => void;
+  onOpenMembers: () => void;
+  onInviteTypeChange: (value: InvitedMemberType) => void;
+  onInviteDisplayNameChange: (value: string) => void;
+  onInviteRuntimeKindChange: (value: MemberRuntimeKind) => void;
+  onInviteBuiltinRuntimeChange: (value: string) => void;
+  onInviteCustomRuntimeCliChange: (value: string) => void;
+  onInviteCustomRuntimeCommandChange: (value: string) => void;
+  onInviteInstanceCountChange: (value: number) => void;
+  onInviteSandboxedChange: (value: boolean) => void;
+  onInviteUnlimitedAccessChange: (value: boolean) => void;
+  onInviteMember: () => void;
+  onStartPrivateConversation: (member: MemberProfile) => void;
+  onOpenMemberTerminal: (member: MemberProfile) => void;
+  onMentionMember: (member: MemberProfile) => void;
+  onRenameMember: (member: MemberProfile, displayName: string) => Promise<void>;
+  onUpdateMemberStatus: (member: MemberProfile, status: MemberProfile["status"]) => void;
+  onRemoveMember: (member: MemberProfile) => void;
+  onUnavailable: (capability: string) => void;
+}) {
+  const text = CHAT_PARITY_TEXT[language];
+  const messageListRef = useRef<HTMLDivElement>(null);
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const [openConversationMenuId, setOpenConversationMenuId] = useState<string | null>(null);
+  const [openMemberMenuId, setOpenMemberMenuId] = useState<string | null>(null);
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [isInviteMenuOpen, setIsInviteMenuOpen] = useState(false);
+  const [inviteModal, setInviteModal] = useState<ParityInviteKind | null>(null);
+  const [isEmojiPanelOpen, setIsEmojiPanelOpen] = useState(false);
+  const [activeEmojiGroupId, setActiveEmojiGroupId] = useState(DEFAULT_EMOJI_GROUP_ID);
+  const [emojiSearch, setEmojiSearch] = useState("");
+  const [recentEmojis, setRecentEmojis] = useState<string[]>(() => loadRecentEmojis());
+  const channelConversations = conversations.filter((conversation) => conversation.kind !== "private");
+  const directConversations = conversations.filter((conversation) => conversation.kind === "private");
+  const conversationMembers =
+    selectedConversation?.members
+      .map((summary) => members.find((member) => member.memberId === summary.memberId))
+      .filter((member): member is MemberProfile => Boolean(member)) ??
+    members.slice(0, 8);
+  const mentionQuery = activeMentionQuery(messageDraft);
+  const mentionSuggestions =
+    mentionQuery === null || mentionQuery.toLocaleLowerCase() === "all"
+      ? []
+      : conversationMembers
+          .filter(
+            (member) =>
+              member.permissions.canMention &&
+              !mentionedMemberIds.includes(member.memberId) &&
+              mentionMatches(member, mentionQuery),
+          )
+          .slice(0, 6);
+  const selectedMentionMembers = mentionedMemberIds
+    .map((memberId) => members.find((member) => member.memberId === memberId))
+    .filter((member): member is MemberProfile => Boolean(member));
+  const hasUnsupportedAllMention = hasAllMentionToken(messageDraft);
+  const filteredEmojiEntries = golutraEmojiSearchEntries(
+    emojiSearch,
+    activeEmojiGroupId,
+    recentEmojis,
+  );
+
+  useEffect(() => {
+    const list = messageListRef.current;
+
+    if (!list) {
+      return;
+    }
+
+    list.scrollTop = list.scrollHeight;
+  }, [messages, selectedConversation?.conversationId]);
+
+  function handleSelectEmoji(value: string) {
+    const input = messageInputRef.current;
+    const start = input?.selectionStart ?? messageDraft.length;
+    const end = input?.selectionEnd ?? start;
+    const nextDraft = `${messageDraft.slice(0, start)}${value}${messageDraft.slice(end)}`;
+    const nextRecentEmojis = [value, ...recentEmojis.filter((emoji) => emoji !== value)].slice(
+      0,
+      RECENT_EMOJI_MAX_COUNT,
+    );
+
+    setRecentEmojis(nextRecentEmojis);
+    saveRecentEmojis(nextRecentEmojis);
+    onMessageDraftChange(nextDraft);
+    setIsEmojiPanelOpen(false);
+
+    window.requestAnimationFrame(() => {
+      const nextCursor = start + value.length;
+
+      messageInputRef.current?.focus();
+      messageInputRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  }
+
+  function handleToggleEmojiPanel() {
+    setIsEmojiPanelOpen((isOpen) => {
+      const nextOpen = !isOpen;
+
+      if (nextOpen) {
+        setEmojiSearch("");
+        setActiveEmojiGroupId(
+          activeEmojiGroupId === DEFAULT_EMOJI_GROUP_ID && recentEmojis.length > 0
+            ? RECENT_EMOJI_GROUP_ID
+            : activeEmojiGroupId,
+        );
+      }
+
+      return nextOpen;
+    });
+  }
+
+  function openInviteModal(kind: ParityInviteKind) {
+    setIsInviteMenuOpen(false);
+    setInviteModal(kind);
+
+    if (kind === "assistant" || kind === "member") {
+      const defaultRuntime =
+        builtInRuntimeOptions.find((runtime) => runtime.id === inviteBuiltinRuntimeId) ??
+        builtInRuntimeOptions[0];
+
+      onInviteTypeChange(kind);
+      onInviteRuntimeKindChange("builtInAiCli");
+      if (defaultRuntime) {
+        onInviteBuiltinRuntimeChange(defaultRuntime.id);
+      }
+      onInviteDisplayNameChange("");
+      onInviteSandboxedChange(false);
+      onInviteUnlimitedAccessChange(true);
+    }
+  }
+
+  function submitInvite() {
+    if (inviteModal === "admin") {
+      onUnavailable("管理员邀请");
+      setInviteModal(null);
+      return;
+    }
+
+    onInviteMember();
+    setInviteModal(null);
+  }
+
+  function handleConversationRename(conversation: ConversationProfile) {
+    onSelectConversation(conversation.conversationId);
+    onRenameDraftChange(conversation.title);
+    setIsRenameOpen(true);
+    setOpenConversationMenuId(null);
+  }
+
+  function handleConversationAction(
+    conversation: ConversationProfile,
+    action: "pin" | "mute" | "rename" | "clear" | "delete",
+  ) {
+    if (action !== "rename") {
+      setOpenConversationMenuId(null);
+    }
+
+    if (action === "pin") {
+      onTogglePinned(conversation);
+      return;
+    }
+
+    if (action === "mute") {
+      onToggleMuted(conversation);
+      return;
+    }
+
+    if (action === "rename") {
+      handleConversationRename(conversation);
+      return;
+    }
+
+    if (action === "clear") {
+      onClearConversation(conversation);
+      return;
+    }
+
+    onDeleteConversation(conversation);
+  }
+
+  return (
+    <section className="chat-workbench-parity" aria-label={text.workspaceAria}>
+      <aside className="chat-workbench-parity__sidebar">
+        <div className="chat-workbench-parity__workspace-title">
+          <WorkspaceMaterialSymbol name="layers" />
+          <span>{activeWorkspace.metadata.name || text.workspaceFallback}</span>
+        </div>
+        <div className="chat-workbench-parity__conversation-list custom-scrollbar">
+          <ChatConversationGroup
+            language={language}
+            title={text.channels}
+            workspaceName={activeWorkspace.metadata.name}
+            conversations={channelConversations}
+            selectedConversationId={selectedConversation?.conversationId ?? null}
+            isLoading={isLoadingConversations}
+            openMenuId={openConversationMenuId}
+            onSelectConversation={onSelectConversation}
+            onToggleMenu={setOpenConversationMenuId}
+            onConversationAction={handleConversationAction}
+          />
+          <ChatConversationGroup
+            language={language}
+            title={text.directMessages}
+            workspaceName={activeWorkspace.metadata.name}
+            conversations={directConversations}
+            selectedConversationId={selectedConversation?.conversationId ?? null}
+            isLoading={false}
+            openMenuId={openConversationMenuId}
+            onSelectConversation={onSelectConversation}
+            onToggleMenu={setOpenConversationMenuId}
+            onConversationAction={handleConversationAction}
+          />
+        </div>
+      </aside>
+
+      <main className="chat-workbench-parity__main">
+        {activeWorkspace.accessMode === "readOnly" && activeWorkspace.fallbackState ? (
+          <div className="chat-workbench-parity__read-only">
+            <WorkspaceMaterialSymbol name="lock" />
+            <span>
+              <strong>{text.readOnlyTitle}</strong>
+              {activeWorkspace.fallbackState.reason}
+            </span>
+          </div>
+        ) : null}
+        <header className="chat-workbench-parity__header">
+          <button
+            type="button"
+            className="chat-workbench-parity__header-action"
+            title={text.roadmap}
+            onClick={onOpenRoadmap}
+          >
+            <WorkspaceMaterialSymbol name="checklist" />
+          </button>
+          <div className="chat-workbench-parity__header-copy">
+            <h1>
+              {selectedConversation
+                ? chatConversationDisplayTitle(selectedConversation, activeWorkspace.metadata.name)
+                : activeWorkspace.metadata.name}
+            </h1>
+            <p>{chatConversationDescription(selectedConversation, conversationMembers.length, language)}</p>
+          </div>
+          <div className="chat-workbench-parity__header-actions">
+            <button
+              type="button"
+              className="chat-workbench-parity__members-pill"
+              onClick={onOpenMembers}
+            >
+              <WorkspaceMaterialSymbol name="group" />
+              <span>{text.members}</span>
+              <strong>{conversationMembers.length}</strong>
+            </button>
+            <button
+              type="button"
+              className="chat-workbench-parity__header-action"
+              title={text.skills}
+              onClick={onOpenSkills}
+            >
+              <WorkspaceMaterialSymbol name="backpack" />
+            </button>
+          </div>
+        </header>
+        {isRenameOpen && selectedConversation ? (
+          <form
+            className="chat-workbench-parity__rename"
+            aria-label={text.renameConversation}
+            onSubmit={(event) => {
+              event.preventDefault();
+              onRenameConversation();
+              setIsRenameOpen(false);
+            }}
+          >
+            <input
+              value={renameDraft}
+              onChange={(event) => onRenameDraftChange(event.target.value)}
+              aria-label={text.conversationName}
+            />
+            <button type="submit" disabled={isUpdatingSettings || !renameDraft.trim()}>
+              {isUpdatingSettings ? text.saving : text.save}
+            </button>
+            <button type="button" onClick={() => setIsRenameOpen(false)}>
+              {text.cancel}
+            </button>
+          </form>
+        ) : null}
+
+        <div
+          ref={messageListRef}
+          className="chat-workbench-parity__messages custom-scrollbar"
+          role="log"
+          aria-label={text.messageHistory}
+        >
+          {isLoadingMessages ? (
+            <div className="chat-workbench-parity__empty-message">{text.loadingMessages}</div>
+          ) : messages.length > 0 ? (
+            <>
+              {hasOlderMessages ? (
+                <button
+                  type="button"
+                  className="chat-workbench-parity__load-more"
+                  disabled={isLoadingOlderMessages}
+                  onClick={onLoadOlderMessages}
+                >
+                  {isLoadingOlderMessages ? text.loadingHistory : text.loadEarlierMessages}
+                </button>
+              ) : null}
+              {messages.map((message) => {
+              const author = members.find((member) => member.memberId === message.authorMemberId);
+              const isOwner = author?.role === "owner";
+
+              return (
+                <article
+                  key={message.messageId}
+                  className={
+                    isOwner
+                      ? "chat-workbench-parity__message chat-workbench-parity__message--me"
+                      : "chat-workbench-parity__message"
+                  }
+                >
+                  <span className="chat-workbench-parity__avatar">
+                    {memberInitials(author?.instanceLabel ?? author?.displayName ?? "O")}
+                  </span>
+                  <div className="chat-workbench-parity__message-body">
+                    <div className="chat-workbench-parity__message-meta">
+                      <strong>{author?.instanceLabel ?? author?.displayName ?? text.ownerFallback}</strong>
+                      <time>{formatRecentTime(message.createdAtMs)}</time>
+                    </div>
+                    <p>{message.body}</p>
+                    {message.status !== "sent" ? (
+                      <span className="chat-workbench-parity__message-status">
+                        {chatMessageStatusLabel(message.status, language)}
+                      </span>
+                    ) : null}
+                  </div>
+                </article>
+              );
+              })}
+            </>
+          ) : (
+            <div className="chat-workbench-parity__empty-message">{text.noMessages}</div>
+          )}
+        </div>
+
+        <form
+          className="chat-workbench-parity__input"
+          aria-label={text.sendMessage}
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSendMessage();
+          }}
+        >
+          <div className="chat-workbench-parity__quick-prompts" aria-label={text.quickPromptsAria}>
+            {text.quickPrompts.map((prompt) => (
+              <button
+                key={prompt.label}
+                type="button"
+                disabled={!selectedConversation}
+                onClick={() => onMessageDraftChange(appendDraftBlock(messageDraft, prompt.text))}
+              >
+                {prompt.label}
+              </button>
+            ))}
+          </div>
+          {selectedMentionMembers.length > 0 || attachmentEntries.length > 0 ? (
+            <div className="chat-workbench-parity__chips" aria-label={text.compositionState}>
+              {selectedMentionMembers.map((member) => (
+                <button
+                  key={member.memberId}
+                  type="button"
+                  onClick={() => onRemoveMention(member.memberId)}
+                >
+                  @{member.instanceLabel}
+                  <WorkspaceMaterialSymbol name="close" />
+                </button>
+              ))}
+              {attachmentEntries.map((entry) =>
+                entry.kind === "roadmap" ? (
+                  <span key={attachmentEntryKey(entry)}>
+                    <button type="button" onClick={() => onOpenRoadmapReference(entry.taskId)}>
+                      <WorkspaceMaterialSymbol name="map" />
+                      {attachmentEntryLabel(entry)}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={formatChatText(text.removeAttachment, {
+                        label: attachmentEntryLabel(entry),
+                      })}
+                      onClick={() => onRemoveAttachmentEntry(entry)}
+                    >
+                      <WorkspaceMaterialSymbol name="close" />
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    key={attachmentEntryKey(entry)}
+                    type="button"
+                    onClick={() => onRemoveAttachmentEntry(entry)}
+                  >
+                    <WorkspaceMaterialSymbol name="image" />
+                    {attachmentEntryLabel(entry)}
+                    <WorkspaceMaterialSymbol name="close" />
+                  </button>
+                ),
+              )}
+            </div>
+          ) : null}
+          {hasUnsupportedAllMention ? (
+            <p className="chat-workbench-parity__input-warning">
+              {text.unsupportedAllMention}
+            </p>
+          ) : null}
+          {isEmojiPanelOpen ? (
+            <div className="chat-workbench-parity__emoji-panel" role="dialog" aria-label={text.emojiPanel}>
+              <div className="chat-workbench-parity__emoji-search">
+                <input
+                  value={emojiSearch}
+                  onChange={(event) => setEmojiSearch(event.target.value)}
+                  placeholder={text.emojiSearch}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setIsEmojiPanelOpen(false);
+                    }
+                  }}
+                />
+              </div>
+              <div className="chat-workbench-parity__emoji-groups" aria-label={text.emojiGroups}>
+                {GOLUTRA_EMOJI_GROUP_OPTIONS.map((group) => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    aria-label={group.label}
+                    title={group.label}
+                    className={
+                      activeEmojiGroupId === group.id
+                        ? "chat-workbench-parity__emoji-group--active"
+                        : undefined
+                    }
+                    disabled={
+                      group.id === RECENT_EMOJI_GROUP_ID &&
+                      golutraRecentEmojiEntries(recentEmojis).length === 0
+                    }
+                    onClick={() => {
+                      setEmojiSearch("");
+                      setActiveEmojiGroupId(group.id);
+                    }}
+                  >
+                    {group.icon}
+                  </button>
+                ))}
+              </div>
+              <div className="chat-workbench-parity__emoji-grid custom-scrollbar">
+                {filteredEmojiEntries.length > 0 ? (
+                  filteredEmojiEntries.map((option) => (
+                    <button
+                      key={`${option.emoji}-${option.order}`}
+                      type="button"
+                      aria-label={`${option.label} ${option.emoji}`}
+                      onClick={() => handleSelectEmoji(option.emoji)}
+                    >
+                      {option.emoji}
+                    </button>
+                  ))
+                ) : (
+                  <p className="chat-workbench-parity__emoji-empty">{text.emojiEmpty}</p>
+                )}
+              </div>
+            </div>
+          ) : null}
+          {isRoadmapAttachmentPickerOpen ? (
+            <div className="chat-workbench-parity__attachment-picker" role="dialog" aria-label={text.selectRoadmapTask}>
+              <header>
+                <span>{text.roadmap}</span>
+                <strong>{roadmapTasks.length}</strong>
+              </header>
+              {roadmapTasks.length > 0 ? (
+                roadmapTasks.map((task) => (
+                  <button key={task.taskId} type="button" onClick={() => onSelectRoadmapAttachment(task)}>
+                    <span>{task.title}</span>
+                    <small>{roadmapTaskStatusLabel(task.status)}</small>
+                  </button>
+                ))
+              ) : (
+                <p>{text.noRoadmapTasks}</p>
+              )}
+            </div>
+          ) : null}
+          <div className="chat-workbench-parity__input-toolbar">
+            <button type="button" aria-label={text.addRoadmapAttachment} onClick={onOpenRoadmapAttachmentPicker}>
+              <WorkspaceMaterialSymbol name="add" />
+            </button>
+            <button
+              type="button"
+              aria-label={text.mentionMember}
+              disabled={!selectedConversation || conversationMembers.length === 0}
+              onClick={() => {
+                const mentionable = conversationMembers.find((member) => member.permissions.canMention);
+
+                if (mentionable) {
+                  onAddMention(mentionable);
+                }
+              }}
+            >
+              <WorkspaceMaterialSymbol name="alternate_email" />
+            </button>
+            <button
+              type="button"
+              aria-label={text.openEmojiPanel}
+              onClick={handleToggleEmojiPanel}
+            >
+              <WorkspaceMaterialSymbol name="mood" />
+            </button>
+            <button type="button" aria-label={text.addImageAttachment} onClick={onAddImageAttachment}>
+              <WorkspaceMaterialSymbol name="image" />
+            </button>
+          </div>
+          <textarea
+            ref={messageInputRef}
+            value={messageDraft}
+            disabled={!selectedConversation}
+            onChange={(event) => onMessageDraftChange(event.target.value)}
+            maxLength={1200}
+            placeholder={selectedConversation ? text.messagePlaceholder : text.selectConversationPlaceholder}
+            rows={1}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && isEmojiPanelOpen) {
+                event.preventDefault();
+                setIsEmojiPanelOpen(false);
+                return;
+              }
+
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                onSendMessage();
+              }
+            }}
+          />
+          {mentionSuggestions.length > 0 ? (
+            <div className="chat-workbench-parity__mention-menu" role="listbox" aria-label={text.mentionSuggestions}>
+              {mentionSuggestions.map((member) => (
+                <button
+                  key={member.memberId}
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  onClick={() => onAddMention(member)}
+                >
+                  <span className="chat-workbench-parity__avatar">
+                    {memberInitials(member.instanceLabel || member.displayName)}
+                  </span>
+                  <span>
+                    <strong>@{member.instanceLabel}</strong>
+                    <small>{parityMemberRoleLabel(member.role, language)}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <button
+            type="submit"
+            aria-label={isSendingMessage ? text.sendingMessage : text.sendMessage}
+            className="chat-workbench-parity__send"
+            disabled={!selectedConversation || isSendingMessage || messageDraft.trim().length === 0}
+          >
+            <WorkspaceMaterialSymbol name={isSendingMessage ? "hourglass_top" : "send"} />
+          </button>
+          <div className="chat-workbench-parity__input-hint">
+            <span>{text.inputHint}</span>
+            {messageDraft.length >= 960 ? <span>{messageDraft.length}/1200</span> : null}
+          </div>
+        </form>
+      </main>
+
+      <aside className="chat-workbench-parity__members">
+        <div className="chat-workbench-parity__members-header">
+          <span>{text.members}</span>
+          <div className="chat-workbench-parity__invite">
+            <button
+              type="button"
+              className={isInviteMenuOpen ? "chat-workbench-parity__invite-button--active" : ""}
+              onClick={() => setIsInviteMenuOpen((isOpen) => !isOpen)}
+            >
+              <WorkspaceMaterialSymbol name="person_add" />
+              {text.add}
+            </button>
+            {isInviteMenuOpen ? (
+              <>
+                <button
+                  type="button"
+                  className="friends-parity__scrim"
+                  aria-label={text.closeInviteMenu}
+                  onClick={() => setIsInviteMenuOpen(false)}
+                />
+                <ParityInviteMenu language={language} onSelect={openInviteModal} />
+              </>
+            ) : null}
+          </div>
+        </div>
+        <div className="chat-workbench-parity__member-list custom-scrollbar">
+          {conversationMembers.length > 0 ? (
+            parityMemberSections(conversationMembers, language).map((section) => (
+              <section key={section.title} className="chat-workbench-parity__member-section">
+                <h3>{section.title}</h3>
+                {section.members.map((member) => (
+                  <div key={member.memberId} className="chat-workbench-parity__member">
+                    <span className="chat-workbench-parity__avatar">
+                      {memberInitials(member.instanceLabel || member.displayName)}
+                    </span>
+                    <span className="chat-workbench-parity__member-copy">
+                      <strong>{member.instanceLabel || member.displayName}</strong>
+                      <span>{parityMemberRoleLabel(member.role, language)}</span>
+                      <small>{parityMemberStatusLabel(member.status, language)}</small>
+                    </span>
+                    <span
+                      className={`chat-workbench-parity__status chat-workbench-parity__status--${member.status}`}
+                      title={parityMemberStatusLabel(member.status, language)}
+                    />
+                    <button
+                      type="button"
+                      className="chat-workbench-parity__member-menu-button"
+                      aria-label={formatChatText(text.actionsFor, {
+                        name: member.instanceLabel || member.displayName,
+                      })}
+                      onClick={() =>
+                        setOpenMemberMenuId((current) =>
+                          current === member.memberId ? null : member.memberId,
+                        )
+                      }
+                    >
+                      <WorkspaceMaterialSymbol name="more_vert" />
+                    </button>
+                    {openMemberMenuId === member.memberId ? (
+                      <ChatMemberActionMenu
+                        member={member}
+                        language={language}
+                        onClose={() => setOpenMemberMenuId(null)}
+                        onStartPrivateConversation={onStartPrivateConversation}
+                        onOpenMemberTerminal={onOpenMemberTerminal}
+                        onMentionMember={onMentionMember}
+                        onRenameMember={onRenameMember}
+                        onUpdateMemberStatus={onUpdateMemberStatus}
+                        onRemoveMember={onRemoveMember}
+                        onUnavailable={onUnavailable}
+                      />
+                    ) : null}
+                  </div>
+                ))}
+              </section>
+            ))
+          ) : (
+            <p className="chat-workbench-parity__members-empty">{text.noMembers}</p>
+          )}
+        </div>
+      </aside>
+      {inviteModal === "admin" ? (
+        <ParityAdminInviteModal
+          language={language}
+          onClose={() => setInviteModal(null)}
+          onSubmit={submitInvite}
+        />
+      ) : inviteModal === "assistant" || inviteModal === "member" ? (
+        <ParityAssistantInviteModal
+          language={language}
+          kind={inviteModal}
+          runtimeKind={inviteRuntimeKind}
+          builtinRuntimeId={inviteBuiltinRuntimeId}
+          customRuntimeCliId={inviteCustomRuntimeCliId}
+          customRuntimeCommand={inviteCustomRuntimeCommand}
+          builtInRuntimeOptions={builtInRuntimeOptions}
+          customCliRuntimeOptions={customCliRuntimeOptions}
+          instanceCount={inviteInstanceCount}
+          sandboxed={inviteSandboxed}
+          unlimitedAccess={inviteUnlimitedAccess}
+          isInviting={isInviting}
+          onClose={() => setInviteModal(null)}
+          onRuntimeKindChange={onInviteRuntimeKindChange}
+          onBuiltinRuntimeChange={onInviteBuiltinRuntimeChange}
+          onCustomRuntimeCliChange={onInviteCustomRuntimeCliChange}
+          onCustomRuntimeCommandChange={onInviteCustomRuntimeCommandChange}
+          onInstanceCountChange={onInviteInstanceCountChange}
+          onSandboxedChange={onInviteSandboxedChange}
+          onUnlimitedAccessChange={onInviteUnlimitedAccessChange}
+          onSubmit={submitInvite}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function ChatConversationGroup({
+  language,
+  title,
+  workspaceName,
+  conversations,
+  selectedConversationId,
+  isLoading,
+  openMenuId,
+  onSelectConversation,
+  onToggleMenu,
+  onConversationAction,
+}: {
+  language: AppLanguage;
+  title: string;
+  workspaceName: string;
+  conversations: ConversationProfile[];
+  selectedConversationId: string | null;
+  isLoading: boolean;
+  openMenuId: string | null;
+  onSelectConversation: (conversationId: string) => void;
+  onToggleMenu: (conversationId: string | null) => void;
+  onConversationAction: (
+    conversation: ConversationProfile,
+    action: "pin" | "mute" | "rename" | "clear" | "delete",
+  ) => void;
+}) {
+  const text = CHAT_PARITY_TEXT[language];
+
+  return (
+    <section className="chat-workbench-parity__conversation-group">
+      <div className="chat-workbench-parity__conversation-heading">
+        <h2>{title}</h2>
+        <button type="button">
+          <WorkspaceMaterialSymbol name="add" />
+        </button>
+      </div>
+      <div className="chat-workbench-parity__conversation-stack">
+        {conversations.length > 0 ? (
+          conversations.map((conversation) => {
+            const displayTitle = chatConversationDisplayTitle(conversation, workspaceName);
+
+            return (
+              <div
+                key={conversation.conversationId}
+                className={
+                  selectedConversationId === conversation.conversationId
+                    ? "chat-workbench-parity__conversation chat-workbench-parity__conversation--active"
+                    : "chat-workbench-parity__conversation"
+                }
+              >
+                <button
+                  type="button"
+                  className="chat-workbench-parity__conversation-select"
+                  onClick={() => onSelectConversation(conversation.conversationId)}
+                >
+                  <span className="chat-workbench-parity__conversation-icon">
+                    {conversation.kind === "private" ? (
+                      memberInitials(displayTitle)
+                    ) : (
+                      <WorkspaceMaterialSymbol name={conversation.kind === "group" ? "forum" : "tag"} />
+                    )}
+                  </span>
+                  <span className="chat-workbench-parity__conversation-copy">
+                    <span>
+                      {displayTitle}
+                      {conversation.isPinned ? <WorkspaceMaterialSymbol name="push_pin" /> : null}
+                      {conversation.isMuted ? <WorkspaceMaterialSymbol name="notifications_off" /> : null}
+                    </span>
+                    <small>{conversation.lastMessagePreview || chatConversationKindLabel(conversation, language)}</small>
+                  </span>
+                  {conversation.unreadCount > 0 ? (
+                    <strong>{unreadBadgeLabel(conversation.unreadCount)}</strong>
+                  ) : null}
+                </button>
+                <button
+                  type="button"
+                  className="chat-workbench-parity__conversation-menu-button"
+                  aria-label={formatChatText(text.actionsFor, { name: displayTitle })}
+                  onClick={() =>
+                    onToggleMenu(openMenuId === conversation.conversationId ? null : conversation.conversationId)
+                  }
+                >
+                  <WorkspaceMaterialSymbol name="more_vert" />
+                </button>
+                {openMenuId === conversation.conversationId ? (
+                  <div className="chat-workbench-parity__menu" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onConversationAction(conversation, "pin")}
+                    >
+                      <WorkspaceMaterialSymbol name="push_pin" />
+                      {conversation.isPinned ? text.conversationActions.unpin : text.conversationActions.pin}
+                    </button>
+                    {conversation.kind !== "private" && !conversation.isDefault ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => onConversationAction(conversation, "rename")}
+                      >
+                        <WorkspaceMaterialSymbol name="edit" />
+                        {text.conversationActions.rename}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onConversationAction(conversation, "mute")}
+                    >
+                      <WorkspaceMaterialSymbol name="notifications_off" />
+                      {conversation.isMuted ? text.conversationActions.unmute : text.conversationActions.mute}
+                    </button>
+                    <span className="chat-workbench-parity__menu-separator" />
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => onConversationAction(conversation, "clear")}
+                    >
+                      <WorkspaceMaterialSymbol name="delete_sweep" />
+                      {text.conversationActions.clear}
+                    </button>
+                    {!conversation.isDefault ? (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="chat-workbench-parity__menu-danger"
+                        onClick={() => onConversationAction(conversation, "delete")}
+                      >
+                        <WorkspaceMaterialSymbol name="delete" />
+                        {conversation.kind === "private"
+                          ? text.conversationActions.deleteDirect
+                          : text.conversationActions.deleteGroup}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })
+        ) : (
+          <p className="chat-workbench-parity__conversation-empty">
+            {isLoading ? text.loading : text.empty}
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ChatMemberActionMenu({
+  member,
+  language,
+  onClose,
+  onStartPrivateConversation,
+  onOpenMemberTerminal,
+  onMentionMember,
+  onRenameMember,
+  onUpdateMemberStatus,
+  onRemoveMember,
+  onUnavailable,
+}: {
+  member: MemberProfile;
+  language: AppLanguage;
+  onClose: () => void;
+  onStartPrivateConversation: (member: MemberProfile) => void;
+  onOpenMemberTerminal: (member: MemberProfile) => void;
+  onMentionMember: (member: MemberProfile) => void;
+  onRenameMember: (member: MemberProfile, displayName: string) => Promise<void>;
+  onUpdateMemberStatus: (member: MemberProfile, status: MemberProfile["status"]) => void;
+  onRemoveMember: (member: MemberProfile) => void;
+  onUnavailable: (capability: string) => void;
+}) {
+  const text = CHAT_PARITY_TEXT[language];
+  const terminalCapable = isTerminalCapableMember(member);
+
+  async function renameMember() {
+    const nextName = window.prompt(text.memberActions.renamePrompt, member.instanceLabel || member.displayName);
+
+    if (!nextName?.trim()) {
+      return;
+    }
+
+    await onRenameMember(member, nextName.trim());
+  }
+
+  function run(action: () => void | Promise<void>) {
+    void Promise.resolve(action()).finally(onClose);
+  }
+
+  return (
+    <div className="chat-workbench-parity__menu chat-workbench-parity__member-menu" role="menu">
+      <button type="button" role="menuitem" onClick={() => run(() => onStartPrivateConversation(member))}>
+        <WorkspaceMaterialSymbol name="chat" />
+        {text.memberActions.sendMessage}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        disabled={!member.permissions.canMention}
+        onClick={() => run(() => onMentionMember(member))}
+      >
+        <WorkspaceMaterialSymbol name="alternate_email" />
+        {text.memberActions.mention}
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => run(() => (terminalCapable ? onOpenMemberTerminal(member) : onUnavailable("成员终端")))}
+      >
+        <WorkspaceMaterialSymbol name="terminal" />
+        {text.memberActions.openTerminal}
+      </button>
+      <button type="button" role="menuitem" onClick={() => run(renameMember)}>
+        <WorkspaceMaterialSymbol name="edit" />
+        {text.memberActions.rename}
+      </button>
+      <span className="chat-workbench-parity__menu-separator" />
+      {(["online", "working", "doNotDisturb", "offline"] satisfies MemberProfile["status"][]).map(
+        (status) => (
+          <button
+            key={status}
+            type="button"
+            role="menuitem"
+            onClick={() => run(() => onUpdateMemberStatus(member, status))}
+          >
+            <WorkspaceMaterialSymbol name="radio_button_checked" />
+            {parityMemberStatusLabel(status, language)}
+          </button>
+        ),
+      )}
+      {member.role !== "owner" && member.permissions.canRemove ? (
+        <>
+          <span className="chat-workbench-parity__menu-separator" />
+          <button
+            type="button"
+            role="menuitem"
+            className="chat-workbench-parity__menu-danger"
+            onClick={() => run(() => onRemoveMember(member))}
+          >
+            <WorkspaceMaterialSymbol name="person_remove" />
+            {text.memberActions.remove}
+          </button>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function formatChatText(
+  template: string,
+  values: Record<string, string | number>,
+) {
+  return Object.entries(values).reduce(
+    (result, [key, value]) => result.split(`{${key}}`).join(String(value)),
+    template,
+  );
+}
+
+function chatConversationKindLabel(conversation: ConversationProfile, language: AppLanguage) {
+  const text = CHAT_PARITY_TEXT[language];
+
+  if (conversation.kind === "channel") {
+    return conversation.isDefault ? text.defaultChannel : text.channel;
+  }
+
+  if (conversation.kind === "group") {
+    return formatChatText(text.memberCount, { count: conversation.members.length });
+  }
+
+  return text.directMessage;
+}
+
+function chatConversationDisplayTitle(conversation: ConversationProfile, workspaceName: string) {
+  const normalizedWorkspaceName = workspaceName.trim();
+
+  if (conversation.isDefault && normalizedWorkspaceName) {
+    return normalizedWorkspaceName;
+  }
+
+  return conversation.title;
+}
+
+function chatConversationDescription(
+  conversation: ConversationProfile | null,
+  memberCount: number,
+  language: AppLanguage,
+) {
+  const text = CHAT_PARITY_TEXT[language];
+
+  if (!conversation) {
+    return text.selectConversation;
+  }
+
+  if (conversation.kind === "private") {
+    return text.directMessage;
+  }
+
+  if (conversation.kind === "group") {
+    return formatChatText(text.memberCount, { count: memberCount });
+  }
+
+  return conversation.isDefault ? text.defaultWorkspaceChannel : text.workspaceChannel;
+}
+
+function memberInitials(value: string) {
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return "O";
+  }
+
+  return normalized.slice(0, 2).toLocaleUpperCase();
+}
+
+function parityMemberRoleLabel(role: MemberProfile["role"], language: AppLanguage) {
+  return CHAT_PARITY_TEXT[language].roles[role];
+}
+
+function parityMemberSections(members: MemberProfile[], language: AppLanguage) {
+  const text = CHAT_PARITY_TEXT[language];
+  const sections = [
+    {
+      role: "owner" as const,
+      members: members.filter((member) => member.role === "owner"),
+    },
+    {
+      role: "admin" as const,
+      members: members.filter((member) => member.role === "admin"),
+    },
+    {
+      role: "assistant" as const,
+      members: members.filter((member) => member.role === "assistant"),
+    },
+    {
+      role: "member" as const,
+      members: members.filter((member) => member.role === "member"),
+    },
+  ];
+
+  return sections
+    .filter((section) => section.members.length > 0)
+    .map((section) => ({
+      ...section,
+      title: formatChatText(text.sections[section.role], { count: section.members.length }),
+    }));
+}
+
+function parityMemberStatusLabel(status: MemberProfile["status"], language: AppLanguage) {
+  return CHAT_PARITY_TEXT[language].statuses[status];
+}
+
+function chatMessageStatusLabel(status: ChatMessageProfile["status"], language: AppLanguage) {
+  return CHAT_PARITY_TEXT[language].messageStatuses[status];
+}
+
+type WorkspaceSelectionLandingWorkspace = {
+  projectId: string;
+  path: string;
+  name: string;
+  firstOpenedAtMs: number;
+  lastOpenedAtMs: number;
+};
+
+type WorkspaceSelectionLandingToast = {
+  id: number;
+  tone: "info" | "warning" | "error";
+  title: string;
+  message: string;
+  action?: string;
+};
+
+function WorkspaceSelectionLanding({
+  text,
+  language,
+  isOpening,
+  isLoading,
+  recentPrimaryWorkspaces,
+  recentMoreWorkspaces,
+  filteredMoreWorkspaces,
+  recentSearch,
+  windowContext,
+  integrityReport,
+  isValidatingIntegrity,
+  isSyncActionPending,
+  showCompatibilityControls,
+  statusRecentWorkspaceCount,
+  pendingConflict,
+  conflictPrimaryButtonRef,
+  toast,
+  onOpenWorkspace,
+  onOpenRecent,
+  onRecentSearchChange,
+  onRefreshRecent,
+  onThemeChange,
+  onLanguageChange,
+  onOpenWindowMode,
+  onValidateIntegrity,
+  onResolveConflict,
+  onCancelConflict,
+  onClearToast,
+}: {
+  text: (typeof WORKSPACE_SELECTION_TEXT)[AppLanguage];
+  language: AppLanguage;
+  isOpening: boolean;
+  isLoading: boolean;
+  recentPrimaryWorkspaces: WorkspaceSelectionLandingWorkspace[];
+  recentMoreWorkspaces: WorkspaceSelectionLandingWorkspace[];
+  filteredMoreWorkspaces: WorkspaceSelectionLandingWorkspace[];
+  recentSearch: string;
+  windowContext: WindowContextSnapshot | null;
+  integrityReport: DataIntegrityReport | null;
+  isValidatingIntegrity: boolean;
+  isSyncActionPending: boolean;
+  showCompatibilityControls: boolean;
+  statusRecentWorkspaceCount: number;
+  pendingConflict: PendingConflict | null;
+  conflictPrimaryButtonRef: RefObject<HTMLButtonElement | null>;
+  toast: WorkspaceSelectionLandingToast | null;
+  onOpenWorkspace: () => Promise<void>;
+  onOpenRecent: (path: string) => Promise<void>;
+  onRecentSearchChange: (value: string) => void;
+  onRefreshRecent: () => void;
+  onThemeChange: (theme: AppTheme) => void;
+  onLanguageChange: (language: AppLanguage) => void;
+  onOpenWindowMode: (mode: WindowMode) => void;
+  onValidateIntegrity: () => void;
+  onResolveConflict: (resolution: WorkspaceConflictResolution) => Promise<void>;
+  onCancelConflict: () => void;
+  onClearToast: () => void;
+}) {
+  return (
+    <main className="workspace-selection-parity">
+      <div className="workspace-selection-parity__ambient" aria-hidden="true">
+        <div className="workspace-selection-parity__glow workspace-selection-parity__glow--top" />
+        <div className="workspace-selection-parity__glow workspace-selection-parity__glow--bottom" />
+      </div>
+
+      <div className="workspace-selection-parity__container">
+        <section className="workspace-selection-parity__hero" aria-label={text.workspaceSelection}>
+          <button
+            type="button"
+            aria-label={text.openFolder}
+            disabled={isOpening}
+            onClick={() => void onOpenWorkspace()}
+            className="workspace-selection-parity__open-card"
+          >
+            <span className="workspace-selection-parity__open-sheen" aria-hidden="true" />
+            <span className="workspace-selection-parity__open-icon">
+              <WorkspaceMaterialSymbol name="folder_open" />
+            </span>
+            <span className="workspace-selection-parity__open-title">
+              {isOpening ? text.openingFolder : text.openFolder}
+            </span>
+            <span className="workspace-selection-parity__open-subtitle">
+              {text.openFolderSubtitle}
+            </span>
+          </button>
+        </section>
+
+        <section className="workspace-selection-parity__recent" aria-labelledby="recent-workspaces-title">
+          <div className="workspace-selection-parity__section-header">
+            <h2 id="recent-workspaces-title">{text.recentWorkspaces}</h2>
+            <div className="workspace-selection-parity__rule" />
+            {recentMoreWorkspaces.length > 0 ? (
+              <div className="workspace-selection-parity__more">
+                <button type="button" className="workspace-selection-parity__more-button">
+                  <span>{language === "zh-CN" ? "更多" : "More"}</span>
+                  <WorkspaceMaterialSymbol name="expand_more" />
+                </button>
+                <div className="workspace-selection-parity__more-menu">
+                  <label className="workspace-selection-parity__search">
+                    <WorkspaceMaterialSymbol name="search" />
+                    <span className="sr-only">{text.searchFolders}</span>
+                    <input
+                      value={recentSearch}
+                      onChange={(event) => onRecentSearchChange(event.target.value)}
+                      placeholder={text.searchFoldersPlaceholder}
+                    />
+                  </label>
+                  <div className="workspace-selection-parity__more-list custom-scrollbar">
+                    {filteredMoreWorkspaces.length > 0 ? (
+                      filteredMoreWorkspaces.map((workspace) => (
+                        <button
+                          key={workspace.projectId}
+                          type="button"
+                          className="workspace-selection-parity__more-item"
+                          aria-label={`${text.openRecentPrefix} ${workspace.name}`}
+                          onClick={() => void onOpenRecent(workspace.path)}
+                        >
+                          <span className="workspace-selection-parity__more-icon">
+                            <WorkspaceMaterialSymbol name="folder" />
+                          </span>
+                          <span className="workspace-selection-parity__more-copy">
+                            <span>{workspace.name}</span>
+                            <span>{formatWorkspacePath(workspace.path)}</span>
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="workspace-selection-parity__no-results">
+                        {text.noMatchingWorkspaces}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {recentPrimaryWorkspaces.length > 0 ? (
+            <div className="workspace-selection-parity__grid">
+              {recentPrimaryWorkspaces.map((workspace) => (
+                <button
+                  key={workspace.projectId}
+                  type="button"
+                  aria-label={`${text.openRecentPrefix} ${workspace.name}`}
+                  className="workspace-selection-parity__workspace-card"
+                  onClick={() => void onOpenRecent(workspace.path)}
+                >
+                  <span className="workspace-selection-parity__workspace-icon">
+                    <WorkspaceMaterialSymbol name="folder" />
+                  </span>
+                  <span className="workspace-selection-parity__workspace-name">
+                    {workspace.name}
+                  </span>
+                  <span className="workspace-selection-parity__workspace-path">
+                    {formatWorkspacePath(workspace.path)}
+                  </span>
+                  <span className="workspace-selection-parity__workspace-footer">
+                    <span>{formatRelativeWorkspaceTime(workspace.lastOpenedAtMs, language)}</span>
+                    <span>{text.open}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="workspace-selection-parity__empty">
+              <span className="workspace-selection-parity__empty-icon">
+                <WorkspaceMaterialSymbol name="history" />
+              </span>
+              <p>{text.noRecentWorkspaces}</p>
+              <span>{text.noRecentWorkspacesHint}</span>
+            </div>
+          )}
+
+          {showCompatibilityControls ? (
+            <div className="workspace-selection-parity__compat">
+              <button
+                type="button"
+                aria-label={text.refreshRecentWorkspaces}
+                className="workspace-selection-parity__compat-icon"
+                onClick={onRefreshRecent}
+              >
+                <WorkspaceMaterialSymbol name="refresh" />
+              </button>
+              {windowContext ? (
+                <WindowContextControls
+                  snapshot={windowContext}
+                  language={language}
+                  disabled={isSyncActionPending}
+                  onThemeChange={onThemeChange}
+                  onLanguageChange={onLanguageChange}
+                  onOpenWindowMode={onOpenWindowMode}
+                />
+              ) : null}
+              {windowContext ? (
+                <DataIntegrityPanel
+                  report={integrityReport}
+                  disabled={isValidatingIntegrity || isLoading}
+                  onValidate={onValidateIntegrity}
+                />
+              ) : null}
+              <span className="workspace-selection-parity__count">
+                {statusRecentWorkspaceCount} {text.recordsSuffix}
+              </span>
+            </div>
+          ) : null}
+        </section>
+      </div>
+
+      {pendingConflict ? (
+        <WorkspaceConflictDialog
+          conflict={pendingConflict.conflict}
+          primaryButtonRef={conflictPrimaryButtonRef}
+          onResolve={onResolveConflict}
+          onCancel={onCancelConflict}
+        />
+      ) : null}
+      {toast ? <Toast toast={toast} onClose={onClearToast} /> : null}
+    </main>
+  );
+}
+
+function WorkspaceMaterialSymbol({ name }: { name: string }) {
+  return (
+    <span className="material-symbols-outlined" aria-hidden="true">
+      {name}
+    </span>
+  );
+}
 
 function SkillLibraryPanel({
   skills,
@@ -3627,6 +10728,7 @@ function SkillLibraryPanel({
   onDelete,
   onLink,
   onUnlink,
+  onUnavailableCapability,
 }: {
   skills: SkillLibraryEntry[];
   linkedSkills: WorkspaceSkillLinkEntry[];
@@ -3643,6 +10745,7 @@ function SkillLibraryPanel({
   onDelete: (skillId: string) => void;
   onLink: (skillId: string) => void;
   onUnlink: (skillId: string) => void;
+  onUnavailableCapability: (title: string, status: CapabilityStatus) => void;
 }) {
   return (
     <section
@@ -3805,18 +10908,22 @@ function SkillLibraryPanel({
           <div className="mt-2 grid gap-2 md:grid-cols-3">
             <CapabilityClassItem
               title="本地技能"
-              badge="可用"
+              status="implemented"
               description="导入的本地文件夹，可打开、关联和删除库记录。"
             />
             <CapabilityClassItem
               title="技能商店"
-              badge="占位"
+              status="placeholder"
               description="远程技能安装尚未启用。"
+              actionLabel="打开技能商店"
+              onAction={() => onUnavailableCapability("技能商店", "placeholder")}
             />
             <CapabilityClassItem
               title="远程插件"
-              badge="未来"
+              status="placeholder"
               description="插件 API 和权限模型将在后续故事中定义。"
+              actionLabel="启用远程插件"
+              onAction={() => onUnavailableCapability("远程插件", "placeholder")}
             />
           </div>
         </div>
@@ -3832,19 +10939,36 @@ function ProfileSettingsModal({
   savedNotificationPreferences,
   shortcutDraft,
   savedShortcutPreferences,
+  chatTerminalOutputDraft,
+  savedChatTerminalOutputPreferences,
+  terminalDraft,
+  savedTerminalConfiguration,
+  activeWorkspaceId,
+  activeWorkspaceName,
+  chatMaintenanceResult,
   fieldError,
   notificationError,
   shortcutError,
+  chatTerminalOutputError,
+  terminalError,
   isLoading,
   isSaving,
   isNotificationLoading,
   isNotificationSaving,
   isShortcutLoading,
   isShortcutSaving,
+  isChatTerminalOutputLoading,
+  isChatTerminalOutputSaving,
+  isRepairingChatData,
+  isClearingWorkspaceChatData,
+  isTerminalLoading,
+  isTerminalSaving,
   pendingAvatarAction,
   onDraftChange,
   onNotificationDraftChange,
   onShortcutDraftChange,
+  onChatTerminalOutputDraftChange,
+  onTerminalDraftChange,
   onUploadAvatar,
   onSelectAvatarPreset,
   onResetAvatar,
@@ -3854,6 +10978,11 @@ function ProfileSettingsModal({
   onSaveNotifications,
   onSaveShortcuts,
   onResetShortcuts,
+  onSaveChatTerminalOutput,
+  onRepairChatData,
+  onClearWorkspaceChatData,
+  onSaveTerminalConfiguration,
+  onResetTerminalConfiguration,
 }: {
   draft: ProfileSettingsDraft;
   savedProfile: ProfileSettingsSnapshot;
@@ -3861,19 +10990,36 @@ function ProfileSettingsModal({
   savedNotificationPreferences: NotificationPreferencesSnapshot;
   shortcutDraft: ShortcutPreferencesDraft;
   savedShortcutPreferences: ShortcutPreferencesSnapshot;
+  chatTerminalOutputDraft: ChatTerminalOutputPreferencesDraft;
+  savedChatTerminalOutputPreferences: ChatTerminalOutputPreferencesSnapshot;
+  terminalDraft: TerminalConfigurationDraft;
+  savedTerminalConfiguration: TerminalConfigurationSnapshot;
+  activeWorkspaceId: string | null;
+  activeWorkspaceName: string | null;
+  chatMaintenanceResult: ChatMaintenanceResultView | null;
   fieldError: { field: ProfileSettingsField; message: string } | null;
   notificationError: string | null;
   shortcutError: string | null;
+  chatTerminalOutputError: string | null;
+  terminalError: string | null;
   isLoading: boolean;
   isSaving: boolean;
   isNotificationLoading: boolean;
   isNotificationSaving: boolean;
   isShortcutLoading: boolean;
   isShortcutSaving: boolean;
+  isChatTerminalOutputLoading: boolean;
+  isChatTerminalOutputSaving: boolean;
+  isRepairingChatData: boolean;
+  isClearingWorkspaceChatData: boolean;
+  isTerminalLoading: boolean;
+  isTerminalSaving: boolean;
   pendingAvatarAction: ProfileAvatarAction | null;
   onDraftChange: (draft: ProfileSettingsDraft) => void;
   onNotificationDraftChange: (draft: NotificationPreferencesDraft) => void;
   onShortcutDraftChange: (draft: ShortcutPreferencesDraft) => void;
+  onChatTerminalOutputDraftChange: (draft: ChatTerminalOutputPreferencesDraft) => void;
+  onTerminalDraftChange: (draft: TerminalConfigurationDraft) => void;
   onUploadAvatar: () => void;
   onSelectAvatarPreset: (presetId: string) => void;
   onResetAvatar: () => void;
@@ -3883,6 +11029,11 @@ function ProfileSettingsModal({
   onSaveNotifications: () => void;
   onSaveShortcuts: () => void;
   onResetShortcuts: () => void;
+  onSaveChatTerminalOutput: () => void;
+  onRepairChatData: () => void;
+  onClearWorkspaceChatData: () => void;
+  onSaveTerminalConfiguration: () => void;
+  onResetTerminalConfiguration: () => void;
 }) {
   const canSave = draft.displayName.trim().length > 0 && draft.timezone.trim().length > 0;
   const selectedPresetId = savedProfile.avatar?.kind === "preset" ? savedProfile.avatar.presetId : null;
@@ -3892,7 +11043,10 @@ function ProfileSettingsModal({
     notificationDraft.dndStartTime.length === 5 &&
     notificationDraft.dndEndTime.length === 5;
   const canSaveShortcuts = !isShortcutSaving;
+  const canSaveChatTerminalOutput = !isChatTerminalOutputSaving;
+  const canSaveTerminalConfiguration = !isTerminalSaving;
   const permissionUnavailable = savedNotificationPreferences.permission.state === "unavailable";
+  const placeholderStatusMeta = capabilityStatusMeta("placeholder");
   const disabledShortcutIds = new Set(shortcutDraft.disabledActionIds);
   const updateShortcutActionEnabled = (actionId: string, enabled: boolean) => {
     const nextDisabledActionIds = enabled
@@ -4129,8 +11283,11 @@ function ProfileSettingsModal({
               <div className="flex items-start gap-2 rounded-md border border-[#ead8a8] bg-[#fff8e4] p-3 text-xs text-[#6f5b1f]">
                 <BellOff aria-hidden="true" className="mt-0.5 shrink-0" size={15} strokeWidth={2} />
                 <p>
-                  <span className="block font-semibold">
-                    {savedNotificationPreferences.permission.message}
+                  <span className="flex flex-wrap items-center gap-2 font-semibold">
+                    <span>{savedNotificationPreferences.permission.message}</span>
+                    <span className={capabilityStatusClassName("placeholder")}>
+                      {placeholderStatusMeta.label}
+                    </span>
                   </span>
                   <span className="mt-1 block">
                     {savedNotificationPreferences.permission.userAction}
@@ -4344,7 +11501,10 @@ function ProfileSettingsModal({
                       </p>
                       {!binding.available && binding.unavailableReason ? (
                         <p className="mt-1 text-[11px] text-[#765400]">
-                          {binding.unavailableReason}
+                          <span className={capabilityStatusClassName("placeholder")}>
+                            {placeholderStatusMeta.label}
+                          </span>{" "}
+                          <span>{binding.unavailableReason}</span>
                         </p>
                       ) : null}
                     </div>
@@ -4393,7 +11553,40 @@ function ProfileSettingsModal({
                 {isShortcutSaving ? "保存中" : "保存快捷键"}
               </button>
             </div>
-          </section>
+	          </section>
+
+	          <ChatTerminalOutputPreferencesSection
+	            draft={chatTerminalOutputDraft}
+	            savedPreferences={savedChatTerminalOutputPreferences}
+	            error={chatTerminalOutputError}
+	            isLoading={isChatTerminalOutputLoading}
+	            isSaving={isChatTerminalOutputSaving}
+	            canSave={canSaveChatTerminalOutput}
+	            onDraftChange={onChatTerminalOutputDraftChange}
+	            onSave={onSaveChatTerminalOutput}
+	          />
+
+          <ChatDataMaintenanceSection
+            activeWorkspaceId={activeWorkspaceId}
+            activeWorkspaceName={activeWorkspaceName}
+            result={chatMaintenanceResult}
+            isRepairing={isRepairingChatData}
+            isClearing={isClearingWorkspaceChatData}
+            onRepair={onRepairChatData}
+            onClear={onClearWorkspaceChatData}
+          />
+
+	          <TerminalConfigurationSection
+	            draft={terminalDraft}
+	            savedConfiguration={savedTerminalConfiguration}
+            error={terminalError}
+            isLoading={isTerminalLoading}
+            isSaving={isTerminalSaving}
+            canSave={canSaveTerminalConfiguration}
+            onDraftChange={onTerminalDraftChange}
+            onSave={onSaveTerminalConfiguration}
+            onReset={onResetTerminalConfiguration}
+          />
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#edf1eb] pt-4">
             <p className="text-xs text-[#6a786c]">
@@ -4452,6 +11645,569 @@ function NotificationToggle({
         className="h-4 w-4 accent-[#2f6f55]"
       />
     </label>
+  );
+}
+
+function ChatTerminalOutputPreferencesSection({
+  draft,
+  savedPreferences,
+  error,
+  isLoading,
+  isSaving,
+  canSave,
+  onDraftChange,
+  onSave,
+}: {
+  draft: ChatTerminalOutputPreferencesDraft;
+  savedPreferences: ChatTerminalOutputPreferencesSnapshot;
+  error: string | null;
+  isLoading: boolean;
+  isSaving: boolean;
+  canSave: boolean;
+  onDraftChange: (draft: ChatTerminalOutputPreferencesDraft) => void;
+  onSave: () => void;
+}) {
+  const savedModeLabel =
+    savedPreferences.displayMode === "stream" ? "流式输出" : "仅显示最终输出";
+
+  return (
+    <section
+      aria-labelledby="chat-terminal-output-preferences-title"
+      className="grid gap-4 rounded-md border border-[#e3eadf] bg-[#fbfcfa] p-3"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-[#6a786c]">
+            <MessageSquare aria-hidden="true" size={14} strokeWidth={2} />
+            聊天输出
+          </p>
+          <h3
+            id="chat-terminal-output-preferences-title"
+            className="mt-1 text-sm font-semibold text-[#263229]"
+          >
+            终端输出展示
+          </h3>
+        </div>
+        <span className="text-[11px] text-[#7a8678]">
+          {isLoading
+            ? "正在读取聊天输出设置"
+            : `更新时间：${new Date(savedPreferences.updatedAtMs).toLocaleString()}`}
+        </span>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-center">
+        <NotificationToggle
+          icon={<SquareTerminal aria-hidden="true" size={15} strokeWidth={2} />}
+          label="聊天流式输出"
+          checked={draft.displayMode === "stream"}
+          onChange={(checked) =>
+            onDraftChange({
+              displayMode: checked ? "stream" : "finalOnly",
+            })
+          }
+        />
+        <span className="text-xs font-medium text-[#526054]">当前模式：{savedModeLabel}</span>
+      </div>
+
+      {error ? (
+        <p className="rounded-md border border-[#e2c7c0] bg-[#fff5f2] p-2 text-xs font-medium text-[#7a2f2f]">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={onSave}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+        >
+          <CheckCircle2 aria-hidden="true" size={14} strokeWidth={2} />
+          {isSaving ? "保存中" : "保存聊天输出"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ChatDataMaintenanceSection({
+  activeWorkspaceId,
+  activeWorkspaceName,
+  result,
+  isRepairing,
+  isClearing,
+  onRepair,
+  onClear,
+}: {
+  activeWorkspaceId: string | null;
+  activeWorkspaceName: string | null;
+  result: ChatMaintenanceResultView | null;
+  isRepairing: boolean;
+  isClearing: boolean;
+  onRepair: () => void;
+  onClear: () => void;
+}) {
+  const disabled = !activeWorkspaceId || isRepairing || isClearing;
+  const scopeLabel = activeWorkspaceName
+    ? `${activeWorkspaceName}（${activeWorkspaceId}）`
+    : (activeWorkspaceId ?? "未打开工作区");
+
+  return (
+    <section
+      aria-labelledby="chat-data-maintenance-title"
+      className="grid gap-4 rounded-md border border-[#e3eadf] bg-[#fbfcfa] p-3"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-[#6a786c]">
+            <ShieldCheck aria-hidden="true" size={14} strokeWidth={2} />
+            数据
+          </p>
+          <h3
+            id="chat-data-maintenance-title"
+            className="mt-1 text-sm font-semibold text-[#263229]"
+          >
+            聊天数据维护
+          </h3>
+        </div>
+        <span className="max-w-full truncate text-[11px] text-[#7a8678]" title={scopeLabel}>
+          范围：{scopeLabel}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onRepair}
+          className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-xs font-semibold text-[#425044] transition hover:bg-[#f7f9f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCw aria-hidden="true" size={14} strokeWidth={2} />
+          {isRepairing ? "修复中" : "修复消息"}
+        </button>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onClear}
+          className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border border-[#d7c8c5] bg-white px-3 py-2 text-xs font-semibold text-[#6d3d38] transition hover:border-[#b9857f] hover:bg-[#fff5f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9d5e58] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <Trash2 aria-hidden="true" size={14} strokeWidth={2} />
+          {isClearing ? "清空中" : "清空所有消息"}
+        </button>
+      </div>
+
+      {!activeWorkspaceId ? (
+        <p className="rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-xs text-[#6a786c]">
+          未打开工作区，聊天数据维护不可用。
+        </p>
+      ) : null}
+
+      {result ? (
+        <div
+          role="status"
+          aria-label="聊天数据维护结果"
+          className={
+            result.status === "failed"
+              ? "grid gap-2 rounded-md border border-[#e2c7c0] bg-[#fff5f2] p-3 text-xs text-[#7a2f2f]"
+              : "grid gap-2 rounded-md border border-[#cfe0c9] bg-white p-3 text-xs text-[#3f4b41]"
+          }
+        >
+          <p className="font-semibold">
+            状态：{result.status === "failed" ? "失败" : "完成"} · {result.title}
+          </p>
+          <p>{result.summary}</p>
+          {result.details.length > 0 ? (
+            <ul className="grid gap-1">
+              {result.details.map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          ) : null}
+          {result.action ? <p>后续动作：{result.action}</p> : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function chatRepairResultView(result: RepairWorkspaceChatDataResult): ChatMaintenanceResultView {
+  const itemDetails = [
+    ...result.repairedItems,
+    ...result.failedItems,
+    ...result.skippedItems,
+  ].map(
+    (item) =>
+      `${chatMaintenanceStatusLabel(item.status)}：${item.label} ${item.count} 项（${item.affectedScope}）${
+        item.details ? `，${item.details}` : ""
+      }`,
+  );
+
+  return {
+    status: result.failedCount > 0 ? "failed" : "completed",
+    title: result.failedCount > 0 ? "修复有遗留项" : "修复完成",
+    summary: `已修复 ${result.repairedCount} 项，失败 ${result.failedCount} 项，跳过 ${result.skippedCount} 项。`,
+    details: itemDetails,
+    action: result.followUpAction,
+  };
+}
+
+function chatClearResultView(result: ClearWorkspaceChatDataResult): ChatMaintenanceResultView {
+  return {
+    status: "completed",
+    title: "清空完成",
+    summary: `已清除 ${result.clearedMessageCount} 条消息、${result.clearedMentionCount} 条提及、${result.clearedReadPositionCount} 条已读位置和 ${result.clearedDispatchCount} 条派发引用。`,
+    details: [`范围：${result.affectedScope}`, `完成时间：${new Date(result.completedAtMs).toLocaleString()}`],
+    action: result.followUpAction,
+  };
+}
+
+function chatMaintenanceStatusLabel(status: "repaired" | "failed" | "skipped") {
+  switch (status) {
+    case "failed":
+      return "失败";
+    case "skipped":
+      return "跳过";
+    case "repaired":
+      return "修复";
+  }
+}
+
+function TerminalConfigurationSection({
+  draft,
+  savedConfiguration,
+  error,
+  isLoading,
+  isSaving,
+  canSave,
+  onDraftChange,
+  onSave,
+  onReset,
+}: {
+  draft: TerminalConfigurationDraft;
+  savedConfiguration: TerminalConfigurationSnapshot;
+  error: string | null;
+  isLoading: boolean;
+  isSaving: boolean;
+  canSave: boolean;
+  onDraftChange: (draft: TerminalConfigurationDraft) => void;
+  onSave: () => void;
+  onReset: () => void;
+}) {
+  const updateBuiltInCommand = (runtimeId: string, command: string) => {
+    onDraftChange({
+      ...draft,
+      builtInCliEntries: draft.builtInCliEntries.map((entry) =>
+        entry.runtimeId === runtimeId ? { ...entry, command } : entry,
+      ),
+    });
+  };
+  const updateCustomCliEntry = (entryIndex: number, update: Partial<TerminalCustomCliEntry>) => {
+    onDraftChange({
+      ...draft,
+      customCliEntries: draft.customCliEntries.map((entry, index) =>
+        index === entryIndex ? { ...entry, ...update } : entry,
+      ),
+    });
+  };
+  const updateCustomTerminalEntry = (
+    entryIndex: number,
+    update: Partial<TerminalCustomTerminalEntry>,
+  ) => {
+    onDraftChange({
+      ...draft,
+      customTerminalEntries: draft.customTerminalEntries.map((entry, index) =>
+        index === entryIndex ? { ...entry, ...update } : entry,
+      ),
+    });
+  };
+  const addCustomCliEntry = () => {
+    const cliId = nextTerminalConfigId(
+      "custom-cli",
+      draft.customCliEntries.map((entry) => entry.cliId),
+    );
+    onDraftChange({
+      ...draft,
+      customCliEntries: [
+        ...draft.customCliEntries,
+        { cliId, label: "Custom CLI", command: "" },
+      ],
+    });
+  };
+  const addCustomTerminalEntry = () => {
+    const terminalId = nextTerminalConfigId(
+      "terminal",
+      draft.customTerminalEntries.map((entry) => entry.terminalId),
+    );
+    onDraftChange({
+      ...draft,
+      customTerminalEntries: [
+        ...draft.customTerminalEntries,
+        { terminalId, label: "Custom Terminal", command: "" },
+      ],
+    });
+  };
+  const removeCustomCliEntry = (entryIndex: number) => {
+    onDraftChange({
+      ...draft,
+      customCliEntries: draft.customCliEntries.filter((_, index) => index !== entryIndex),
+    });
+  };
+  const removeCustomTerminalEntry = (entryIndex: number) => {
+    const removedEntry = draft.customTerminalEntries[entryIndex];
+
+    onDraftChange({
+      ...draft,
+      customTerminalEntries: draft.customTerminalEntries.filter(
+        (_, index) => index !== entryIndex,
+      ),
+      defaultTerminalId:
+        draft.defaultTerminalId === removedEntry?.terminalId ? null : draft.defaultTerminalId,
+    });
+  };
+
+  return (
+    <section
+      aria-labelledby="terminal-configuration-title"
+      className="grid gap-4 rounded-md border border-[#e3eadf] bg-[#fbfcfa] p-3"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-1.5 text-xs font-medium text-[#6a786c]">
+            <SquareTerminal aria-hidden="true" size={14} strokeWidth={2} />
+            CLI
+          </p>
+          <h3
+            id="terminal-configuration-title"
+            className="mt-1 text-sm font-semibold text-[#263229]"
+          >
+            CLI 与终端配置
+          </h3>
+        </div>
+        <span className="text-[11px] text-[#7a8678]">
+          {isLoading
+            ? "正在读取 CLI 设置"
+            : `更新时间：${new Date(savedConfiguration.updatedAtMs).toLocaleString()}`}
+        </span>
+      </div>
+
+      <div className="grid gap-2" aria-label="内置 CLI 路径">
+        {draft.builtInCliEntries.map((entry) => (
+          <label
+            key={entry.runtimeId}
+            className="grid gap-1.5 rounded-md border border-[#edf1eb] bg-white p-3 text-xs font-medium text-[#526054] sm:grid-cols-[11rem_1fr] sm:items-center"
+          >
+            <span>
+              <span className="block font-semibold text-[#263229]">{entry.label}</span>
+              <span className="mt-1 block text-[11px] text-[#7a8678]">
+                状态：保存后在终端环境诊断中验证
+              </span>
+            </span>
+            <input
+              value={entry.command}
+              aria-label={`${entry.label} 命令`}
+              onChange={(event) => updateBuiltInCommand(entry.runtimeId, event.target.value)}
+              className="min-w-0 rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87]"
+            />
+          </label>
+        ))}
+      </div>
+
+      <TerminalConfigurationRows
+        title="自定义 CLI"
+        emptyText="暂无自定义 CLI"
+        idLabel="CLI ID"
+        labelLabel="名称"
+        commandLabel="命令"
+        entries={draft.customCliEntries.map((entry) => ({
+          id: entry.cliId,
+          label: entry.label,
+          command: entry.command,
+        }))}
+        onAdd={addCustomCliEntry}
+        onUpdate={(index, update) =>
+          updateCustomCliEntry(index, {
+            cliId: update.id,
+            label: update.label,
+            command: update.command,
+          })
+        }
+        onRemove={removeCustomCliEntry}
+      />
+
+      <TerminalConfigurationRows
+        title="自定义终端"
+        emptyText="暂无自定义终端"
+        idLabel="终端 ID"
+        labelLabel="名称"
+        commandLabel="命令"
+        entries={draft.customTerminalEntries.map((entry) => ({
+          id: entry.terminalId,
+          label: entry.label,
+          command: entry.command,
+        }))}
+        onAdd={addCustomTerminalEntry}
+        onUpdate={(index, update) =>
+          updateCustomTerminalEntry(index, {
+            terminalId: update.id,
+            label: update.label,
+            command: update.command,
+          })
+        }
+        onRemove={removeCustomTerminalEntry}
+      />
+
+      <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+        默认工作区终端
+        <select
+          value={draft.defaultTerminalId ?? ""}
+          aria-label="默认工作区终端"
+          onChange={(event) =>
+            onDraftChange({
+              ...draft,
+              defaultTerminalId: event.target.value || null,
+            })
+          }
+          className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87]"
+        >
+          <option value="">系统默认 shell</option>
+          {draft.customTerminalEntries.map((entry) => (
+            <option key={entry.terminalId} value={entry.terminalId}>
+              {entry.label || entry.terminalId}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {error ? (
+        <p className="rounded-md border border-[#e2c7c0] bg-[#fff5f2] p-2 text-xs font-medium text-[#7a2f2f]">
+          {error}
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          disabled={isSaving}
+          aria-label="恢复默认 CLI 与终端配置"
+          onClick={onReset}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-xs font-semibold text-[#425044] transition hover:bg-[#f7f9f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RefreshCw aria-hidden="true" size={14} strokeWidth={2} />
+          恢复默认
+        </button>
+        <button
+          type="button"
+          disabled={!canSave}
+          onClick={onSave}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-not-allowed disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+        >
+          <CheckCircle2 aria-hidden="true" size={14} strokeWidth={2} />
+          {isSaving ? "保存中" : "保存 CLI 与终端"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function TerminalConfigurationRows({
+  title,
+  emptyText,
+  idLabel,
+  labelLabel,
+  commandLabel,
+  entries,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: {
+  title: string;
+  emptyText: string;
+  idLabel: string;
+  labelLabel: string;
+  commandLabel: string;
+  entries: Array<{ id: string; label: string; command: string }>;
+  onAdd: () => void;
+  onUpdate: (
+    entryIndex: number,
+    update: { id: string; label: string; command: string },
+  ) => void;
+  onRemove: (entryIndex: number) => void;
+}) {
+  return (
+    <div className="grid gap-2 rounded-md border border-[#edf1eb] bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold text-[#263229]">{title}</p>
+        <button
+          type="button"
+          onClick={onAdd}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1.5 text-[11px] font-semibold text-[#425044] transition hover:bg-[#f7f9f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55]"
+        >
+          <Plus aria-hidden="true" size={13} strokeWidth={2} />
+          添加
+        </button>
+      </div>
+      {entries.length === 0 ? (
+        <p className="rounded-md border border-dashed border-[#d8e2d4] bg-[#fbfcfa] p-3 text-xs text-[#6a786c]">
+          {emptyText}
+        </p>
+      ) : (
+        <div className="grid gap-2">
+          {entries.map((entry, index) => (
+            <div
+              key={`${title}-${index}`}
+              className="grid gap-2 rounded-md border border-[#edf1eb] bg-[#fbfcfa] p-3"
+            >
+              <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                <label className="grid gap-1 text-[11px] font-medium text-[#526054]">
+                  {idLabel}
+                  <input
+                    value={entry.id}
+                    aria-label={`${title} ${idLabel}`}
+                    onChange={(event) =>
+                      onUpdate(index, { ...entry, id: event.target.value })
+                    }
+                    className="rounded-md border border-[#cfd9cc] bg-white px-2.5 py-2 text-xs text-[#263229] outline-none focus:border-[#8fad87]"
+                  />
+                </label>
+                <label className="grid gap-1 text-[11px] font-medium text-[#526054]">
+                  {labelLabel}
+                  <input
+                    value={entry.label}
+                    aria-label={`${title} ${labelLabel}`}
+                    onChange={(event) =>
+                      onUpdate(index, { ...entry, label: event.target.value })
+                    }
+                    className="rounded-md border border-[#cfd9cc] bg-white px-2.5 py-2 text-xs text-[#263229] outline-none focus:border-[#8fad87]"
+                  />
+                </label>
+                <button
+                  type="button"
+                  aria-label={`删除 ${entry.label || entry.id}`}
+                  onClick={() => onRemove(index)}
+                  className="self-end inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#e2c7c0] bg-white text-[#7a2f2f] transition hover:bg-[#fff5f2] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#8a3b2f]"
+                >
+                  <Trash2 aria-hidden="true" size={14} strokeWidth={2} />
+                </button>
+              </div>
+              <label className="grid gap-1 text-[11px] font-medium text-[#526054]">
+                {commandLabel}
+                <input
+                  value={entry.command}
+                  aria-label={`${title} ${commandLabel}`}
+                  onChange={(event) =>
+                    onUpdate(index, { ...entry, command: event.target.value })
+                  }
+                  className="rounded-md border border-[#cfd9cc] bg-white px-2.5 py-2 text-xs text-[#263229] outline-none focus:border-[#8fad87]"
+                />
+              </label>
+              <span className="text-[11px] text-[#7a8678]">
+                状态：保存后在终端环境诊断中验证
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -4882,24 +12638,52 @@ function RoadmapModal({
 
 function CapabilityClassItem({
   title,
-  badge,
+  status,
   description,
+  actionLabel,
+  onAction,
 }: {
   title: string;
-  badge: string;
+  status: CapabilityStatus;
   description: string;
+  actionLabel?: string;
+  onAction?: () => void;
 }) {
+  const meta = capabilityStatusMeta(status);
+
   return (
     <div className="rounded-md border border-[#e3eadf] bg-white p-3">
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-semibold text-[#263229]">{title}</span>
-        <span className="rounded-md border border-[#d8e4d3] bg-[#f8fbf6] px-2 py-1 text-[11px] font-semibold text-[#526054]">
-          {badge}
+        <span className={capabilityStatusClassName(status)}>
+          {meta.label}
         </span>
       </div>
       <p className="mt-2 text-xs leading-5 text-[#6a786c]">{description}</p>
+      {actionLabel && onAction ? (
+        <button
+          type="button"
+          onClick={onAction}
+          className="mt-3 inline-flex min-h-8 items-center rounded-md border border-[#e0c37b] bg-[#fff8e6] px-2.5 py-1.5 text-xs font-semibold text-[#765400] transition hover:border-[#c79f45] hover:bg-[#fff3cf] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9c7422]"
+        >
+          {actionLabel}
+        </button>
+      ) : null}
     </div>
   );
+}
+
+function capabilityStatusClassName(status: CapabilityStatus) {
+  switch (status) {
+    case "implemented":
+      return "rounded-md border border-[#b9d0b2] bg-[#eef6ea] px-2 py-1 text-[11px] font-semibold text-[#2f5038]";
+    case "alternative":
+      return "rounded-md border border-[#b7d5de] bg-[#eef8fb] px-2 py-1 text-[11px] font-semibold text-[#2f5a66]";
+    case "placeholder":
+      return "rounded-md border border-[#e0c37b] bg-[#fff8e6] px-2 py-1 text-[11px] font-semibold text-[#765400]";
+    case "abandoned":
+      return "rounded-md border border-[#d8e2d4] bg-[#f7f9f5] px-2 py-1 text-[11px] font-semibold text-[#637064]";
+  }
 }
 
 function ConversationPanel({
@@ -5779,6 +13563,60 @@ const emojiOptions = [
   { value: "⏳", label: "等待", keywords: ["wait", "pending"] },
 ];
 
+type GolutraEmojiSearchEntry = GolutraEmojiEntry & {
+  searchText: string;
+};
+
+function buildGolutraEmojiIndex(entries: GolutraEmojiEntry[]) {
+  const byGroup: Record<number, GolutraEmojiSearchEntry[]> = {};
+  const byEmoji = new Map<string, GolutraEmojiSearchEntry>();
+  const flat: GolutraEmojiSearchEntry[] = [];
+
+  for (const entry of entries) {
+    const indexed = {
+      ...entry,
+      searchText: `${entry.emoji} ${entry.label} ${entry.tags.join(" ")}`.toLocaleLowerCase(),
+    };
+    const groupEntries = byGroup[entry.group] ?? [];
+
+    groupEntries.push(indexed);
+    byGroup[entry.group] = groupEntries;
+    flat.push(indexed);
+
+    if (!byEmoji.has(entry.emoji)) {
+      byEmoji.set(entry.emoji, indexed);
+    }
+  }
+
+  return { byEmoji, byGroup, flat };
+}
+
+const GOLUTRA_EMOJI_INDEX = buildGolutraEmojiIndex(GOLUTRA_EMOJI_DATA);
+const GOLUTRA_EMOJI_GROUP_OPTIONS: GolutraEmojiGroup[] = [
+  { id: RECENT_EMOJI_GROUP_ID, label: "最近使用", icon: "🕘" },
+  ...GOLUTRA_EMOJI_GROUPS,
+];
+
+function golutraRecentEmojiEntries(recentEmojis: string[]) {
+  return recentEmojis
+    .map((emoji) => GOLUTRA_EMOJI_INDEX.byEmoji.get(emoji))
+    .filter((entry): entry is GolutraEmojiSearchEntry => Boolean(entry));
+}
+
+function golutraEmojiSearchEntries(query: string, activeGroupId: number, recentEmojis: string[]) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+
+  if (normalizedQuery) {
+    return GOLUTRA_EMOJI_INDEX.flat.filter((entry) => entry.searchText.includes(normalizedQuery));
+  }
+
+  if (activeGroupId === RECENT_EMOJI_GROUP_ID) {
+    return golutraRecentEmojiEntries(recentEmojis);
+  }
+
+  return GOLUTRA_EMOJI_INDEX.byGroup[activeGroupId] ?? [];
+}
+
 function activeMentionQuery(draft: string) {
   const match = /(?:^|\s)@([^\s@]*)$/.exec(draft);
 
@@ -5807,7 +13645,7 @@ function insertMentionText(draft: string, member: MemberProfile) {
     return `${draft.slice(0, atIndex)}${mentionText} `;
   }
 
-  return appendInlineText(draft, mentionText);
+  return `${appendInlineText(draft, mentionText)} `;
 }
 
 function appendInlineText(draft: string, text: string) {
@@ -6270,7 +14108,10 @@ function MembersPanel({
   displayName,
   runtimeKind,
   builtinRuntimeId,
+  customRuntimeCliId,
   customRuntimeCommand,
+  builtInRuntimeOptions,
+  customCliRuntimeOptions,
   instanceCount,
   canMention,
   canRemove,
@@ -6281,6 +14122,7 @@ function MembersPanel({
   onDisplayNameChange,
   onRuntimeKindChange,
   onBuiltinRuntimeChange,
+  onCustomRuntimeCliChange,
   onCustomRuntimeCommandChange,
   onInstanceCountChange,
   onCanMentionChange,
@@ -6304,7 +14146,10 @@ function MembersPanel({
   displayName: string;
   runtimeKind: MemberRuntimeKind;
   builtinRuntimeId: string;
+  customRuntimeCliId: string;
   customRuntimeCommand: string;
+  builtInRuntimeOptions: RuntimeOption[];
+  customCliRuntimeOptions: RuntimeOption[];
   instanceCount: number;
   canMention: boolean;
   canRemove: boolean;
@@ -6315,6 +14160,7 @@ function MembersPanel({
   onDisplayNameChange: (value: string) => void;
   onRuntimeKindChange: (value: MemberRuntimeKind) => void;
   onBuiltinRuntimeChange: (value: string) => void;
+  onCustomRuntimeCliChange: (value: string) => void;
   onCustomRuntimeCommandChange: (value: string) => void;
   onInstanceCountChange: (value: number) => void;
   onCanMentionChange: (value: boolean) => void;
@@ -6336,7 +14182,10 @@ function MembersPanel({
   const customCommandLabel = runtimeKind === "shell" ? "Shell 命令" : "自定义 CLI 命令";
   const canInvite =
     displayName.trim().length > 0 &&
-    (runtimeKind === "builtInAiCli" || customRuntimeCommand.trim().length > 0);
+    (runtimeKind === "builtInAiCli" ||
+      (runtimeKind === "customCli" &&
+        (customRuntimeCliId.trim().length > 0 || customRuntimeCommand.trim().length > 0)) ||
+      (runtimeKind === "shell" && customRuntimeCommand.trim().length > 0));
 
   return (
     <section
@@ -6480,6 +14329,44 @@ function MembersPanel({
                 ))}
               </select>
             </label>
+          ) : runtimeKind === "customCli" && customCliRuntimeOptions.length > 0 ? (
+            <div className="grid gap-2">
+              <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                自定义 CLI
+                <select
+                  value={customRuntimeCliId}
+                  onChange={(event) => {
+                    onCustomRuntimeCliChange(event.target.value);
+                    if (event.target.value) {
+                      onCustomRuntimeCommandChange("");
+                    }
+                  }}
+                  className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none focus:border-[#8fad87]"
+                >
+                  {customCliRuntimeOptions.map((runtime) => (
+                    <option key={runtime.id} value={runtime.id}>
+                      {runtime.label}
+                    </option>
+                  ))}
+                  <option value="">手动命令</option>
+                </select>
+              </label>
+              {customRuntimeCliId ? (
+                <p className="rounded-md border border-[#edf1eb] bg-[#f8fbf6] px-3 py-2 text-xs text-[#526054]">
+                  命令：{customCliRuntimeOptions.find((runtime) => runtime.id === customRuntimeCliId)?.command ?? ""}
+                </p>
+              ) : (
+                <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
+                  自定义 CLI 命令
+                  <input
+                    value={customRuntimeCommand}
+                    onChange={(event) => onCustomRuntimeCommandChange(event.target.value)}
+                    placeholder="my-agent --stdio"
+                    className="rounded-md border border-[#cfd9cc] bg-white px-3 py-2 text-sm text-[#263229] outline-none placeholder:text-[#8b9788] focus:border-[#8fad87]"
+                  />
+                </label>
+              )}
+            </div>
           ) : (
             <label className="grid gap-1.5 text-xs font-medium text-[#526054]">
               {customCommandLabel}
@@ -6957,16 +14844,19 @@ function CheckboxControl({
 function selectedRuntimeProfile(
   kind: MemberRuntimeKind,
   builtInRuntimeId: string,
+  customRuntimeCliId: string,
   customCommand: string,
+  builtInRuntimeOptions: RuntimeOption[],
+  customCliRuntimeOptions: RuntimeOption[],
 ): MemberRuntimeProfile {
   if (kind === "builtInAiCli") {
     const runtime =
       builtInRuntimeOptions.find((option) => option.id === builtInRuntimeId) ??
-      builtInRuntimeOptions[0];
+      DEFAULT_TERMINAL_CONFIGURATION.builtInCliEntries[0];
 
     return {
       kind,
-      runtimeId: runtime.id,
+      runtimeId: "id" in runtime ? runtime.id : runtime.runtimeId,
       label: runtime.label,
       command: runtime.command,
     };
@@ -6984,6 +14874,19 @@ function selectedRuntimeProfile(
   }
 
   if (kind === "customCli") {
+    const configuredRuntime = customCliRuntimeOptions.find(
+      (option) => option.id === customRuntimeCliId,
+    );
+
+    if (configuredRuntime) {
+      return {
+        kind,
+        runtimeId: configuredRuntime.id,
+        label: configuredRuntime.label,
+        command: configuredRuntime.command,
+      };
+    }
+
     return {
       kind,
       runtimeId: command || null,
@@ -7000,17 +14903,29 @@ function selectedRuntimeProfile(
   };
 }
 
-function memberRoleLabel(role: MemberProfile["role"]) {
+function memberRoleLabel(role: MemberProfile["role"], language: AppLanguage = "en-US") {
+  const roles = CHAT_PARITY_TEXT[language].roles;
+
   switch (role) {
     case "owner":
-      return "Owner";
+      return roles.owner;
     case "admin":
-      return "Admin";
+      return roles.admin;
     case "assistant":
-      return "Assistant";
+      return roles.assistant;
     case "member":
-      return "Member";
+      return roles.member;
   }
+}
+
+function friendsParityRoleLabel(role: MemberProfile["role"], language: AppLanguage) {
+  return role === "assistant" ? FRIENDS_PARITY_TEXT[language].memberRole : memberRoleLabel(role, language);
+}
+
+function friendsParityContactRoleLabel(kind: ContactKind, language: AppLanguage) {
+  return kind === "administrator"
+    ? FRIENDS_PARITY_TEXT[language].adminRole
+    : FRIENDS_PARITY_TEXT[language].memberRole;
 }
 
 function contactKindLabel(kind: ContactKind) {
@@ -7133,6 +15048,78 @@ function shortcutPreferencesToDraft(
   };
 }
 
+function shortcutBindingsForDraftProfile(
+  profile: ShortcutKeymapProfile,
+  disabledActionIds: string[],
+): ShortcutPreferencesSnapshot["bindings"] {
+  const chatSendKeys = profile === "vscode" ? ["Ctrl+Enter", "Meta+Enter"] : ["Enter"];
+  const specs: Array<[string, string, string[], boolean, string | null]> = [
+    ["chat.send", "发送聊天消息", chatSendKeys, true, null],
+    ["chat.newline", "聊天输入换行", ["Shift+Enter"], true, null],
+    ["chat.emoji.close", "关闭 Emoji 面板", ["Esc"], true, null],
+    ["mention.insert", "插入提及建议", ["Enter", "Tab"], true, null],
+    ["conversation.focus", "聚焦会话列表", ["Tab"], true, null],
+    ["terminal.find.next", "终端查找下一个", ["Enter"], true, null],
+    ["terminal.find.previous", "终端查找上一个", ["Shift+Enter"], true, null],
+    ["terminal.find.close", "关闭终端查找", ["Esc"], true, null],
+    ["settings.save", "保存设置", ["Enter"], true, null],
+    ["notification.viewAll", "通知查看全部", ["Tab", "Enter"], true, null],
+    ["notification.ignoreAll", "通知忽略全部", ["Tab", "Enter"], true, null],
+    ["notification.openTerminal", "通知打开终端", ["Tab", "Enter"], true, null],
+    [
+      "app.globalOpenSettings",
+      "全局打开设置",
+      ["Ctrl+,"],
+      false,
+      "当前版本尚未注册 OS 全局快捷键。",
+    ],
+  ];
+
+  return specs.map(([actionId, label, keys, available, unavailableReason]) => {
+    const disabled = disabledActionIds.includes(actionId);
+
+    return {
+      actionId,
+      label,
+      keys,
+      enabled: available && !disabled,
+      available,
+      unavailableReason,
+    };
+  });
+}
+
+function chatTerminalOutputPreferencesToDraft(
+  preferences: ChatTerminalOutputPreferencesSnapshot,
+): ChatTerminalOutputPreferencesDraft {
+  return {
+    displayMode: preferences.displayMode,
+  };
+}
+
+function terminalConfigurationToDraft(
+  configuration: TerminalConfigurationSnapshot,
+): TerminalConfigurationDraft {
+  return {
+    builtInCliEntries: configuration.builtInCliEntries.map((entry) => ({ ...entry })),
+    customCliEntries: configuration.customCliEntries.map((entry) => ({ ...entry })),
+    customTerminalEntries: configuration.customTerminalEntries.map((entry) => ({ ...entry })),
+    defaultTerminalId: configuration.defaultTerminalId,
+  };
+}
+
+function nextTerminalConfigId(prefix: string, existingIds: string[]) {
+  for (let index = existingIds.length + 1; index < existingIds.length + 100; index += 1) {
+    const candidate = `${prefix}-${index}`;
+
+    if (!existingIds.includes(candidate)) {
+      return candidate;
+    }
+  }
+
+  return `${prefix}-${Date.now()}`;
+}
+
 function shortcutBinding(
   actionId: string,
   label: string,
@@ -7196,17 +15183,24 @@ function applyProfileSettingsToOwnerMembers(
   });
 }
 
-function profileAvatarLabel(avatar: ProfileAvatarSnapshot | null | undefined) {
+function profileAvatarLabel(
+  avatar: ProfileAvatarSnapshot | null | undefined,
+  language: AppLanguage = "zh-CN",
+) {
   if (avatar?.kind === "uploaded") {
-    return "上传头像";
+    return language === "en-US" ? "Uploaded avatar" : "上传头像";
   }
 
   if (avatar?.kind === "preset") {
     const preset = PROFILE_AVATAR_PRESETS.find((item) => item.id === avatar.presetId);
+    if (language === "en-US") {
+      return preset ? `${preset.label} preset` : "Avatar preset";
+    }
+
     return preset ? `${preset.label} 预设` : "头像预设";
   }
 
-  return "默认头像";
+  return language === "en-US" ? "Default avatar" : "默认头像";
 }
 
 function profileSettingsFieldFromError(
@@ -7239,16 +15233,18 @@ function conversationKindLabel(conversation: ConversationProfile) {
   }
 }
 
-function memberStatusLabel(status: MemberProfile["status"]) {
+function memberStatusLabel(status: MemberProfile["status"], language: AppLanguage = "zh-CN") {
+  const statuses = CHAT_PARITY_TEXT[language].statuses;
+
   switch (status) {
     case "online":
-      return "在线";
+      return statuses.online;
     case "offline":
-      return "离线";
+      return statuses.offline;
     case "working":
-      return "工作中";
+      return statuses.working;
     case "doNotDisturb":
-      return "请勿打扰";
+      return statuses.doNotDisturb;
   }
 }
 
@@ -7370,6 +15366,202 @@ function DataIntegrityPanel({
       ) : null}
     </section>
   );
+}
+
+function DiagnosticsPanel({
+  overview,
+  exportResult,
+  isLoading,
+  isExporting,
+  onRefresh,
+  onExport,
+  onExportNext,
+  onClearExport,
+}: {
+  overview: DiagnosticsOverviewResult | null;
+  exportResult: DiagnosticsExportResult | null;
+  isLoading: boolean;
+  isExporting: boolean;
+  onRefresh: () => void;
+  onExport: () => void;
+  onExportNext: (cursor: string) => void;
+  onClearExport: () => void;
+}) {
+  const runs = overview?.runs ?? [];
+  const events = overview?.keyEvents ?? [];
+  const consistency = overview?.consistencySummary;
+  const validation = overview?.validationSummary;
+  const warningCount = exportResult?.warnings.length ?? 0;
+
+  return (
+    <section
+      aria-labelledby="diagnostics-panel-title"
+      className="mt-4 rounded-lg border border-[#dbe4d7] bg-[#fbfcfa] p-4"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-[#6a786c]">诊断</p>
+          <h2 id="diagnostics-panel-title" className="mt-1 text-sm font-semibold text-[#263229]">
+            诊断信息
+          </h2>
+          <p className="mt-1 text-xs text-[#6a786c]">
+            {overview
+              ? `${runs.length} 个 run · ${events.length} 条关键事件 · ${diagnosticsIssueTotal(consistency)} 个一致性问题`
+              : "正在等待诊断数据"}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={isLoading}
+            onClick={onRefresh}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#cfd9cc] bg-white px-3 py-1.5 text-xs font-medium text-[#2f5038] transition hover:border-[#8fad87] hover:bg-[#eef6ea] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
+          >
+            <RefreshCw aria-hidden="true" size={14} strokeWidth={2} />
+            {isLoading ? "刷新中" : "刷新诊断"}
+          </button>
+          <button
+            type="button"
+            disabled={isExporting}
+            onClick={onExport}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[#2f6f55] bg-[#2f6f55] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#285f49] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:border-[#b9c7b5] disabled:bg-[#b9c7b5]"
+          >
+            <FileDown aria-hidden="true" size={14} strokeWidth={2} />
+            {isExporting ? "生成中" : "生成导出"}
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 text-xs text-[#526054] sm:grid-cols-3">
+        <div className="rounded-md border border-[#e3eadf] bg-white p-3">
+          <p className="font-semibold text-[#263229]">Runs</p>
+          <p className="mt-1">{runs.length} 个</p>
+          {runs[0] ? (
+            <p className="mt-1 truncate font-mono text-[11px]" title={runs[0].runId}>
+              最近：{runs[0].status} · {runs[0].runId}
+            </p>
+          ) : null}
+        </div>
+        <div className="rounded-md border border-[#e3eadf] bg-white p-3">
+          <p className="font-semibold text-[#263229]">一致性</p>
+          <p className="mt-1">
+            终端 {consistency?.terminalIssueCount ?? 0} · 聊天 {consistency?.chatIssueCount ?? 0}
+          </p>
+          <p className="mt-1">
+            Error {consistency?.severityCounts.error ?? 0} · Warning{" "}
+            {consistency?.severityCounts.warning ?? 0}
+          </p>
+        </div>
+        <div className="rounded-md border border-[#e3eadf] bg-white p-3">
+          <p className="font-semibold text-[#263229]">数据验证</p>
+          <p className="mt-1">
+            {validation?.availability === "available"
+              ? `${validation.passedChecks}/${validation.totalChecks} 通过`
+              : "未持久化报告"}
+          </p>
+          <p className="mt-1 truncate" title={validation?.message}>
+            {validation?.message ?? "暂无数据验证摘要"}
+          </p>
+        </div>
+      </div>
+
+      {events.length > 0 ? (
+        <ul className="mt-3 grid gap-2" aria-label="诊断关键事件">
+          {events.slice(0, 5).map((event) => (
+            <li
+              key={event.eventId}
+              className="grid gap-1 rounded-md border border-[#e3eadf] bg-white p-3 text-xs text-[#526054] sm:grid-cols-[auto_1fr_auto] sm:items-center"
+            >
+              <span className={diagnosticsSeverityClass(event.severity)}>
+                {event.severity}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-semibold text-[#263229]">
+                  {event.eventName}
+                </span>
+                <span className="mt-1 block truncate font-mono text-[11px]" title={event.runId}>
+                  {event.scope} · {event.runId}
+                </span>
+              </span>
+              <span>{new Date(event.recordedAtMs).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 rounded-md border border-dashed border-[#cfd9cc] bg-white p-3 text-xs text-[#6a786c]">
+          暂无诊断事件。
+        </p>
+      )}
+
+      {exportResult ? (
+        <div
+          role="status"
+          aria-label="诊断导出结果"
+          className={
+            warningCount > 0
+              ? "mt-3 grid gap-2 rounded-md border border-[#e0c37b] bg-[#fffaf0] p-3 text-xs text-[#614500]"
+              : "mt-3 grid gap-2 rounded-md border border-[#cfe0c9] bg-white p-3 text-xs text-[#37533e]"
+          }
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-semibold">
+              导出包 v{exportResult.package.schemaVersion} ·{" "}
+              {exportResult.package.keyEvents.length} 条事件
+            </p>
+            <span>
+              脱敏 {exportResult.redactionSummary.redactedFields} · 省略{" "}
+              {exportResult.redactionSummary.omittedFields} · 提醒 {warningCount}
+            </span>
+          </div>
+          {warningCount > 0 ? (
+            <ul className="grid gap-1">
+              {exportResult.warnings.slice(0, 4).map((warning, index) => (
+                <li key={`${warning.section}-${warning.field}-${index}`}>
+                  {warning.section}.{warning.field}: {warning.message}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {exportResult.hasMore && exportResult.nextCursor ? (
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={() => onExportNext(exportResult.nextCursor!)}
+                className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#cfd9cc] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#425044] transition hover:bg-[#f7f9f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2f6f55] disabled:cursor-wait disabled:opacity-70"
+              >
+                <RefreshCw aria-hidden="true" size={13} strokeWidth={2} />
+                下一批
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onClearExport}
+              className="inline-flex min-h-8 items-center justify-center gap-1 rounded-md border border-[#d7c8c5] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#6d3d38] transition hover:border-[#b9857f] hover:bg-[#fff5f4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#9d5e58]"
+            >
+              <X aria-hidden="true" size={13} strokeWidth={2} />
+              停止导出
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function diagnosticsIssueTotal(summary: DiagnosticsOverviewResult["consistencySummary"] | undefined) {
+  return (summary?.terminalIssueCount ?? 0) + (summary?.chatIssueCount ?? 0);
+}
+
+function diagnosticsSeverityClass(severity: "info" | "warning" | "error") {
+  switch (severity) {
+    case "error":
+      return "rounded-full border border-[#e2c7c0] bg-[#fff5f2] px-2 py-0.5 text-[11px] font-semibold text-[#7a2f2f]";
+    case "warning":
+      return "rounded-full border border-[#e0c37b] bg-[#fff8e6] px-2 py-0.5 text-[11px] font-semibold text-[#765400]";
+    case "info":
+      return "rounded-full border border-[#cfe0c9] bg-[#eef6ea] px-2 py-0.5 text-[11px] font-semibold text-[#2f5038]";
+  }
 }
 
 function WindowContextControls({
@@ -7535,6 +15727,54 @@ function WorkspaceConflictDialog({
 
 function formatRecentTime(timestamp: number) {
   return new Date(timestamp).toLocaleString();
+}
+
+function formatWorkspacePath(path: string) {
+  if (!path) {
+    return path;
+  }
+
+  if (!path.startsWith("\\\\?\\")) {
+    return path;
+  }
+
+  const trimmed = path.slice(4);
+  if (trimmed.toLocaleLowerCase().startsWith("unc\\")) {
+    return `\\\\${trimmed.slice(4)}`;
+  }
+
+  return trimmed;
+}
+
+function formatRelativeWorkspaceTime(timestamp: number, language: AppLanguage) {
+  if (!timestamp) {
+    return "";
+  }
+
+  const diff = Date.now() - timestamp;
+  const formatter = new Intl.RelativeTimeFormat(language, { numeric: "auto" });
+  const seconds = Math.round(diff / 1000);
+  if (Math.abs(seconds) < 60) {
+    return formatter.format(-seconds, "second");
+  }
+
+  const minutes = Math.round(seconds / 60);
+  if (Math.abs(minutes) < 60) {
+    return formatter.format(-minutes, "minute");
+  }
+
+  const hours = Math.round(minutes / 60);
+  if (Math.abs(hours) < 24) {
+    return formatter.format(-hours, "hour");
+  }
+
+  const days = Math.round(hours / 24);
+  if (Math.abs(days) < 30) {
+    return formatter.format(-days, "day");
+  }
+
+  const months = Math.round(days / 30);
+  return formatter.format(-months, "month");
 }
 
 function segmentedButtonClass(active: boolean) {

@@ -17,6 +17,10 @@ pub fn run() {
         .manage(app::window_context::WindowContextRuntimeState::default())
         .manage(app::terminal::TerminalRuntimeState::default())
         .manage(app::notification::NotificationRuntimeState::default())
+        .setup(|app| {
+            app::notification::setup_native_tray(app)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             gateway::workspace_commands::workspace_selection_status,
             gateway::workspace_commands::workspace_recent_list,
@@ -27,9 +31,18 @@ pub fn run() {
             gateway::workspace_commands::app_preferences_update,
             gateway::workspace_commands::window_open_mode,
             gateway::data_integrity_commands::data_integrity_validate,
+            gateway::diagnostics_commands::diagnostics_run_start,
+            gateway::diagnostics_commands::diagnostics_run_complete,
+            gateway::diagnostics_commands::diagnostics_event_record,
+            gateway::diagnostics_commands::diagnostics_events_list,
+            gateway::diagnostics_commands::diagnostics_terminal_consistency_run,
+            gateway::diagnostics_commands::diagnostics_chat_consistency_run,
+            gateway::diagnostics_commands::diagnostics_overview_get,
+            gateway::diagnostics_commands::diagnostics_export_generate,
             gateway::member_commands::members_list,
             gateway::member_commands::member_invite,
             gateway::member_commands::member_remove,
+            gateway::member_commands::member_profile_update,
             gateway::member_commands::member_status_update,
             gateway::orchestration_commands::orchestration_dispatch_chat_message,
             gateway::orchestration_commands::orchestration_resume_member_dispatch_queue,
@@ -40,6 +53,8 @@ pub fn run() {
             gateway::notification_commands::notification_navigation_pending_get,
             gateway::notification_commands::notification_navigation_dispatch,
             gateway::notification_commands::notification_ignore_all_unread,
+            gateway::notification_commands::notification_preview_hover,
+            gateway::notification_commands::notification_preview_hide,
             gateway::skills_commands::skills_library_list,
             gateway::skills_commands::skills_import_folder,
             gateway::skills_commands::skills_open_folder,
@@ -64,6 +79,12 @@ pub fn run() {
             gateway::settings_commands::shortcut_preferences_get,
             gateway::settings_commands::shortcut_preferences_update,
             gateway::settings_commands::shortcut_preferences_reset,
+            gateway::settings_commands::chat_terminal_output_preferences_get,
+            gateway::settings_commands::chat_terminal_output_preferences_update,
+            gateway::settings_commands::chat_terminal_output_preferences_reset,
+            gateway::settings_commands::terminal_configuration_get,
+            gateway::settings_commands::terminal_configuration_update,
+            gateway::settings_commands::terminal_configuration_reset,
             gateway::terminal_commands::terminal_open,
             gateway::terminal_commands::terminal_attach,
             gateway::terminal_commands::terminal_input,
@@ -84,6 +105,8 @@ pub fn run() {
             gateway::chat_commands::chat_message_send,
             gateway::chat_commands::chat_conversation_settings_update,
             gateway::chat_commands::chat_conversation_clear,
+            gateway::chat_commands::chat_data_repair,
+            gateway::chat_commands::chat_data_clear,
             gateway::chat_commands::chat_conversation_delete,
             gateway::chat_commands::chat_messages_page,
             gateway::chat_commands::chat_read_position_update,

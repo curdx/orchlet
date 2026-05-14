@@ -1,17 +1,19 @@
 use crate::{
     app::chat::{
-        clear_workspace_conversation, create_workspace_group_conversation,
-        delete_workspace_conversation, list_workspace_conversations, list_workspace_messages,
+        clear_workspace_chat_data_use_case, clear_workspace_conversation,
+        create_workspace_group_conversation, delete_workspace_conversation,
+        list_workspace_conversations, list_workspace_messages, repair_workspace_chat_data_use_case,
         send_workspace_message, start_workspace_private_conversation,
         update_workspace_conversation_settings, update_workspace_group_conversation_members,
         update_workspace_read_position,
     },
     contracts::{
-        AppError, ClearConversationRequest, ClearConversationResult,
-        CreateGroupConversationRequest, CreateGroupConversationResult, DeleteConversationRequest,
-        DeleteConversationResult, ListConversationsRequest, ListConversationsResult,
-        ListMessagesRequest, ListMessagesResult, SendMessageRequest, SendMessageResult,
-        StartPrivateConversationRequest, StartPrivateConversationResult,
+        AppError, ClearConversationRequest, ClearConversationResult, ClearWorkspaceChatDataRequest,
+        ClearWorkspaceChatDataResult, CreateGroupConversationRequest,
+        CreateGroupConversationResult, DeleteConversationRequest, DeleteConversationResult,
+        ListConversationsRequest, ListConversationsResult, ListMessagesRequest, ListMessagesResult,
+        RepairWorkspaceChatDataRequest, RepairWorkspaceChatDataResult, SendMessageRequest,
+        SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
         UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
         UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
         UpdateReadPositionRequest, UpdateReadPositionResult,
@@ -57,6 +59,22 @@ pub fn chat_conversation_clear(
     request: ClearConversationRequest,
 ) -> Result<ClearConversationResult, AppError> {
     clear_workspace_conversation(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_data_repair(
+    app: AppHandle,
+    request: RepairWorkspaceChatDataRequest,
+) -> Result<RepairWorkspaceChatDataResult, AppError> {
+    repair_workspace_chat_data_use_case(app_data_dir(&app)?, request)
+}
+
+#[tauri::command]
+pub fn chat_data_clear(
+    app: AppHandle,
+    request: ClearWorkspaceChatDataRequest,
+) -> Result<ClearWorkspaceChatDataResult, AppError> {
+    clear_workspace_chat_data_use_case(app_data_dir(&app)?, request)
 }
 
 #[tauri::command]

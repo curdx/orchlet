@@ -12,13 +12,13 @@ export type DataIntegrityValidateRequest = { workspaceRoot: string | null, };
 
 export type DataIntegrityValidateResult = { report: DataIntegrityReport, };
 
-export type StorageCategory = "storageManifest" | "workspaceMetadata" | "workspaceRegistry" | "workspaceFallbacks" | "appPreferences" | "shortcutPreferences" | "notificationPreferences" | "profileSettings" | "avatarLibrary" | "memberProfiles" | "contactProfiles" | "conversationRecords" | "conversationMembers" | "messageRecords" | "messageMentions" | "conversationReadPositions" | "privateConversations" | "terminalTabs" | "skillLibrary" | "workspaceSkillLinks" | "roadmapTasks" | "roadmapGoals";
+export type StorageCategory = "storageManifest" | "workspaceMetadata" | "workspaceRegistry" | "workspaceFallbacks" | "appPreferences" | "shortcutPreferences" | "chatTerminalOutputPreferences" | "terminalConfiguration" | "notificationPreferences" | "profileSettings" | "avatarLibrary" | "memberProfiles" | "contactProfiles" | "conversationRecords" | "conversationMembers" | "messageRecords" | "messageMentions" | "conversationReadPositions" | "privateConversations" | "terminalTabs" | "skillLibrary" | "workspaceSkillLinks" | "roadmapTasks" | "roadmapGoals" | "diagnosticsRuns" | "diagnosticsEvents";
 
 export type StorageFormat = "json" | "binary" | "sqlite";
 
 export type StorageManifestEntry = { id: string, owner: StorageOwner, category: StorageCategory, description: string, pathPolicy: StoragePathPolicy, relativePath: string | null, fileName: string | null, format: StorageFormat, schemaVersion: number, readers: Array<string>, writers: Array<string>, privacyClass: StoragePrivacyClass, fixtureRequired: boolean, validationCheckId: string, notes: string, };
 
-export type StorageOwner = "workspace" | "settings" | "member" | "contact" | "chat" | "terminal" | "skill" | "roadmap";
+export type StorageOwner = "workspace" | "settings" | "member" | "contact" | "chat" | "terminal" | "skill" | "roadmap" | "diagnostics";
 
 export type StoragePathPolicy = "workspaceLocalRelative" | "appDataFile" | "appDataWorkspaceFile";
 

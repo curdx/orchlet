@@ -263,10 +263,10 @@ function createXterm(): TerminalRenderer {
     fontFamily: "SFMono-Regular, Consolas, 'Liberation Mono', monospace",
     fontSize: 13,
     theme: {
-      background: "#111712",
-      foreground: "#dbe8d8",
-      cursor: "#9fd08e",
-      selectionBackground: "#2f5038",
+      background: "#0b0f14",
+      foreground: "#d7dde7",
+      cursor: "#38bdf8",
+      selectionBackground: "#1e3a5f",
     },
   });
 }

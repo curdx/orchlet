@@ -2,15 +2,30 @@
 
 本清单按“重建时必须考虑的用户可见功能”和“背后的隐性系统能力”整理。
 
+## Epic 9 Parity Gate Status
+
+Story 9.10 对本库存按证据重新分级。详细逐项状态见 `docs/rebuild/parity-checklist.md`，截图和分类见 `_bmad-output/implementation-artifacts/9-10-parity-release-gate-report.md`。
+
+| 范围 | 状态 | 证据/说明 |
+| --- | --- | --- |
+| 工作区选择、主 shell、全局 toast/context menu | 通过/局部例外 | Stories 9.2、9.3；registry-conflict UI 是 React compatibility 例外。 |
+| Chat、Friends、Members、Invite modals | 通过 | Stories 9.4、9.5；包含 Golutra reference/current screenshots 和 comparison montages。 |
+| Terminal workspace/pane | 通过 | Story 9.6；terminal workspace/context-menu comparisons。 |
+| Settings | 通过 | Story 9.7；settings full/avatar/custom forms comparisons。 |
+| Skill Store / Plugin Marketplace | 通过/范围边界 | Story 9.8；Golutra 远程数组仍是 TODO empty，远程市场不作为 release claim。 |
+| Notification Preview | 通过/待平台 smoke | Stories 9.9、9.11；视觉预览、native tray icon fallback/avatar/blink、hover-hide lifecycle 已接入并有代码测试证据；仍缺 packaged OS tray smoke。 |
+| Legacy `.golutra` data compatibility | 通过/有边界 | Story 9.12 supports `.golutra/workspace.json` identity reuse/mirroring and `.golutra/local.json` refresh; Story 9.13 supports root-level `global-settings.json` settings import; Story 9.14 supports legacy recent/workspace registry imports; Story 9.15 supports workspace `.golutra/skills` symlink import; Story 9.16 supports root-level `contacts.json` import; Story 9.17 supports legacy local profile avatar-library references; Story 9.18 imports legacy per-workspace `chat.redb` conversations and text/system messages into current SQLite when current chat is empty, with corrupt redb handled as recoverable。 |
+| Three-platform packaged smoke/restart recovery | 阻塞 | `fixtures/release/three-platform-smoke-results.json` 仍无 Windows/macOS/Linux packaged evidence。 |
+
 ## 工作区
 
 - 打开本地目录作为工作区。
 - 读取最近工作区，展示主列表和更多搜索。
 - 处理 workspace project id：
-  - 写 `.golutra/workspace.json`。
+  - 写 `.orchlet/workspace.json`，并兼容读取/镜像 `.golutra/workspace.json`。
   - 不可写时使用路径 hash 并标记只读。
   - 检测同 project id 路径变化，询问“移动了”或“复制副本”。
-- 写 `.golutra/local.json` 记录本机 localMachineId 和 lastOpenedAt。
+- 写/刷新 `.golutra/local.json` 记录本机 localMachineId 和 lastOpenedAt。
 - 阻止同一 workspace 在多个窗口重复打开。
 - 独立工作区选择窗口。
 - 通过侧边栏打开工作区目录。
@@ -225,4 +240,3 @@
 - Admin invite 只写联系人，不写 workspace 成员。
 - `@all` 派发目前 TODO，不会真正向全部终端成员派发。
 - README 提到“模板导入导出、CEO Agent、长期无人托管”等更多是路线图，不在当前代码实现内。
-

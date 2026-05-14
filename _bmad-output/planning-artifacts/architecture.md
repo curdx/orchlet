@@ -205,8 +205,9 @@ The bundle identifier is a provisional reverse-DNS identifier and should be conf
 **Styling Solution:**
 
 - Starter does not fully define product styling.
-- Add Tailwind CSS v4 and a restrained desktop UI component layer in the foundation story.
-- Do not import marketing-page UI assumptions or Vue-era styling patterns.
+- Add Tailwind CSS v4 and port the Golutra visual system into React in the foundation/parity stories.
+- Do not introduce a new product visual language. `/Users/wdx/opc/golutra` is the user-visible design reference; internal React implementation may change, but shell geometry, visual tokens, window modes, page layout, interaction states and placeholder boundaries must match Golutra unless a documented parity exception is approved.
+- Port Golutra assets and global style primitives before rebuilding feature screens: `Be Vietnam Pro`, `Material Symbols Outlined`, CSS variable color model, `window-frame`, `titlebar`, glass panels/modals, custom scrollbars and xterm overrides.
 
 **Build Tooling:**
 
@@ -393,7 +394,7 @@ Do not use string-prefix errors like `workspace_registry_mismatch:` as long-term
 - Zustand handles local ephemeral UI state such as active view, pane layout, selected tab, modal state and per-window preferences.
 - Terminal output does not go through React component state. xterm receives batched stream writes through a terminal renderer adapter.
 - Domain facts live in Rust/storage or typed repositories, not duplicated across multiple stores.
-- App icons use `lucide-react`; icon-only controls must be implemented through shared UI primitives that provide `aria-label` and tooltip support.
+- For Golutra parity screens, icons and visual affordances must match the reference app first. Golutra uses `Material Symbols Outlined`, so Material Symbols parity takes precedence over `lucide-react`; `lucide-react` may be used only for non-parity tooling or explicitly approved replacements. Icon-only controls still require `aria-label` and tooltip support.
 
 **Component and module structure:**
 
@@ -411,6 +412,22 @@ src/
 │   └── lib/
 └── contracts/            # generated and hand-reviewed TS contracts
 ```
+
+**Golutra parity component map:**
+
+React implementation should preserve the old screen/component boundaries as user-visible seams while replacing Vue/Pinia internals:
+
+- `AppShell`, `Titlebar`, `WindowControls`, `ResizeHandles`.
+- `SidebarNav`, account status menu, unread badge.
+- `WorkspaceSelection`.
+- `ChatInterface`, `ChatSidebar`, `ChatHeader`, `MessagesList`, `ChatInput`, `MembersSidebar`.
+- `FriendsView`, `InviteMenu`, invite/member/conversation modals.
+- `TerminalWorkspace`, `TerminalPane`, terminal tab/search/find/context-menu surfaces.
+- `Settings`.
+- `SkillStore`, `PluginMarketplace`, skill management/detail modals.
+- `NotificationPreview`, `ToastStack`, `ContextMenuHost`.
+
+Current React UI surfaces that do not map to these boundaries are implementation scaffolding, not product-accepted UI. In particular, monolithic aggregation of workspace, chat, members, settings, skills and diagnostics into a single page component should be split or replaced during Epic 9.
 
 **Routing/window strategy:**
 

@@ -43,6 +43,7 @@ pub enum TerminalEnvironmentKind {
 #[ts(export, export_to = "terminal.ts")]
 pub enum TerminalEnvironmentSource {
     System,
+    Settings,
     MemberRuntime,
 }
 

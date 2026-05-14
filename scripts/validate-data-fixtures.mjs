@@ -11,6 +11,8 @@ validateAppPreferences("fixtures/schema/settings-v1/app-preferences.json");
 validateAppPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/preferences.json");
 validateShortcutPreferences("fixtures/schema/settings-v1/shortcut-preferences.json");
 validateShortcutPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/shortcuts.json");
+validateChatTerminalOutputPreferences("fixtures/schema/settings-v1/chat-terminal-output.json");
+validateChatTerminalOutputPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/chat-terminal-output.json");
 validateNotificationPreferences("fixtures/schema/settings-v1/notification-preferences.json");
 validateNotificationPreferences("fixtures/data-integrity/valid-json-stores/app-data/settings/notifications.json");
 validateProfileSettings("fixtures/schema/settings-v1/profile-settings.json");
@@ -210,6 +212,20 @@ function validateShortcutPreferences(path) {
   assert(preferences.updatedAtMs >= preferences.createdAtMs, `${path}.updatedAtMs must be >= createdAtMs`);
 }
 
+function validateChatTerminalOutputPreferences(path) {
+  const preferences = readJson(path);
+  assert(preferences.schemaVersion === 1, `${path} schemaVersion must be 1`);
+  assert(
+    ["stream", "finalOnly"].includes(preferences.displayMode),
+    `${path}.displayMode invalid`,
+  );
+  assertPositiveTimestamp(preferences.createdAtMs, `${path}.createdAtMs`);
+  assert(
+    preferences.updatedAtMs >= preferences.createdAtMs,
+    `${path}.updatedAtMs must be >= createdAtMs`,
+  );
+}
+
 function validateProfileAvatar(avatar, context) {
   assert(typeof avatar === "object" && avatar !== null, `${context} must be an object`);
   assert(["placeholder", "preset", "uploaded"].includes(avatar.kind), `${context}.kind invalid`);
@@ -256,10 +272,12 @@ function validateSqliteScaffold(path) {
       schema.tables.includes("messages") &&
       schema.tables.includes("message_mentions") &&
       schema.tables.includes("conversation_read_positions") &&
-      schema.tables.includes("terminal_tabs"),
-    `${path} must include current member, conversation and message schema tables`,
+      schema.tables.includes("terminal_tabs") &&
+      schema.tables.includes("diagnostics_runs") &&
+      schema.tables.includes("diagnostic_events"),
+    `${path} must include current member, conversation, message, terminal and diagnostics schema tables`,
   );
-  assert(schema.tables.length === 8, `${path} must include only current workspace tables`);
+  assert(schema.tables.length === 10, `${path} must include only current workspace tables`);
   assert(!schema.tables.includes("terminal_sessions"), `${path} must not include future terminal tables`);
   assert(Array.isArray(schema.migrationFiles), `${path}.migrationFiles must be an array`);
   assert(
@@ -293,6 +311,10 @@ function validateSqliteScaffold(path) {
   assert(
     schema.migrationFiles.includes("202605121900__terminal_tabs.sql"),
     `${path} must include the terminal tabs migration file`,
+  );
+  assert(
+    schema.migrationFiles.includes("202605122100__diagnostics_runs.sql"),
+    `${path} must include the diagnostics migration file`,
   );
   assert(
     Array.isArray(schema.ownedByFutureStories) && schema.ownedByFutureStories.includes("notification"),

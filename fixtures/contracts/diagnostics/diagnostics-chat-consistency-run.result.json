@@ -1,0 +1,62 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "runId": "01K00000000000000000000800",
+  "checkedAtMs": 1760000008500,
+  "checkedConversationCount": 1,
+  "checkedMessageCount": 3,
+  "checkedDispatchCount": 1,
+  "issueCount": 2,
+  "eventsRecorded": 2,
+  "issues": [
+    {
+      "issueId": "01K00000000000000000000820",
+      "scope": "chat",
+      "code": "chat.status.invalid",
+      "severity": "error",
+      "message": "聊天消息持久化状态不在已知枚举内。",
+      "affectedEntities": {
+        "workspaceId": "01K00000000000000000000000",
+        "conversationId": "01K00000000000000000000010",
+        "messageId": "01K00000000000000000000022",
+        "memberId": "01K00000000000000000000001",
+        "terminalSessionId": null,
+        "terminalTabId": null,
+        "dispatchId": null
+      },
+      "recommendedNextAction": "检查写入来源并修复消息状态为 sending、sent 或 failed。",
+      "metadata": [
+        {
+          "key": "status",
+          "value": "unknown"
+        }
+      ]
+    },
+    {
+      "issueId": "01K00000000000000000000821",
+      "scope": "chat",
+      "code": "chat.unread.mismatch",
+      "severity": "warning",
+      "message": "会话未读数与已读位置重新计算结果不一致。",
+      "affectedEntities": {
+        "workspaceId": "01K00000000000000000000000",
+        "conversationId": "01K00000000000000000000010",
+        "messageId": "01K00000000000000000000020",
+        "memberId": null,
+        "terminalSessionId": null,
+        "terminalTabId": null,
+        "dispatchId": null
+      },
+      "recommendedNextAction": "运行聊天数据修复以重新计算会话未读数。",
+      "metadata": [
+        {
+          "key": "storedUnread",
+          "value": "0"
+        },
+        {
+          "key": "expectedUnread",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}

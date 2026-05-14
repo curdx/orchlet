@@ -13,7 +13,7 @@ export type TerminalEnvironmentKind = "shell" | "builtInAiCli" | "customCli";
 
 export type TerminalEnvironmentProfile = { schemaVersion: number, environmentId: string, label: string, kind: TerminalEnvironmentKind, source: TerminalEnvironmentSource, command: string, resolvedPath: string | null, memberId: string | null, status: TerminalEnvironmentStatus, message: string, userAction: string, details: string | null, };
 
-export type TerminalEnvironmentSource = "system" | "memberRuntime";
+export type TerminalEnvironmentSource = "system" | "settings" | "memberRuntime";
 
 export type TerminalEnvironmentStatus = "available" | "missing" | "invalid";
 

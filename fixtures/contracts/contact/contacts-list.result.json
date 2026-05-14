@@ -4,6 +4,8 @@
       "contactId": "01K00000000000000000000040",
       "displayName": "External Admin",
       "contactKind": "administrator",
+      "avatar": "css:orbit",
+      "status": "offline",
       "inviteSource": "adminContactInvite",
       "notes": "Local administrator contact",
       "sourceLabel": "Invite Admin Modal",

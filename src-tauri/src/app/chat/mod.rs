@@ -1,19 +1,24 @@
 use std::path::Path;
 
 use crate::{
+    app::diagnostics::{best_effort_event, record_workspace_diagnostics_event_best_effort},
     contracts::{
-        AppError, ClearConversationRequest, ClearConversationResult,
-        CreateGroupConversationRequest, CreateGroupConversationResult, DeleteConversationRequest,
-        DeleteConversationResult, ListConversationsRequest, ListConversationsResult,
-        ListMessagesRequest, ListMessagesResult, SendMessageRequest, SendMessageResult,
+        AppError, ClearConversationRequest, ClearConversationResult, ClearWorkspaceChatDataRequest,
+        ClearWorkspaceChatDataResult, CreateGroupConversationRequest,
+        CreateGroupConversationResult, DeleteConversationRequest, DeleteConversationResult,
+        DiagnosticsCorrelationIds, DiagnosticsEventScope, DiagnosticsEventSeverity,
+        DiagnosticsMetadataEntry, ListConversationsRequest, ListConversationsResult,
+        ListMessagesRequest, ListMessagesResult, RepairWorkspaceChatDataRequest,
+        RepairWorkspaceChatDataResult, SendMessageRequest, SendMessageResult,
         StartPrivateConversationRequest, StartPrivateConversationResult,
         UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
         UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
         UpdateReadPositionRequest, UpdateReadPositionResult,
     },
     infrastructure::persistence::sqlite::conversation_repository::{
-        clear_conversation, create_group_conversation, delete_conversation, list_conversations,
-        list_messages, send_message, start_private_conversation, update_conversation_settings,
+        clear_conversation, clear_workspace_chat_data, create_group_conversation,
+        delete_conversation, list_conversations, list_messages, repair_workspace_chat_data,
+        send_message, start_private_conversation, update_conversation_settings,
         update_group_conversation_members, update_read_position,
     },
 };
@@ -36,7 +41,28 @@ pub fn send_workspace_message(
     app_data_dir: impl AsRef<Path>,
     request: SendMessageRequest,
 ) -> Result<SendMessageResult, AppError> {
-    send_message(app_data_dir.as_ref(), request)
+    let result = send_message(app_data_dir.as_ref(), request)?;
+    record_workspace_diagnostics_event_best_effort(
+        app_data_dir.as_ref(),
+        best_effort_event(
+            &result.message.workspace_id,
+            DiagnosticsEventScope::Chat,
+            "chat.message.sent",
+            DiagnosticsEventSeverity::Info,
+            DiagnosticsCorrelationIds {
+                workspace_id: Some(result.message.workspace_id.clone()),
+                conversation_id: Some(result.message.conversation_id.clone()),
+                message_id: Some(result.message.message_id.clone()),
+                ..DiagnosticsCorrelationIds::default()
+            },
+            vec![DiagnosticsMetadataEntry {
+                key: "status".to_owned(),
+                value: "sent".to_owned(),
+            }],
+        ),
+    );
+
+    Ok(result)
 }
 
 pub fn update_workspace_conversation_settings(
@@ -51,6 +77,20 @@ pub fn clear_workspace_conversation(
     request: ClearConversationRequest,
 ) -> Result<ClearConversationResult, AppError> {
     clear_conversation(app_data_dir.as_ref(), request)
+}
+
+pub fn repair_workspace_chat_data_use_case(
+    app_data_dir: impl AsRef<Path>,
+    request: RepairWorkspaceChatDataRequest,
+) -> Result<RepairWorkspaceChatDataResult, AppError> {
+    repair_workspace_chat_data(app_data_dir.as_ref(), request)
+}
+
+pub fn clear_workspace_chat_data_use_case(
+    app_data_dir: impl AsRef<Path>,
+    request: ClearWorkspaceChatDataRequest,
+) -> Result<ClearWorkspaceChatDataResult, AppError> {
+    clear_workspace_chat_data(app_data_dir.as_ref(), request)
 }
 
 pub fn delete_workspace_conversation(
@@ -90,11 +130,17 @@ pub fn start_workspace_private_conversation(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashMap, fs, path::Path};
+
+    use redb::TableDefinition;
+    use serde::{Deserialize, Serialize};
     use tempfile::tempdir;
+    use ulid::Ulid;
 
     use super::{
-        clear_workspace_conversation, create_workspace_group_conversation,
-        delete_workspace_conversation, list_workspace_conversations, list_workspace_messages,
+        clear_workspace_chat_data_use_case, clear_workspace_conversation,
+        create_workspace_group_conversation, delete_workspace_conversation,
+        list_workspace_conversations, list_workspace_messages, repair_workspace_chat_data_use_case,
         send_workspace_message, start_workspace_private_conversation,
         update_workspace_conversation_settings, update_workspace_group_conversation_members,
         update_workspace_read_position,
@@ -102,15 +148,97 @@ mod tests {
     use crate::{
         app::{contacts::create_global_contact, members::invite_workspace_member},
         contracts::{
-            ChatMessageStatus, ClearConversationRequest, ContactKind, ConversationKind,
+            ChatDataMaintenanceItemStatus, ChatMessageStatus, ClearConversationRequest,
+            ClearWorkspaceChatDataRequest, ContactKind, ConversationKind,
             ConversationParticipantKind, CreateContactRequest, CreateGroupConversationRequest,
-            DeleteConversationRequest, InviteMemberRequest, InvitedMemberType,
+            DeleteConversationRequest, DispatchTargetResolutionProfile,
+            DispatchTargetResolutionSource, InviteMemberRequest, InvitedMemberType,
             ListConversationsRequest, ListMessagesRequest, MemberPermissions, MemberRuntimeKind,
-            MemberRuntimeProfile, SendMessageRequest, StartPrivateConversationRequest,
-            UpdateConversationSettingsRequest, UpdateGroupConversationMembersRequest,
-            UpdateReadPositionRequest,
+            MemberRuntimeProfile, RepairWorkspaceChatDataRequest, SendMessageRequest,
+            StartPrivateConversationRequest, UpdateConversationSettingsRequest,
+            UpdateGroupConversationMembersRequest, UpdateReadPositionRequest,
+        },
+        infrastructure::persistence::sqlite::{
+            dispatch_repository::create_queued_dispatch_with_sources,
+            workspace_database::open_workspace_database,
         },
     };
+    use rusqlite::params;
+
+    type TestLegacyUserId = u128;
+    type TestLegacyConvId = u128;
+    type TestLegacyMsgId = u128;
+    type TestLegacyTsRev = u64;
+
+    const TEST_LEGACY_CONVERSATIONS: TableDefinition<TestLegacyConvId, &[u8]> =
+        TableDefinition::new("conversations");
+    const TEST_LEGACY_USER_CONVS: TableDefinition<(TestLegacyUserId, TestLegacyConvId), &[u8]> =
+        TableDefinition::new("user_convs");
+    const TEST_LEGACY_MESSAGES: TableDefinition<(TestLegacyConvId, TestLegacyMsgId), &[u8]> =
+        TableDefinition::new("messages");
+    const TEST_LEGACY_MEMBERS: TableDefinition<(TestLegacyConvId, TestLegacyUserId), &[u8]> =
+        TableDefinition::new("members");
+    const TEST_LEGACY_ATTACHMENTS_INDEX: TableDefinition<
+        (TestLegacyConvId, u8, TestLegacyTsRev, TestLegacyMsgId),
+        &[u8],
+    > = TableDefinition::new("attachments_index");
+
+    #[derive(Serialize, Deserialize, Clone, Copy)]
+    enum TestLegacyConversationKind {
+        Channel,
+        Dm,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct TestLegacyConversationMeta {
+        kind: TestLegacyConversationKind,
+        created_at: u64,
+        custom_name: Option<String>,
+        is_default: bool,
+        last_message_at: Option<u64>,
+        last_message_preview: Option<String>,
+    }
+
+    #[derive(Serialize, Deserialize, Default)]
+    struct TestLegacyUserConversationSettings {
+        pinned: bool,
+        muted: bool,
+        last_read_message_id: Option<TestLegacyMsgId>,
+        last_active_at: Option<u64>,
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    enum TestLegacyMessageStatus {
+        Sent,
+        Sending,
+        Failed,
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    enum TestLegacyMessageContentDb {
+        Text {
+            text: String,
+        },
+        System {
+            key: String,
+            args: Option<HashMap<String, String>>,
+        },
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    enum TestLegacyMessageAttachmentDb {
+        Roadmap { title: String },
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    struct TestLegacyChatMessage {
+        sender_id: Option<TestLegacyUserId>,
+        content: TestLegacyMessageContentDb,
+        created_at: u64,
+        is_ai: bool,
+        status: TestLegacyMessageStatus,
+        attachment: Option<TestLegacyMessageAttachmentDb>,
+    }
 
     #[test]
     fn listing_conversations_initializes_default_channel() {
@@ -137,6 +265,110 @@ mod tests {
             first.conversations[0].conversation_id,
             second.conversations[0].conversation_id
         );
+    }
+
+    #[test]
+    fn legacy_chat_redb_imports_conversations_and_messages_when_current_sqlite_empty() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let legacy = write_legacy_chat_redb(app_data.path(), &workspace_id);
+
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("legacy conversations imported");
+        let imported = listed
+            .conversations
+            .iter()
+            .find(|conversation| conversation.conversation_id == legacy.conversation_id)
+            .expect("legacy conversation listed");
+
+        assert_eq!(imported.kind, ConversationKind::Channel);
+        assert!(imported.is_default);
+        assert_eq!(imported.title, "Legacy Workspace");
+        assert_eq!(
+            imported.last_message_preview.as_deref(),
+            Some("legacy second")
+        );
+
+        let page = list_workspace_messages(
+            app_data.path(),
+            ListMessagesRequest {
+                workspace_id,
+                conversation_id: legacy.conversation_id,
+                before_message_id: None,
+                limit: Some(30),
+            },
+        )
+        .expect("legacy messages listed");
+
+        assert_eq!(page.messages.len(), 2);
+        assert_eq!(page.messages[0].body, "legacy first");
+        assert_eq!(page.messages[1].body, "legacy second");
+    }
+
+    #[test]
+    fn current_sqlite_chat_store_takes_precedence_over_legacy_chat_redb() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let current = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("current conversations initialized");
+        let current_default_id = current.conversations[0].conversation_id.clone();
+        let legacy = write_legacy_chat_redb(app_data.path(), &workspace_id);
+
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest { workspace_id },
+        )
+        .expect("conversations listed");
+
+        assert!(listed
+            .conversations
+            .iter()
+            .any(|conversation| conversation.conversation_id == current_default_id));
+        assert!(!listed
+            .conversations
+            .iter()
+            .any(|conversation| conversation.conversation_id == legacy.conversation_id));
+    }
+
+    #[test]
+    fn corrupt_legacy_chat_redb_returns_recoverable_error_without_importing_conversations() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let legacy_dir = app_data.path().join(&workspace_id);
+        fs::create_dir_all(&legacy_dir).expect("legacy chat dir");
+        fs::write(legacy_dir.join("chat.redb"), b"not a redb database").expect("corrupt redb");
+
+        let error = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect_err("corrupt legacy chat.redb should be recoverable");
+
+        assert_eq!(error.code, "chat.legacyRedb.openFailed");
+        assert!(error.recoverable);
+
+        let connection =
+            open_workspace_database(app_data.path(), &workspace_id).expect("database opened");
+        let conversation_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM conversations WHERE workspace_id = ?1",
+                params![workspace_id],
+                |row| row.get(0),
+            )
+            .expect("conversation count read");
+        assert_eq!(conversation_count, 0);
     }
 
     #[test]
@@ -865,5 +1097,442 @@ mod tests {
             latest_read.read_position.last_read_message_id,
             third.message_id
         );
+    }
+
+    #[test]
+    fn chat_data_repair_returns_zero_for_healthy_workspace() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+
+        let result = repair_workspace_chat_data_use_case(
+            app_data.path(),
+            RepairWorkspaceChatDataRequest { workspace_id },
+        )
+        .expect("repair completed");
+
+        assert_eq!(result.repaired_count, 0);
+        assert_eq!(result.failed_count, 0);
+        assert_eq!(result.skipped_count, 0);
+        assert_eq!(result.conversations.len(), 1);
+        assert_eq!(result.follow_up_action, "无需进一步操作。");
+    }
+
+    #[test]
+    fn chat_data_repair_removes_orphans_and_recalculates_metadata() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+        let sent = send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                body: "Repair me".to_owned(),
+                mentioned_member_ids: Vec::new(),
+            },
+        )
+        .expect("message sent")
+        .message;
+        let connection =
+            open_workspace_database(app_data.path(), &workspace_id).expect("workspace database");
+        connection
+            .execute(
+                "INSERT INTO message_mentions (
+                    workspace_id, conversation_id, message_id, member_id, created_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    workspace_id,
+                    default_channel.conversation_id,
+                    "01K00000000000000000009999",
+                    "01KMEMBER000000000000000999",
+                    1_760_000_002_000_i64
+                ],
+            )
+            .expect("orphan mention inserted");
+        connection
+            .execute(
+                "INSERT OR REPLACE INTO conversation_read_positions (
+                    workspace_id, conversation_id, last_read_message_id, last_read_at_ms, updated_at_ms
+                 ) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    workspace_id,
+                    default_channel.conversation_id,
+                    "01K00000000000000000008888",
+                    1_760_000_002_000_i64,
+                    1_760_000_002_000_i64
+                ],
+            )
+            .expect("orphan read position inserted");
+        connection
+            .execute(
+                "UPDATE conversations
+                 SET unread_count = 7, last_message_preview = 'stale', last_activity_at_ms = 1
+                 WHERE workspace_id = ?1 AND id = ?2",
+                params![workspace_id, default_channel.conversation_id],
+            )
+            .expect("metadata corrupted");
+        drop(connection);
+
+        let result = repair_workspace_chat_data_use_case(
+            app_data.path(),
+            RepairWorkspaceChatDataRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("repair completed");
+
+        assert_eq!(result.failed_count, 0);
+        assert!(result.repaired_count >= 3);
+        assert!(result
+            .repaired_items
+            .iter()
+            .any(|item| item.affected_scope == "message_mentions"
+                && item.status == ChatDataMaintenanceItemStatus::Repaired
+                && item.count == 1));
+        assert!(result
+            .repaired_items
+            .iter()
+            .any(|item| item.affected_scope == "conversation_read_positions" && item.count == 1));
+        let repaired_conversation = result
+            .conversations
+            .iter()
+            .find(|conversation| conversation.conversation_id == default_channel.conversation_id)
+            .expect("default channel remains");
+        assert_eq!(
+            repaired_conversation.last_message_preview.as_deref(),
+            Some("Repair me")
+        );
+        assert_eq!(
+            repaired_conversation.last_activity_at_ms,
+            sent.created_at_ms
+        );
+    }
+
+    #[test]
+    fn chat_data_repair_resets_stale_metadata_when_conversation_has_no_messages() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+        let connection =
+            open_workspace_database(app_data.path(), &workspace_id).expect("workspace database");
+        connection
+            .execute(
+                "UPDATE conversations
+                 SET unread_count = 9,
+                     last_message_preview = 'deleted message preview',
+                     last_activity_at_ms = ?1
+                 WHERE workspace_id = ?2 AND id = ?3",
+                params![
+                    (default_channel.created_at_ms + 60_000) as i64,
+                    workspace_id,
+                    default_channel.conversation_id
+                ],
+            )
+            .expect("metadata corrupted");
+        drop(connection);
+
+        let result = repair_workspace_chat_data_use_case(
+            app_data.path(),
+            RepairWorkspaceChatDataRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("repair completed");
+
+        assert_eq!(result.failed_count, 0);
+        let repaired_conversation = result
+            .conversations
+            .iter()
+            .find(|conversation| conversation.conversation_id == default_channel.conversation_id)
+            .expect("default channel remains");
+        assert_eq!(repaired_conversation.unread_count, 0);
+        assert_eq!(repaired_conversation.last_message_preview, None);
+        assert_eq!(
+            repaired_conversation.last_activity_at_ms,
+            default_channel.created_at_ms
+        );
+        assert!(result
+            .repaired_items
+            .iter()
+            .any(|item| item.affected_scope == "conversations.metadata" && item.count == 1));
+    }
+
+    #[test]
+    fn chat_data_repair_removes_dispatch_rows_that_reference_missing_messages() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+        create_queued_dispatch_with_sources(
+            app_data.path(),
+            &workspace_id,
+            &default_channel.conversation_id,
+            "01K00000000000000000009999",
+            &["01K00000000000000000009999".to_owned()],
+            &DispatchTargetResolutionProfile {
+                member_id: "01KMEMBER000000000000000010".to_owned(),
+                source: DispatchTargetResolutionSource::UserSelected,
+                reason: "test fixture".to_owned(),
+            },
+        )
+        .expect("queued dispatch created");
+
+        let result = repair_workspace_chat_data_use_case(
+            app_data.path(),
+            RepairWorkspaceChatDataRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("repair completed");
+        let connection =
+            open_workspace_database(app_data.path(), &workspace_id).expect("workspace database");
+        let dispatch_count: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM dispatch_requests WHERE workspace_id = ?1",
+                params![workspace_id],
+                |row| row.get(0),
+            )
+            .expect("dispatch count");
+
+        assert_eq!(dispatch_count, 0);
+        assert!(result
+            .repaired_items
+            .iter()
+            .any(|item| item.affected_scope == "dispatch_requests" && item.count == 1));
+    }
+
+    #[test]
+    fn chat_data_clear_removes_workspace_messages_and_preserves_conversations() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+        send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id.clone(),
+                body: "clear me".to_owned(),
+                mentioned_member_ids: Vec::new(),
+            },
+        )
+        .expect("message sent");
+        create_queued_dispatch_with_sources(
+            app_data.path(),
+            &workspace_id,
+            &default_channel.conversation_id,
+            "01K00000000000000000009999",
+            &["01K00000000000000000009999".to_owned()],
+            &DispatchTargetResolutionProfile {
+                member_id: "01KMEMBER000000000000000010".to_owned(),
+                source: DispatchTargetResolutionSource::UserSelected,
+                reason: "test fixture".to_owned(),
+            },
+        )
+        .expect("queued dispatch created");
+
+        let result = clear_workspace_chat_data_use_case(
+            app_data.path(),
+            ClearWorkspaceChatDataRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("workspace chat cleared");
+
+        assert_eq!(result.cleared_message_count, 1);
+        assert_eq!(result.cleared_read_position_count, 1);
+        assert_eq!(result.cleared_dispatch_count, 1);
+        assert!(result
+            .conversations
+            .iter()
+            .any(|conversation| conversation.is_default
+                && conversation.kind == ConversationKind::Channel));
+        let connection =
+            open_workspace_database(app_data.path(), &workspace_id).expect("workspace database");
+        for table_name in [
+            "messages",
+            "message_mentions",
+            "conversation_read_positions",
+        ] {
+            let count: i64 = connection
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {table_name} WHERE workspace_id = ?1"),
+                    params![workspace_id],
+                    |row| row.get(0),
+                )
+                .expect("table count");
+            assert_eq!(count, 0, "{table_name} should be empty for workspace");
+        }
+    }
+
+    #[test]
+    fn chat_data_clear_rejects_invalid_workspace_without_mutating_existing_data() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("conversations listed");
+        let default_channel = listed.conversations[0].clone();
+        send_workspace_message(
+            app_data.path(),
+            SendMessageRequest {
+                workspace_id: workspace_id.clone(),
+                conversation_id: default_channel.conversation_id,
+                body: "keep me".to_owned(),
+                mentioned_member_ids: Vec::new(),
+            },
+        )
+        .expect("message sent");
+
+        let error = clear_workspace_chat_data_use_case(
+            app_data.path(),
+            ClearWorkspaceChatDataRequest {
+                workspace_id: "not-a-workspace".to_owned(),
+            },
+        )
+        .expect_err("invalid workspace rejected");
+        let messages = list_workspace_messages(
+            app_data.path(),
+            ListMessagesRequest {
+                workspace_id,
+                conversation_id: listed.conversations[0].conversation_id.clone(),
+                before_message_id: None,
+                limit: Some(30),
+            },
+        )
+        .expect("messages still listed");
+
+        assert_eq!(error.code, "member.workspace.invalidId");
+        assert_eq!(messages.messages.len(), 1);
+        assert_eq!(messages.messages[0].body, "keep me");
+    }
+
+    struct LegacyChatFixture {
+        conversation_id: String,
+    }
+
+    fn write_legacy_chat_redb(app_data_dir: &Path, workspace_id: &str) -> LegacyChatFixture {
+        let legacy_dir = app_data_dir.join(workspace_id);
+        fs::create_dir_all(&legacy_dir).expect("legacy chat dir");
+        let db = redb::Database::create(legacy_dir.join("chat.redb")).expect("legacy redb");
+        let conv_id = Ulid::new();
+        let member_id = Ulid::new();
+        let first_message_id = Ulid::new();
+        let second_message_id = Ulid::new();
+        let write_txn = db.begin_write().expect("legacy write txn");
+
+        {
+            let mut table = write_txn
+                .open_table(TEST_LEGACY_CONVERSATIONS)
+                .expect("legacy conversations");
+            let meta = TestLegacyConversationMeta {
+                kind: TestLegacyConversationKind::Channel,
+                created_at: 1_760_000_000_000,
+                custom_name: Some("Legacy Workspace".to_owned()),
+                is_default: true,
+                last_message_at: Some(1_760_000_000_200),
+                last_message_preview: Some("legacy second".to_owned()),
+            };
+            let payload = bincode::serialize(&meta).expect("conversation encoded");
+            table
+                .insert(conv_id.0, payload.as_slice())
+                .expect("legacy conversation inserted");
+        }
+        {
+            let mut table = write_txn
+                .open_table(TEST_LEGACY_USER_CONVS)
+                .expect("legacy user convs");
+            let settings = TestLegacyUserConversationSettings {
+                pinned: true,
+                muted: false,
+                last_read_message_id: Some(first_message_id.0),
+                last_active_at: Some(1_760_000_000_200),
+            };
+            let payload = bincode::serialize(&settings).expect("settings encoded");
+            table
+                .insert((member_id.0, conv_id.0), payload.as_slice())
+                .expect("legacy settings inserted");
+        }
+        {
+            let mut table = write_txn
+                .open_table(TEST_LEGACY_MEMBERS)
+                .expect("legacy members");
+            let payload = bincode::serialize(&()).expect("member encoded");
+            table
+                .insert((conv_id.0, member_id.0), payload.as_slice())
+                .expect("legacy member inserted");
+        }
+        {
+            let mut table = write_txn
+                .open_table(TEST_LEGACY_MESSAGES)
+                .expect("legacy messages");
+            for (message_id, body, created_at) in [
+                (first_message_id, "legacy first", 1_760_000_000_100),
+                (second_message_id, "legacy second", 1_760_000_000_200),
+            ] {
+                let message = TestLegacyChatMessage {
+                    sender_id: Some(member_id.0),
+                    content: TestLegacyMessageContentDb::Text {
+                        text: body.to_owned(),
+                    },
+                    created_at,
+                    is_ai: false,
+                    status: TestLegacyMessageStatus::Sent,
+                    attachment: None,
+                };
+                let payload = bincode::serialize(&message).expect("message encoded");
+                table
+                    .insert((conv_id.0, message_id.0), payload.as_slice())
+                    .expect("legacy message inserted");
+            }
+        }
+        {
+            let _ = write_txn
+                .open_table(TEST_LEGACY_ATTACHMENTS_INDEX)
+                .expect("legacy attachments index");
+        }
+
+        write_txn.commit().expect("legacy committed");
+
+        LegacyChatFixture {
+            conversation_id: conv_id.to_string(),
+        }
     }
 }

@@ -1,5 +1,6 @@
 use crate::infrastructure::persistence::json_store::app_preferences_store::to_runtime_preferences;
 use crate::{
+    app::diagnostics::{best_effort_event, record_workspace_diagnostics_event_best_effort},
     app::members::initialize_members,
     app::settings::{get_app_preferences, update_app_preferences},
     app::window_context::{
@@ -10,10 +11,12 @@ use crate::{
         WorkspaceRuntimeState,
     },
     contracts::{
-        AppError, OpenWindowModeRequest, OpenWindowModeResult, OpenWorkspaceInFileManagerRequest,
-        OpenWorkspaceInFileManagerResult, OpenWorkspaceRequest, OpenWorkspaceResult,
-        RecentWorkspaceEntry, RegisterWindowRequest, RegisteredWindow, UpdateAppPreferencesRequest,
-        WindowContextSnapshot, WindowMode, WorkspaceOpenStatus, WorkspaceSelectionStatus,
+        AppError, DiagnosticsCorrelationIds, DiagnosticsEventScope, DiagnosticsEventSeverity,
+        DiagnosticsMetadataEntry, OpenWindowModeRequest, OpenWindowModeResult,
+        OpenWorkspaceInFileManagerRequest, OpenWorkspaceInFileManagerResult, OpenWorkspaceRequest,
+        OpenWorkspaceResult, RecentWorkspaceEntry, RegisterWindowRequest, RegisteredWindow,
+        UpdateAppPreferencesRequest, WindowContextSnapshot, WindowMode, WorkspaceOpenStatus,
+        WorkspaceSelectionStatus,
     },
 };
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
@@ -57,6 +60,28 @@ pub fn workspace_open(
         initialize_members(app_data_dir(&app)?, &workspace.metadata.project_id)?;
         let snapshot = window_context_state.set_active_workspace(workspace, "main");
         emit_context_snapshot(&app, &snapshot)?;
+        if let Some(active_workspace) = snapshot.active_workspace.as_ref() {
+            if let Ok(app_data_dir) = app_data_dir(&app) {
+                record_workspace_diagnostics_event_best_effort(
+                    app_data_dir,
+                    best_effort_event(
+                        &active_workspace.metadata.project_id,
+                        DiagnosticsEventScope::Window,
+                        "workspace.opened",
+                        DiagnosticsEventSeverity::Info,
+                        DiagnosticsCorrelationIds {
+                            workspace_id: Some(active_workspace.metadata.project_id.clone()),
+                            window_label: Some(snapshot.current_window.label.clone()),
+                            ..DiagnosticsCorrelationIds::default()
+                        },
+                        vec![DiagnosticsMetadataEntry {
+                            key: "status".to_owned(),
+                            value: format!("{:?}", result.status),
+                        }],
+                    ),
+                );
+            }
+        }
     }
 
     Ok(result)
@@ -99,6 +124,28 @@ pub fn window_context_register(
         mode: request.mode,
     });
     emit_context_snapshot(&app, &snapshot)?;
+    if let Some(active_workspace) = snapshot.active_workspace.as_ref() {
+        if let Ok(app_data_dir) = app_data_dir(&app) {
+            record_workspace_diagnostics_event_best_effort(
+                app_data_dir,
+                best_effort_event(
+                    &active_workspace.metadata.project_id,
+                    DiagnosticsEventScope::Window,
+                    "window.registered",
+                    DiagnosticsEventSeverity::Info,
+                    DiagnosticsCorrelationIds {
+                        workspace_id: Some(active_workspace.metadata.project_id.clone()),
+                        window_label: Some(snapshot.current_window.label.clone()),
+                        ..DiagnosticsCorrelationIds::default()
+                    },
+                    vec![DiagnosticsMetadataEntry {
+                        key: "mode".to_owned(),
+                        value: format!("{:?}", snapshot.current_window.mode),
+                    }],
+                ),
+            );
+        }
+    }
     Ok(snapshot)
 }
 

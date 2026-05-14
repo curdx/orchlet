@@ -8,14 +8,17 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "pnpm test:frontend && pnpm test:contracts && pnpm test:data-integrity && pnpm test:smoke",
+    "test": "pnpm test:frontend && pnpm test:contracts && pnpm test:data-integrity && pnpm test:capabilities && pnpm test:smoke && pnpm test:release",
     "test:frontend": "vitest run",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
     "test:contracts": "tsc --noEmit --project tests/contract/tsconfig.json && node scripts/validate-contract-fixtures.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test contract_fixtures",
     "test:data-integrity": "tsc --noEmit --project tests/data-integrity/tsconfig.json && node scripts/validate-data-fixtures.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test schema_data_fixtures",
-    "test:smoke": "node scripts/validate-smoke-matrix.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test smoke_scaffold"
+    "test:capabilities": "node scripts/validate-capability-status.mjs",
+    "test:smoke": "node scripts/validate-smoke-matrix.mjs && cargo test --manifest-path src-tauri/Cargo.toml --test smoke_scaffold",
+    "test:release": "node scripts/validate-release-readiness.mjs"
   },
   "dependencies": {
+    "@radix-ui/react-select": "2.2.6",
     "@tailwindcss/vite": "4.3.0",
     "@tanstack/react-query": "5.100.9",
     "@tauri-apps/api": "2.11.0",

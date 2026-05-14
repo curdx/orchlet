@@ -1,20 +1,25 @@
 use std::{collections::HashSet, path::Path};
 
+#[path = "legacy_chat_redb_import.rs"]
+mod legacy_chat_redb_import;
+
 use rusqlite::{params, Connection, OpenFlags};
 use ulid::Ulid;
 
 use crate::{
     contracts::{
-        AppError, ChatMessageProfile, ChatMessageStatus, ClearConversationRequest,
-        ClearConversationResult, ConversationKind, ConversationMemberSummary,
-        ConversationParticipantKind, ConversationProfile, ConversationReadPositionProfile,
-        CreateGroupConversationRequest, CreateGroupConversationResult, DeleteConversationRequest,
-        DeleteConversationResult, ListConversationsRequest, ListConversationsResult,
-        ListMessagesRequest, ListMessagesResult, MemberProfile, MemberRole, SendMessageRequest,
-        SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
-        UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
-        UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
-        UpdateReadPositionRequest, UpdateReadPositionResult,
+        AppError, ChatDataMaintenanceItem, ChatDataMaintenanceItemStatus, ChatMessageProfile,
+        ChatMessageStatus, ClearConversationRequest, ClearConversationResult,
+        ClearWorkspaceChatDataRequest, ClearWorkspaceChatDataResult, ConversationKind,
+        ConversationMemberSummary, ConversationParticipantKind, ConversationProfile,
+        ConversationReadPositionProfile, CreateGroupConversationRequest,
+        CreateGroupConversationResult, DeleteConversationRequest, DeleteConversationResult,
+        ListConversationsRequest, ListConversationsResult, ListMessagesRequest, ListMessagesResult,
+        MemberProfile, MemberRole, RepairWorkspaceChatDataRequest, RepairWorkspaceChatDataResult,
+        SendMessageRequest, SendMessageResult, StartPrivateConversationRequest,
+        StartPrivateConversationResult, UpdateConversationSettingsRequest,
+        UpdateConversationSettingsResult, UpdateGroupConversationMembersRequest,
+        UpdateGroupConversationMembersResult, UpdateReadPositionRequest, UpdateReadPositionResult,
     },
     domain::{
         chat::{
@@ -513,6 +518,222 @@ pub fn clear_conversation(
     })
 }
 
+pub fn repair_workspace_chat_data(
+    app_data_dir: &Path,
+    request: RepairWorkspaceChatDataRequest,
+) -> Result<RepairWorkspaceChatDataResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    let mut connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    let completed_at_ms = now_ms();
+    let transaction = connection
+        .transaction()
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.transaction.beginFailed",
+            &request.workspace_id,
+            "workspace-chat",
+        ))?;
+
+    let mut repaired_items = Vec::new();
+    let mut failed_items = Vec::new();
+    let skipped_items = Vec::new();
+
+    let default_exists = default_channel_exists(&transaction, &request.workspace_id)?;
+    ensure_default_channel(&transaction, &request.workspace_id)?;
+    if !default_exists {
+        repaired_items.push(maintenance_item(
+            "conversations.defaultChannel",
+            "默认频道",
+            ChatDataMaintenanceItemStatus::Repaired,
+            1,
+            Some("已补齐当前工作区默认频道。".to_owned()),
+            None,
+        ));
+    }
+
+    let orphan_mentions = delete_orphan_message_mentions(&transaction, &request.workspace_id)?;
+    if orphan_mentions > 0 {
+        repaired_items.push(maintenance_item(
+            "message_mentions",
+            "孤立消息提及",
+            ChatDataMaintenanceItemStatus::Repaired,
+            orphan_mentions,
+            Some("已删除不再指向有效消息或会话的提及行。".to_owned()),
+            None,
+        ));
+    }
+
+    let orphan_read_positions = delete_orphan_read_positions(&transaction, &request.workspace_id)?;
+    if orphan_read_positions > 0 {
+        repaired_items.push(maintenance_item(
+            "conversation_read_positions",
+            "孤立已读位置",
+            ChatDataMaintenanceItemStatus::Repaired,
+            orphan_read_positions,
+            Some("已删除不再指向有效会话或消息的已读位置。".to_owned()),
+            None,
+        ));
+    }
+
+    let repaired_metadata = recalculate_workspace_conversation_metadata(
+        &transaction,
+        &request.workspace_id,
+        completed_at_ms,
+    )?;
+    if repaired_metadata > 0 {
+        repaired_items.push(maintenance_item(
+            "conversations.metadata",
+            "会话元数据",
+            ChatDataMaintenanceItemStatus::Repaired,
+            repaired_metadata,
+            Some("已根据当前消息和已读位置重算未读数、预览和活动时间。".to_owned()),
+            None,
+        ));
+    }
+
+    let dispatch_cleanup =
+        cleanup_invalid_dispatch_references(&transaction, &request.workspace_id)?;
+    if dispatch_cleanup.deleted_count > 0 {
+        repaired_items.push(maintenance_item(
+            "dispatch_requests",
+            "无效派发引用",
+            ChatDataMaintenanceItemStatus::Repaired,
+            dispatch_cleanup.deleted_count,
+            Some("已删除引用缺失消息的派发队列行。".to_owned()),
+            None,
+        ));
+    }
+    if dispatch_cleanup.failed_count > 0 {
+        failed_items.push(maintenance_item(
+            "dispatch_requests.sourceMessageIds",
+            "无法读取的派发来源",
+            ChatDataMaintenanceItemStatus::Failed,
+            dispatch_cleanup.failed_count,
+            Some("部分派发来源消息 JSON 无法解析，未自动修改。".to_owned()),
+            Some("运行数据验证并备份工作区数据库后重试。".to_owned()),
+        ));
+    }
+
+    let conversations =
+        list_conversations_from_connection(&transaction, &request.workspace_id)?.conversations;
+    transaction.commit().map_err(chat_maintenance_sqlite_error(
+        "chatDataRepair.transaction.commitFailed",
+        &request.workspace_id,
+        "workspace-chat",
+    ))?;
+
+    let repaired_count = maintenance_count(&repaired_items);
+    let failed_count = maintenance_count(&failed_items);
+    let skipped_count = maintenance_count(&skipped_items);
+    let follow_up_action = if failed_count > 0 {
+        "运行数据验证并备份工作区数据库后重试。".to_owned()
+    } else if repaired_count > 0 {
+        "已刷新会话列表；如仍有异常，请再次运行数据验证。".to_owned()
+    } else {
+        "无需进一步操作。".to_owned()
+    };
+
+    Ok(RepairWorkspaceChatDataResult {
+        workspace_id: request.workspace_id,
+        affected_scope: "workspace-chat".to_owned(),
+        repaired_count,
+        failed_count,
+        skipped_count,
+        repaired_items,
+        failed_items,
+        skipped_items,
+        conversations,
+        follow_up_action,
+        completed_at_ms,
+    })
+}
+
+pub fn clear_workspace_chat_data(
+    app_data_dir: &Path,
+    request: ClearWorkspaceChatDataRequest,
+) -> Result<ClearWorkspaceChatDataResult, AppError> {
+    validate_workspace_id(&request.workspace_id)?;
+    let mut connection = open_conversation_connection(app_data_dir, &request.workspace_id)?;
+    let completed_at_ms = now_ms();
+    let transaction = connection
+        .transaction()
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataClear.transaction.beginFailed",
+            &request.workspace_id,
+            "workspace-chat",
+        ))?;
+    ensure_default_channel(&transaction, &request.workspace_id)?;
+
+    let cleared_mention_count = transaction
+        .execute(
+            "DELETE FROM message_mentions WHERE workspace_id = ?1",
+            params![request.workspace_id],
+        )
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataClear.mentionsFailed",
+            &request.workspace_id,
+            "message_mentions",
+        ))? as u32;
+    let cleared_message_count = transaction
+        .execute(
+            "DELETE FROM messages WHERE workspace_id = ?1",
+            params![request.workspace_id],
+        )
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataClear.messagesFailed",
+            &request.workspace_id,
+            "messages",
+        ))? as u32;
+    let cleared_read_position_count = transaction
+        .execute(
+            "DELETE FROM conversation_read_positions WHERE workspace_id = ?1",
+            params![request.workspace_id],
+        )
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataClear.readPositionsFailed",
+            &request.workspace_id,
+            "conversation_read_positions",
+        ))? as u32;
+    let cleared_dispatch_count =
+        delete_workspace_dispatch_rows(&transaction, &request.workspace_id)?;
+
+    transaction
+        .execute(
+            "UPDATE conversations
+             SET unread_count = 0,
+                 last_message_preview = NULL,
+                 updated_at_ms = ?1,
+                 last_activity_at_ms = ?1
+             WHERE workspace_id = ?2 AND deleted_at_ms IS NULL",
+            params![completed_at_ms as i64, request.workspace_id],
+        )
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataClear.conversationsResetFailed",
+            &request.workspace_id,
+            "conversations",
+        ))?;
+    ensure_default_channel(&transaction, &request.workspace_id)?;
+    let conversations =
+        list_conversations_from_connection(&transaction, &request.workspace_id)?.conversations;
+
+    transaction.commit().map_err(chat_maintenance_sqlite_error(
+        "chatDataClear.transaction.commitFailed",
+        &request.workspace_id,
+        "workspace-chat",
+    ))?;
+
+    Ok(ClearWorkspaceChatDataResult {
+        workspace_id: request.workspace_id,
+        affected_scope: "workspace-chat".to_owned(),
+        cleared_message_count,
+        cleared_mention_count,
+        cleared_read_position_count,
+        cleared_dispatch_count,
+        conversations,
+        follow_up_action: "已清空当前工作区本地聊天消息；成员、会话和设置已保留。".to_owned(),
+        completed_at_ms,
+    })
+}
+
 pub fn delete_conversation(
     app_data_dir: &Path,
     request: DeleteConversationRequest,
@@ -936,8 +1157,13 @@ fn open_conversation_connection(
     workspace_id: &str,
 ) -> Result<Connection, AppError> {
     initialize_member_store(app_data_dir, workspace_id)?;
-    let connection = open_workspace_database(app_data_dir, workspace_id)?;
+    let mut connection = open_workspace_database(app_data_dir, workspace_id)?;
     apply_conversation_migrations(&connection)?;
+    legacy_chat_redb_import::import_legacy_chat_redb_if_needed(
+        app_data_dir,
+        workspace_id,
+        &mut connection,
+    )?;
 
     Ok(connection)
 }
@@ -1030,16 +1256,7 @@ fn apply_message_mentions_migration(connection: &Connection) -> Result<(), AppEr
 }
 
 fn ensure_default_channel(connection: &Connection, workspace_id: &str) -> Result<(), AppError> {
-    let exists = connection
-        .prepare(
-            "SELECT id FROM conversations
-             WHERE workspace_id = ?1 AND kind = 'channel' AND is_default = 1
-               AND deleted_at_ms IS NULL
-             LIMIT 1",
-        )
-        .map_err(sqlite_error("conversation.default.prepareFailed"))?
-        .exists(params![workspace_id])
-        .map_err(sqlite_error("conversation.default.queryFailed"))?;
+    let exists = default_channel_exists(connection, workspace_id)?;
 
     if exists {
         return Ok(());
@@ -1071,6 +1288,425 @@ fn ensure_default_channel(connection: &Connection, workspace_id: &str) -> Result
         "workspace",
         workspace_id,
     )
+}
+
+fn default_channel_exists(connection: &Connection, workspace_id: &str) -> Result<bool, AppError> {
+    connection
+        .prepare(
+            "SELECT id FROM conversations
+             WHERE workspace_id = ?1 AND kind = 'channel' AND is_default = 1
+               AND deleted_at_ms IS NULL
+             LIMIT 1",
+        )
+        .map_err(sqlite_error("conversation.default.prepareFailed"))?
+        .exists(params![workspace_id])
+        .map_err(sqlite_error("conversation.default.queryFailed"))
+}
+
+fn delete_orphan_message_mentions(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<u32, AppError> {
+    connection
+        .execute(
+            "DELETE FROM message_mentions
+             WHERE workspace_id = ?1
+               AND (
+                 NOT EXISTS (
+                   SELECT 1 FROM messages
+                   WHERE messages.workspace_id = message_mentions.workspace_id
+                     AND messages.conversation_id = message_mentions.conversation_id
+                     AND messages.id = message_mentions.message_id
+                 )
+                 OR NOT EXISTS (
+                   SELECT 1 FROM conversations
+                   WHERE conversations.workspace_id = message_mentions.workspace_id
+                     AND conversations.id = message_mentions.conversation_id
+                     AND conversations.deleted_at_ms IS NULL
+                 )
+               )",
+            params![workspace_id],
+        )
+        .map(|count| count as u32)
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.mentionsFailed",
+            workspace_id,
+            "message_mentions",
+        ))
+}
+
+fn delete_orphan_read_positions(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<u32, AppError> {
+    connection
+        .execute(
+            "DELETE FROM conversation_read_positions
+             WHERE workspace_id = ?1
+               AND (
+                 NOT EXISTS (
+                   SELECT 1 FROM conversations
+                   WHERE conversations.workspace_id = conversation_read_positions.workspace_id
+                     AND conversations.id = conversation_read_positions.conversation_id
+                     AND conversations.deleted_at_ms IS NULL
+                 )
+                 OR NOT EXISTS (
+                   SELECT 1 FROM messages
+                   WHERE messages.workspace_id = conversation_read_positions.workspace_id
+                     AND messages.conversation_id = conversation_read_positions.conversation_id
+                     AND messages.id = conversation_read_positions.last_read_message_id
+                 )
+               )",
+            params![workspace_id],
+        )
+        .map(|count| count as u32)
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.readPositionsFailed",
+            workspace_id,
+            "conversation_read_positions",
+        ))
+}
+
+fn recalculate_workspace_conversation_metadata(
+    connection: &Connection,
+    workspace_id: &str,
+    updated_at_ms: u64,
+) -> Result<u32, AppError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, unread_count, last_message_preview, created_at_ms, last_activity_at_ms
+             FROM conversations
+             WHERE workspace_id = ?1 AND deleted_at_ms IS NULL",
+        )
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.metadataPrepareFailed",
+            workspace_id,
+            "conversations",
+        ))?;
+    let conversations = statement
+        .query_map(params![workspace_id], |row| {
+            Ok(ConversationMetadataSnapshot {
+                conversation_id: row.get(0)?,
+                unread_count: row.get::<_, i64>(1)?.max(0) as u32,
+                last_message_preview: row.get(2)?,
+                created_at_ms: row.get::<_, i64>(3)?.max(0) as u64,
+                last_activity_at_ms: row.get::<_, i64>(4)?.max(0) as u64,
+            })
+        })
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.metadataQueryFailed",
+            workspace_id,
+            "conversations",
+        ))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.metadataDecodeFailed",
+            workspace_id,
+            "conversations",
+        ))?;
+
+    let mut repaired = 0;
+    for conversation in conversations {
+        let latest_message =
+            latest_message_metadata(connection, workspace_id, &conversation.conversation_id)?;
+        let recalculated_preview = latest_message
+            .as_ref()
+            .map(|message| message_preview(&message.body));
+        let recalculated_last_activity = latest_message
+            .as_ref()
+            .map(|message| message.created_at_ms)
+            .unwrap_or(conversation.created_at_ms);
+        let recalculated_unread_count =
+            recalculated_unread_count(connection, workspace_id, &conversation.conversation_id)?;
+
+        if conversation.unread_count == recalculated_unread_count
+            && conversation.last_message_preview == recalculated_preview
+            && conversation.last_activity_at_ms == recalculated_last_activity
+        {
+            continue;
+        }
+
+        connection
+            .execute(
+                "UPDATE conversations
+                 SET unread_count = ?1,
+                     last_message_preview = ?2,
+                     last_activity_at_ms = ?3,
+                     updated_at_ms = ?4
+                 WHERE workspace_id = ?5 AND id = ?6 AND deleted_at_ms IS NULL",
+                params![
+                    recalculated_unread_count as i64,
+                    recalculated_preview,
+                    recalculated_last_activity as i64,
+                    updated_at_ms as i64,
+                    workspace_id,
+                    conversation.conversation_id,
+                ],
+            )
+            .map_err(chat_maintenance_sqlite_error(
+                "chatDataRepair.metadataUpdateFailed",
+                workspace_id,
+                "conversations",
+            ))?;
+        repaired += 1;
+    }
+
+    Ok(repaired)
+}
+
+fn latest_message_metadata(
+    connection: &Connection,
+    workspace_id: &str,
+    conversation_id: &str,
+) -> Result<Option<MessageMetadataSnapshot>, AppError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, body, created_at_ms
+             FROM messages
+             WHERE workspace_id = ?1 AND conversation_id = ?2
+             ORDER BY created_at_ms DESC, id DESC
+             LIMIT 1",
+        )
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.latestMessagePrepareFailed",
+            workspace_id,
+            "messages",
+        ))?;
+    match statement.query_row(params![workspace_id, conversation_id], |row| {
+        Ok(MessageMetadataSnapshot {
+            body: row.get(1)?,
+            created_at_ms: row.get::<_, i64>(2)? as u64,
+        })
+    }) {
+        Ok(message) => Ok(Some(message)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(chat_maintenance_sqlite_error(
+            "chatDataRepair.latestMessageQueryFailed",
+            workspace_id,
+            "messages",
+        )(error)),
+    }
+}
+
+fn recalculated_unread_count(
+    connection: &Connection,
+    workspace_id: &str,
+    conversation_id: &str,
+) -> Result<u32, AppError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT messages.created_at_ms, messages.id
+             FROM conversation_read_positions
+             INNER JOIN messages
+               ON messages.workspace_id = conversation_read_positions.workspace_id
+              AND messages.conversation_id = conversation_read_positions.conversation_id
+              AND messages.id = conversation_read_positions.last_read_message_id
+             WHERE conversation_read_positions.workspace_id = ?1
+               AND conversation_read_positions.conversation_id = ?2
+             LIMIT 1",
+        )
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.readPositionPrepareFailed",
+            workspace_id,
+            "conversation_read_positions",
+        ))?;
+    let read_position = match statement.query_row(params![workspace_id, conversation_id], |row| {
+        Ok((row.get::<_, i64>(0)? as u64, row.get::<_, String>(1)?))
+    }) {
+        Ok(position) => Some(position),
+        Err(rusqlite::Error::QueryReturnedNoRows) => None,
+        Err(error) => {
+            return Err(chat_maintenance_sqlite_error(
+                "chatDataRepair.readPositionQueryFailed",
+                workspace_id,
+                "conversation_read_positions",
+            )(error));
+        }
+    };
+    let Some((last_read_at_ms, last_read_message_id)) = read_position else {
+        return Ok(0);
+    };
+
+    connection
+        .query_row(
+            "SELECT COUNT(*)
+             FROM messages
+             WHERE workspace_id = ?1 AND conversation_id = ?2
+               AND (
+                 created_at_ms > ?3
+                 OR (created_at_ms = ?3 AND id > ?4)
+               )",
+            params![
+                workspace_id,
+                conversation_id,
+                last_read_at_ms as i64,
+                last_read_message_id,
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count.max(0) as u32)
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.unreadCountFailed",
+            workspace_id,
+            "messages",
+        ))
+}
+
+fn cleanup_invalid_dispatch_references(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<DispatchCleanupCount, AppError> {
+    if !table_exists(connection, "dispatch_requests")? {
+        return Ok(DispatchCleanupCount::default());
+    }
+
+    let has_source_ids =
+        table_column_exists(connection, "dispatch_requests", "source_message_ids_json")?;
+    let select_sql = if has_source_ids {
+        "SELECT id, message_id, source_message_ids_json
+         FROM dispatch_requests
+         WHERE workspace_id = ?1"
+    } else {
+        "SELECT id, message_id, '[]'
+         FROM dispatch_requests
+         WHERE workspace_id = ?1"
+    };
+    let mut statement = connection
+        .prepare(select_sql)
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.dispatchPrepareFailed",
+            workspace_id,
+            "dispatch_requests",
+        ))?;
+    let dispatches = statement
+        .query_map(params![workspace_id], |row| {
+            Ok(DispatchReferenceRow {
+                dispatch_id: row.get(0)?,
+                message_id: row.get(1)?,
+                source_message_ids_json: row.get(2)?,
+            })
+        })
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.dispatchQueryFailed",
+            workspace_id,
+            "dispatch_requests",
+        ))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.dispatchDecodeFailed",
+            workspace_id,
+            "dispatch_requests",
+        ))?;
+
+    let mut ids_to_delete = Vec::new();
+    let mut failed_count = 0;
+    for dispatch in dispatches {
+        let sources = match serde_json::from_str::<Vec<String>>(&dispatch.source_message_ids_json) {
+            Ok(sources) => sources,
+            Err(_) => {
+                failed_count += 1;
+                continue;
+            }
+        };
+        let message_missing = !message_id_exists(connection, workspace_id, &dispatch.message_id)?;
+        let source_missing = sources
+            .iter()
+            .filter(|source_id| !source_id.trim().is_empty())
+            .try_fold(false, |missing, source_id| {
+                Ok::<_, AppError>(
+                    missing || !message_id_exists(connection, workspace_id, source_id)?,
+                )
+            })?;
+
+        if message_missing || source_missing {
+            ids_to_delete.push(dispatch.dispatch_id);
+        }
+    }
+
+    for dispatch_id in &ids_to_delete {
+        connection
+            .execute(
+                "DELETE FROM dispatch_requests WHERE workspace_id = ?1 AND id = ?2",
+                params![workspace_id, dispatch_id],
+            )
+            .map_err(chat_maintenance_sqlite_error(
+                "chatDataRepair.dispatchDeleteFailed",
+                workspace_id,
+                "dispatch_requests",
+            ))?;
+    }
+
+    Ok(DispatchCleanupCount {
+        deleted_count: ids_to_delete.len() as u32,
+        failed_count,
+    })
+}
+
+fn delete_workspace_dispatch_rows(
+    connection: &Connection,
+    workspace_id: &str,
+) -> Result<u32, AppError> {
+    if !table_exists(connection, "dispatch_requests")? {
+        return Ok(0);
+    }
+
+    connection
+        .execute(
+            "DELETE FROM dispatch_requests WHERE workspace_id = ?1",
+            params![workspace_id],
+        )
+        .map(|count| count as u32)
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataClear.dispatchFailed",
+            workspace_id,
+            "dispatch_requests",
+        ))
+}
+
+fn message_id_exists(
+    connection: &Connection,
+    workspace_id: &str,
+    message_id: &str,
+) -> Result<bool, AppError> {
+    connection
+        .prepare(
+            "SELECT id FROM messages
+             WHERE workspace_id = ?1 AND id = ?2
+             LIMIT 1",
+        )
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.messageExistsPrepareFailed",
+            workspace_id,
+            "messages",
+        ))?
+        .exists(params![workspace_id, message_id])
+        .map_err(chat_maintenance_sqlite_error(
+            "chatDataRepair.messageExistsQueryFailed",
+            workspace_id,
+            "messages",
+        ))
+}
+
+fn maintenance_item(
+    affected_scope: &str,
+    label: &str,
+    status: ChatDataMaintenanceItemStatus,
+    count: u32,
+    details: Option<String>,
+    follow_up_action: Option<String>,
+) -> ChatDataMaintenanceItem {
+    ChatDataMaintenanceItem {
+        affected_scope: affected_scope.to_owned(),
+        label: label.to_owned(),
+        status,
+        count,
+        details,
+        follow_up_action,
+    }
+}
+
+fn maintenance_count(items: &[ChatDataMaintenanceItem]) -> u32 {
+    items.iter().map(|item| item.count).sum()
 }
 
 fn list_conversations_from_connection(
@@ -1796,6 +2432,24 @@ fn table_exists(connection: &Connection, table_name: &str) -> Result<bool, AppEr
     Ok(exists)
 }
 
+fn table_column_exists(
+    connection: &Connection,
+    table_name: &str,
+    column_name: &str,
+) -> Result<bool, AppError> {
+    let pragma = format!("PRAGMA table_info({table_name})");
+    let mut statement = connection
+        .prepare(&pragma)
+        .map_err(sqlite_error("conversation.columnExists.prepareFailed"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(sqlite_error("conversation.columnExists.queryFailed"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlite_error("conversation.columnExists.decodeFailed"))?;
+
+    Ok(columns.iter().any(|column| column == column_name))
+}
+
 fn has_group_conversations(connection: &Connection) -> Result<bool, AppError> {
     let mut statement = connection
         .prepare("SELECT id FROM conversations WHERE kind = 'group' LIMIT 1")
@@ -1890,6 +2544,49 @@ fn bool_to_sql(value: bool) -> i64 {
 
 fn sql_bool(value: i64) -> bool {
     value != 0
+}
+
+fn chat_maintenance_sqlite_error<'a>(
+    code: &'static str,
+    workspace_id: &'a str,
+    affected_scope: &'static str,
+) -> impl FnOnce(rusqlite::Error) -> AppError + 'a {
+    move |error| {
+        AppError::recoverable_error(
+            code,
+            "聊天数据维护失败。",
+            "维护操作未完成，当前工作区聊天缓存不会被当作已更新；请运行数据验证后重试。",
+            Some(format!(
+                "workspaceId={} scope={}: {}",
+                workspace_id, affected_scope, error
+            )),
+        )
+    }
+}
+
+#[derive(Default)]
+struct DispatchCleanupCount {
+    deleted_count: u32,
+    failed_count: u32,
+}
+
+struct DispatchReferenceRow {
+    dispatch_id: String,
+    message_id: String,
+    source_message_ids_json: String,
+}
+
+struct ConversationMetadataSnapshot {
+    conversation_id: String,
+    unread_count: u32,
+    last_message_preview: Option<String>,
+    created_at_ms: u64,
+    last_activity_at_ms: u64,
+}
+
+struct MessageMetadataSnapshot {
+    body: String,
+    created_at_ms: u64,
 }
 
 struct PrivateParticipant {

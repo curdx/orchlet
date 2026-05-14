@@ -1,13 +1,16 @@
 use std::path::Path;
 
 use crate::{
+    app::diagnostics::{best_effort_event, record_workspace_diagnostics_event_best_effort},
     contracts::{
-        AppError, InviteMemberRequest, InviteMemberResult, ListMembersRequest, ListMembersResult,
-        RemoveMemberRequest, RemoveMemberResult, UpdateMemberStatusRequest,
-        UpdateMemberStatusResult,
+        AppError, DiagnosticsCorrelationIds, DiagnosticsEventScope, DiagnosticsEventSeverity,
+        DiagnosticsMetadataEntry, InviteMemberRequest, InviteMemberResult, ListMembersRequest,
+        ListMembersResult, RemoveMemberRequest, RemoveMemberResult, UpdateMemberProfileRequest,
+        UpdateMemberProfileResult, UpdateMemberStatusRequest, UpdateMemberStatusResult,
     },
     infrastructure::persistence::sqlite::member_repository::{
-        initialize_member_store, invite_member, remove_member, update_member_status,
+        initialize_member_store, invite_member, remove_member, update_member_profile,
+        update_member_status,
     },
 };
 
@@ -29,7 +32,27 @@ pub fn invite_workspace_member(
     app_data_dir: impl AsRef<Path>,
     request: InviteMemberRequest,
 ) -> Result<InviteMemberResult, AppError> {
-    invite_member(app_data_dir.as_ref(), request)
+    let result = invite_member(app_data_dir.as_ref(), request)?;
+    record_workspace_diagnostics_event_best_effort(
+        app_data_dir.as_ref(),
+        best_effort_event(
+            &result.member.workspace_id,
+            DiagnosticsEventScope::Member,
+            "member.invited",
+            DiagnosticsEventSeverity::Info,
+            DiagnosticsCorrelationIds {
+                workspace_id: Some(result.member.workspace_id.clone()),
+                member_id: Some(result.member.member_id.clone()),
+                ..DiagnosticsCorrelationIds::default()
+            },
+            vec![DiagnosticsMetadataEntry {
+                key: "role".to_owned(),
+                value: format!("{:?}", result.member.role),
+            }],
+        ),
+    );
+
+    Ok(result)
 }
 
 pub fn remove_workspace_member(
@@ -46,14 +69,25 @@ pub fn update_workspace_member_status(
     update_member_status(app_data_dir.as_ref(), request)
 }
 
+pub fn update_workspace_member_profile(
+    app_data_dir: impl AsRef<Path>,
+    request: UpdateMemberProfileRequest,
+) -> Result<UpdateMemberProfileResult, AppError> {
+    update_member_profile(app_data_dir.as_ref(), request)
+}
+
 #[cfg(test)]
 mod tests {
     use tempfile::tempdir;
 
-    use super::{initialize_members, invite_workspace_member, remove_workspace_member};
+    use super::{
+        initialize_members, invite_workspace_member, remove_workspace_member,
+        update_workspace_member_profile,
+    };
     use crate::contracts::{
         InviteMemberRequest, InvitedMemberType, MemberIsolation, MemberPermissions, MemberRole,
         MemberRuntimeKind, MemberRuntimeProfile, MemberStatus, RemoveMemberRequest,
+        UpdateMemberProfileRequest,
     };
 
     #[test]
@@ -256,5 +290,43 @@ mod tests {
         );
 
         assert!(owner_removal.is_err());
+    }
+
+    #[test]
+    fn updates_member_display_name_and_instance_label() {
+        let app_data = tempdir().expect("app data");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let invite = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Original Agent".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some("codex".to_owned()),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member invited");
+
+        let updated = update_workspace_member_profile(
+            app_data.path(),
+            UpdateMemberProfileRequest {
+                workspace_id,
+                member_id: invite.member.member_id,
+                display_name: "Renamed Agent".to_owned(),
+            },
+        )
+        .expect("member renamed");
+
+        assert_eq!(updated.member.display_name, "Renamed Agent");
+        assert_eq!(updated.member.instance_label, "Renamed Agent");
+        assert_eq!(updated.members.len(), 2);
     }
 }

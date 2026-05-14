@@ -1,5 +1,5 @@
 # generated: 2026-05-11
-# last_updated: 2026-05-13
+# last_updated: 2026-05-14
 # project: orchlet
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,13 +35,15 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-11
-last_updated: 2026-05-13
+last_updated: 2026-05-14
 project: orchlet
 project_key: NOKEY
 tracking_system: file-system
 story_location: /Users/wdx/opc/orchlet/_bmad-output/implementation-artifacts
 
 development_status:
+  product_acceptance: blocked-golutra-parity
+
   epic-1: done
   1-1-set-up-initial-project-from-starter-template: done
   1-2-open-directory-create-workspace-metadata: done
@@ -93,21 +95,42 @@ development_status:
   6-5-roadmap-goals-status-progress: done
   epic-6-retrospective: optional
 
-  epic-7: in-progress
+  epic-7: done
   7-1-profile-status-settings: done
   7-2-avatar-upload-delete-reset-presets: done
   7-3-theme-language-switching: done
   7-4-notification-sound-preview-dnd-preferences: done
   7-5-shortcut-configuration: done
-  7-6-cli-custom-member-default-terminal-configuration: backlog
-  7-7-chat-terminal-output-display-preferences: backlog
-  7-8-chat-data-repair-clear-maintenance: backlog
+  7-6-cli-custom-member-default-terminal-configuration: done
+  7-7-chat-terminal-output-display-preferences: done
+  7-8-chat-data-repair-clear-maintenance: done
   epic-7-retrospective: optional
 
-  epic-8: backlog
-  8-1-diagnostics-run-core-event-recording: backlog
-  8-2-terminal-snapshot-chat-consistency-diagnostics: backlog
-  8-3-view-export-redacted-diagnostics: backlog
-  8-4-capability-status-labeling: backlog
-  8-5-release-checklist-three-platform-smoke-results: backlog
+  epic-8: done
+  8-1-diagnostics-run-core-event-recording: done
+  8-2-terminal-snapshot-chat-consistency-diagnostics: done
+  8-3-view-export-redacted-diagnostics: done
+  8-4-capability-status-labeling: done
+  8-5-release-checklist-three-platform-smoke-results: done
   epic-8-retrospective: optional
+
+  epic-9: in-progress
+  9-1-golutra-parity-baseline: done
+  9-2-app-shell-titlebar-sidebar-global-systems-parity: review
+  9-3-workspace-selection-parity: review
+  9-4-chat-interface-parity: review
+  9-5-friends-members-invite-modal-parity: review
+  9-6-terminal-workspace-terminal-pane-parity: review
+  9-7-settings-parity: review
+  9-8-skill-store-plugin-marketplace-parity: review
+  9-9-notification-preview-tray-flow-parity: review
+  9-10-parity-release-gate: review
+  9-11-native-tray-lifecycle-parity: review
+  9-12-legacy-golutra-workspace-metadata-compatibility: review
+  9-13-legacy-golutra-global-settings-compatibility: review
+  9-14-legacy-golutra-workspace-registry-compatibility: review
+  9-15-legacy-golutra-workspace-skills-compatibility: review
+  9-16-legacy-golutra-contacts-compatibility: review
+  9-17-legacy-golutra-avatar-library-compatibility: review
+  9-18-legacy-golutra-chat-redb-compatibility: review
+  epic-9-retrospective: optional

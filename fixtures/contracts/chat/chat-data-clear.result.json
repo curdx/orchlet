@@ -1,0 +1,52 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "affectedScope": "workspace-chat",
+  "clearedMessageCount": 12,
+  "clearedMentionCount": 3,
+  "clearedReadPositionCount": 2,
+  "clearedDispatchCount": 1,
+  "conversations": [
+    {
+      "conversationId": "01K00000000000000000000050",
+      "workspaceId": "01K00000000000000000000000",
+      "kind": "channel",
+      "title": "默认频道",
+      "isDefault": true,
+      "isPinned": true,
+      "isMuted": false,
+      "unreadCount": 0,
+      "lastMessagePreview": null,
+      "participantKind": null,
+      "participantId": null,
+      "members": [],
+      "createdAtMs": 1760000007000,
+      "updatedAtMs": 1760000016000,
+      "lastActivityAtMs": 1760000016000
+    },
+    {
+      "conversationId": "01K00000000000000000000051",
+      "workspaceId": "01K00000000000000000000000",
+      "kind": "group",
+      "title": "Review Room",
+      "isDefault": false,
+      "isPinned": false,
+      "isMuted": false,
+      "unreadCount": 0,
+      "lastMessagePreview": null,
+      "participantKind": null,
+      "participantId": null,
+      "members": [
+        {
+          "memberId": "01K00000000000000000000031",
+          "displayName": "Codex Reviewer",
+          "instanceLabel": "Codex Reviewer 1"
+        }
+      ],
+      "createdAtMs": 1760000009000,
+      "updatedAtMs": 1760000016000,
+      "lastActivityAtMs": 1760000016000
+    }
+  ],
+  "followUpAction": "已清空当前工作区本地聊天消息；成员、会话和设置已保留。",
+  "completedAtMs": 1760000016000
+}

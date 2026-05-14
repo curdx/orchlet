@@ -80,6 +80,27 @@ pub struct NotificationUnreadConversation {
     pub unread_count: u32,
     pub last_message_preview: Option<String>,
     pub terminal_member_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub conversation_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub member_count: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sender_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sender_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sender_avatar: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub sender_can_open_terminal: Option<bool>,
     #[ts(type = "number")]
     pub updated_at_ms: u64,
 }
@@ -128,6 +149,9 @@ pub struct NotificationUnreadUpdateRequest {
     pub workspace_name: Option<String>,
     pub conversations: Vec<NotificationUnreadConversation>,
     pub source_window_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub avatar_png: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

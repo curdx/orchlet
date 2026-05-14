@@ -10,8 +10,9 @@ use crate::{
         notification::validate_notification_preferences_store_for_app_data,
         roadmap::{validate_workspace_roadmap_goal_store, validate_workspace_roadmap_task_store},
         settings::{
-            validate_app_preferences, validate_profile_avatar_library, validate_profile_settings,
-            validate_shortcut_preferences,
+            validate_app_preferences, validate_chat_terminal_output_preferences_for_app_data,
+            validate_profile_avatar_library, validate_profile_settings,
+            validate_shortcut_preferences, validate_terminal_configuration,
         },
         skills::{validate_skill_library_store, validate_workspace_skill_link_store},
     },
@@ -24,11 +25,13 @@ use crate::{
     infrastructure::persistence::{
         json_store::{
             app_preferences_store::app_preferences_path,
+            chat_terminal_output_preferences_store::chat_terminal_output_preferences_path,
             notification_preferences_store::notification_preferences_path,
             profile_settings_store::avatar_library_dir,
             profile_settings_store::profile_settings_path,
             shortcut_preferences_store::shortcut_preferences_path,
             skill_library_store::skill_library_path,
+            terminal_configuration_store::terminal_configuration_path,
             workspace_fallback_store::{load_workspace_fallbacks, workspace_fallback_path},
             workspace_metadata_store::read_workspace_metadata,
             workspace_registry_store::{load_workspace_registry, now_ms, workspace_registry_path},
@@ -42,6 +45,7 @@ use crate::{
                 validate_message_mention_store, validate_message_store,
                 validate_read_position_store,
             },
+            diagnostics_repository::validate_diagnostics_store,
             member_repository::validate_member_store,
             terminal_tab_repository::validate_terminal_tab_store,
             workspace_database::workspace_database_path,
@@ -113,6 +117,10 @@ pub fn validate_data_integrity(
     ));
     checks.push(validate_app_preferences_store(app_data_dir));
     checks.push(validate_shortcut_preferences_store(app_data_dir));
+    checks.push(validate_chat_terminal_output_preferences_store(
+        app_data_dir,
+    ));
+    checks.push(validate_terminal_configuration_store(app_data_dir));
     checks.push(validate_notification_preferences_store(app_data_dir));
     checks.push(validate_profile_settings_store(app_data_dir));
     checks.push(validate_profile_avatar_library_store(app_data_dir));
@@ -149,6 +157,14 @@ pub fn validate_data_integrity(
         app_data_dir,
         workspace_id.as_deref(),
     ));
+    checks.push(validate_diagnostics_runs(
+        app_data_dir,
+        workspace_id.as_deref(),
+    ));
+    checks.push(validate_diagnostics_events(
+        app_data_dir,
+        workspace_id.as_deref(),
+    ));
     checks.push(validate_skill_library(app_data_dir));
     checks.push(validate_workspace_skill_links(workspace_root.as_deref()));
     checks.push(validate_roadmap_tasks(workspace_root.as_deref()));
@@ -179,6 +195,7 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::WorkspaceFallbacks,
         StorageCategory::AppPreferences,
         StorageCategory::ShortcutPreferences,
+        StorageCategory::TerminalConfiguration,
         StorageCategory::NotificationPreferences,
         StorageCategory::ProfileSettings,
         StorageCategory::AvatarLibrary,
@@ -194,6 +211,8 @@ fn validate_manifest_completeness(manifest: &[StorageManifestEntry]) -> DataInte
         StorageCategory::WorkspaceSkillLinks,
         StorageCategory::RoadmapTasks,
         StorageCategory::RoadmapGoals,
+        StorageCategory::DiagnosticsRuns,
+        StorageCategory::DiagnosticsEvents,
     ];
     let missing_categories = expected_categories
         .iter()
@@ -259,6 +278,28 @@ fn validate_shortcut_preferences_store(app_data_dir: &Path) -> DataIntegrityChec
         vec![shortcut_preferences_path(app_data_dir)],
         validate_shortcut_preferences(app_data_dir)
             .map(|_| "Shortcut preferences are readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_chat_terminal_output_preferences_store(
+    app_data_dir: &Path,
+) -> DataIntegrityCheckResult {
+    check_result(
+        "settings.chatTerminalOutput.load_validate",
+        StorageCategory::ChatTerminalOutputPreferences,
+        vec![chat_terminal_output_preferences_path(app_data_dir)],
+        validate_chat_terminal_output_preferences_for_app_data(app_data_dir)
+            .map(|_| "Chat terminal output preferences are readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_terminal_configuration_store(app_data_dir: &Path) -> DataIntegrityCheckResult {
+    check_result(
+        "settings.terminalConfiguration.load_validate",
+        StorageCategory::TerminalConfiguration,
+        vec![terminal_configuration_path(app_data_dir)],
+        validate_terminal_configuration(app_data_dir)
+            .map(|_| "Terminal configuration is readable when initialized.".to_owned()),
     )
 }
 
@@ -398,6 +439,62 @@ fn validate_terminal_tabs(
         vec![database_path],
         validate_terminal_tab_store(app_data_dir, workspace_id)
             .map(|_| "Terminal tab store is readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_diagnostics_runs(
+    app_data_dir: &Path,
+    workspace_id: Option<&str>,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_id) = workspace_id else {
+        return DataIntegrityCheckResult {
+            check_id: "diagnostics.runs.schema_validate".to_owned(),
+            category: StorageCategory::DiagnosticsRuns,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace id is available for diagnostics run validation."
+                .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+    check_result(
+        "diagnostics.runs.schema_validate",
+        StorageCategory::DiagnosticsRuns,
+        vec![database_path],
+        validate_diagnostics_store(app_data_dir, workspace_id)
+            .map(|_| "Diagnostics run store is readable when initialized.".to_owned()),
+    )
+}
+
+fn validate_diagnostics_events(
+    app_data_dir: &Path,
+    workspace_id: Option<&str>,
+) -> DataIntegrityCheckResult {
+    let Some(workspace_id) = workspace_id else {
+        return DataIntegrityCheckResult {
+            check_id: "diagnostics.events.schema_validate".to_owned(),
+            category: StorageCategory::DiagnosticsEvents,
+            status: DataIntegrityStatus::Skipped,
+            severity: DataIntegritySeverity::Info,
+            message: "No active workspace id is available for diagnostics event validation."
+                .to_owned(),
+            affected_paths: Vec::new(),
+            user_action: None,
+            details: None,
+        };
+    };
+
+    let database_path = workspace_database_path(app_data_dir, workspace_id);
+    check_result(
+        "diagnostics.events.schema_validate",
+        StorageCategory::DiagnosticsEvents,
+        vec![database_path],
+        validate_diagnostics_store(app_data_dir, workspace_id)
+            .map(|_| "Diagnostics event store is readable when initialized.".to_owned()),
     )
 }
 
@@ -736,16 +833,19 @@ fn workspace_metadata_path(workspace_root: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{collections::HashMap, fs, path::Path};
 
+    use redb::TableDefinition;
+    use serde::{Deserialize, Serialize};
     use tempfile::tempdir;
+    use ulid::Ulid;
 
     use super::validate_data_integrity;
     use crate::{
-        app::members::initialize_members,
+        app::{chat::list_workspace_conversations, members::initialize_members},
         contracts::{
-            DataIntegritySeverity, DataIntegrityStatus, OpenedWorkspace, StorageCategory,
-            WorkspaceAccessMode, WorkspaceFallbackState, WorkspaceMetadata,
+            DataIntegritySeverity, DataIntegrityStatus, ListConversationsRequest, OpenedWorkspace,
+            StorageCategory, WorkspaceAccessMode, WorkspaceFallbackState, WorkspaceMetadata,
             WorkspaceRegistryAction, WorkspaceRegistryEntry,
         },
         infrastructure::persistence::{
@@ -757,6 +857,76 @@ mod tests {
         },
     };
 
+    type TestLegacyUserId = u128;
+    type TestLegacyConvId = u128;
+    type TestLegacyMsgId = u128;
+
+    const TEST_LEGACY_CONVERSATIONS: TableDefinition<TestLegacyConvId, &[u8]> =
+        TableDefinition::new("conversations");
+    const TEST_LEGACY_USER_CONVS: TableDefinition<(TestLegacyUserId, TestLegacyConvId), &[u8]> =
+        TableDefinition::new("user_convs");
+    const TEST_LEGACY_MESSAGES: TableDefinition<(TestLegacyConvId, TestLegacyMsgId), &[u8]> =
+        TableDefinition::new("messages");
+    const TEST_LEGACY_MEMBERS: TableDefinition<(TestLegacyConvId, TestLegacyUserId), &[u8]> =
+        TableDefinition::new("members");
+
+    #[derive(Serialize, Deserialize, Clone, Copy)]
+    enum TestLegacyConversationKind {
+        Channel,
+        Dm,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct TestLegacyConversationMeta {
+        kind: TestLegacyConversationKind,
+        created_at: u64,
+        custom_name: Option<String>,
+        is_default: bool,
+        last_message_at: Option<u64>,
+        last_message_preview: Option<String>,
+    }
+
+    #[derive(Serialize, Deserialize, Default)]
+    struct TestLegacyUserConversationSettings {
+        pinned: bool,
+        muted: bool,
+        last_read_message_id: Option<TestLegacyMsgId>,
+        last_active_at: Option<u64>,
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    enum TestLegacyMessageStatus {
+        Sent,
+        Sending,
+        Failed,
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    enum TestLegacyMessageContentDb {
+        Text {
+            text: String,
+        },
+        System {
+            key: String,
+            args: Option<HashMap<String, String>>,
+        },
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    enum TestLegacyMessageAttachmentDb {
+        Roadmap { title: String },
+    }
+
+    #[derive(Serialize, Deserialize, Clone)]
+    struct TestLegacyChatMessage {
+        sender_id: Option<TestLegacyUserId>,
+        content: TestLegacyMessageContentDb,
+        created_at: u64,
+        is_ai: bool,
+        status: TestLegacyMessageStatus,
+        attachment: Option<TestLegacyMessageAttachmentDb>,
+    }
+
     #[test]
     fn storage_manifest_covers_current_stores() {
         let manifest = storage_manifest_entries();
@@ -765,12 +935,14 @@ mod tests {
             .map(|entry| entry.category.clone())
             .collect::<Vec<_>>();
 
-        assert_eq!(manifest.len(), 20);
+        assert_eq!(manifest.len(), 24);
         assert!(categories.contains(&StorageCategory::WorkspaceMetadata));
         assert!(categories.contains(&StorageCategory::WorkspaceRegistry));
         assert!(categories.contains(&StorageCategory::WorkspaceFallbacks));
         assert!(categories.contains(&StorageCategory::AppPreferences));
         assert!(categories.contains(&StorageCategory::ShortcutPreferences));
+        assert!(categories.contains(&StorageCategory::ChatTerminalOutputPreferences));
+        assert!(categories.contains(&StorageCategory::TerminalConfiguration));
         assert!(categories.contains(&StorageCategory::NotificationPreferences));
         assert!(categories.contains(&StorageCategory::ProfileSettings));
         assert!(categories.contains(&StorageCategory::AvatarLibrary));
@@ -786,6 +958,8 @@ mod tests {
         assert!(categories.contains(&StorageCategory::WorkspaceSkillLinks));
         assert!(categories.contains(&StorageCategory::RoadmapTasks));
         assert!(categories.contains(&StorageCategory::RoadmapGoals));
+        assert!(categories.contains(&StorageCategory::DiagnosticsRuns));
+        assert!(categories.contains(&StorageCategory::DiagnosticsEvents));
         assert!(manifest
             .iter()
             .all(|entry| entry.schema_version == 1 && entry.fixture_required));
@@ -796,9 +970,9 @@ mod tests {
         let app_data = tempdir().expect("app data");
         let report = validate_data_integrity(app_data.path(), None, None);
 
-        assert_eq!(report.total_checks, 21);
+        assert_eq!(report.total_checks, 25);
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 11);
+        assert_eq!(report.skipped_checks, 13);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Skipped
@@ -817,6 +991,275 @@ mod tests {
         assert_eq!(report.failed_checks, 0);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
+                && check.status == DataIntegrityStatus::Passed
+        }));
+    }
+
+    #[test]
+    fn validation_passes_legacy_golutra_project_id_workspace_metadata() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let legacy_project_id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let metadata_dir = workspace.path().join(".orchlet");
+        fs::create_dir_all(&metadata_dir).expect("metadata dir");
+        fs::write(
+            metadata_dir.join("workspace.json"),
+            format!(
+                r#"{{
+  "schemaVersion": 1,
+  "projectId": "{legacy_project_id}",
+  "name": "legacy",
+  "createdAtMs": 1760000000000,
+  "updatedAtMs": 1760000000000
+}}"#
+            ),
+        )
+        .expect("legacy-compatible metadata written");
+        initialize_members(app_data.path(), legacy_project_id).expect("members initialized");
+
+        let report = validate_data_integrity(app_data.path(), None, Some(workspace.path().into()));
+
+        assert_eq!(report.failed_checks, 0);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceMetadata
+                && check.status == DataIntegrityStatus::Passed
+        }));
+    }
+
+    #[test]
+    fn validation_passes_legacy_golutra_global_settings_without_current_settings_files() {
+        let app_data = tempdir().expect("app data");
+        fs::write(
+            app_data.path().join("global-settings.json"),
+            serde_json::json!({
+                "appearance": { "theme": "light" },
+                "locale": "zh-CN",
+                "account": {
+                    "displayName": "Legacy Dana",
+                    "timezone": "utc",
+                    "status": "working",
+                    "statusMessage": "legacy settings"
+                },
+                "notifications": {
+                    "desktop": false,
+                    "sound": false,
+                    "mentionsOnly": true,
+                    "previews": false,
+                    "quietHoursEnabled": true,
+                    "quietHoursStart": "21:00",
+                    "quietHoursEnd": "07:00"
+                },
+                "keybinds": {
+                    "enabled": false,
+                    "showHints": false,
+                    "profile": "vscode"
+                },
+                "chat": { "streamOutput": false },
+                "members": {
+                    "terminalPaths": { "codex": "/opt/codex" },
+                    "customMembers": [
+                        { "id": "legacy-reviewer", "name": "Legacy Reviewer", "command": "legacy-reviewer --stdio" }
+                    ],
+                    "defaultTerminalName": "Ghostty",
+                    "defaultTerminalPath": "/opt/ghostty"
+                }
+            })
+            .to_string(),
+        )
+        .expect("legacy global settings");
+
+        let report = validate_data_integrity(app_data.path(), None, None);
+
+        assert_eq!(report.failed_checks, 0);
+        assert!(!app_data.path().join("settings/preferences.json").exists());
+        for category in [
+            StorageCategory::AppPreferences,
+            StorageCategory::ShortcutPreferences,
+            StorageCategory::ChatTerminalOutputPreferences,
+            StorageCategory::TerminalConfiguration,
+            StorageCategory::NotificationPreferences,
+            StorageCategory::ProfileSettings,
+        ] {
+            assert!(report.checks.iter().any(|check| {
+                check.category == category && check.status == DataIntegrityStatus::Passed
+            }));
+        }
+    }
+
+    #[test]
+    fn validation_passes_legacy_golutra_local_avatar_library_without_current_profile() {
+        let app_data = tempdir().expect("app data");
+        fs::write(
+            app_data.path().join("global-settings.json"),
+            serde_json::json!({
+                "account": {
+                    "displayName": "Legacy Dana",
+                    "avatar": "local:avatar1"
+                }
+            })
+            .to_string(),
+        )
+        .expect("legacy global settings");
+        fs::write(
+            app_data.path().join("avatar-library.json"),
+            serde_json::json!([
+                {
+                    "id": "avatar1",
+                    "filename": "avatar1.png",
+                    "createdAt": 1_760_000_000_000_u64
+                }
+            ])
+            .to_string(),
+        )
+        .expect("legacy avatar library");
+        let avatar_dir = app_data.path().join("avatars");
+        fs::create_dir_all(&avatar_dir).expect("legacy avatar dir");
+        fs::write(avatar_dir.join("avatar1.png"), b"legacy png").expect("legacy avatar file");
+
+        let report = validate_data_integrity(app_data.path(), None, None);
+
+        assert_eq!(report.failed_checks, 0);
+        for category in [
+            StorageCategory::ProfileSettings,
+            StorageCategory::AvatarLibrary,
+        ] {
+            assert!(report.checks.iter().any(|check| {
+                check.category == category && check.status == DataIntegrityStatus::Passed
+            }));
+        }
+    }
+
+    #[test]
+    fn validation_passes_imported_legacy_golutra_chat_redb() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let workspace_id = "01K00000000000000000000000".to_owned();
+        let active_workspace =
+            opened_workspace(workspace.path(), WorkspaceAccessMode::ReadWrite, false);
+        let metadata_path = super::workspace_metadata_path(workspace.path());
+        fs::create_dir_all(metadata_path.parent().expect("metadata parent")).expect("metadata dir");
+        fs::write(
+            &metadata_path,
+            serde_json::to_string(&active_workspace.metadata).expect("metadata encoded"),
+        )
+        .expect("workspace metadata written");
+        write_legacy_chat_redb(app_data.path(), &workspace_id);
+        let listed = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace_id.clone(),
+            },
+        )
+        .expect("legacy chat imported");
+        assert_eq!(listed.conversations.len(), 1);
+
+        let report = validate_data_integrity(
+            app_data.path(),
+            Some(active_workspace),
+            Some(workspace.path().into()),
+        );
+
+        assert_eq!(report.failed_checks, 0);
+        for category in [
+            StorageCategory::ConversationRecords,
+            StorageCategory::MessageRecords,
+            StorageCategory::ConversationReadPositions,
+        ] {
+            assert!(report.checks.iter().any(|check| {
+                check.category == category && check.status == DataIntegrityStatus::Passed
+            }));
+        }
+    }
+
+    #[test]
+    fn validation_passes_legacy_golutra_workspace_registry_files() {
+        let app_data = tempdir().expect("app data");
+        let legacy_project_id = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+        fs::write(
+            app_data.path().join("workspace-registry.json"),
+            serde_json::json!({
+                legacy_project_id: {
+                    "lastKnownPath": "/tmp/legacy-workspace",
+                    "lastAccessed": 1760000000400_u64
+                }
+            })
+            .to_string(),
+        )
+        .expect("legacy registry");
+        fs::write(
+            app_data.path().join("recent-workspaces.json"),
+            serde_json::json!([
+                {
+                    "id": legacy_project_id,
+                    "name": "Legacy Workspace",
+                    "path": "/tmp/legacy-workspace",
+                    "lastOpenedAt": 1760000000300_u64
+                }
+            ])
+            .to_string(),
+        )
+        .expect("legacy recent");
+
+        let report = validate_data_integrity(app_data.path(), None, None);
+
+        assert_eq!(report.failed_checks, 0);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceRegistry
+                && check.status == DataIntegrityStatus::Passed
+        }));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validation_passes_legacy_golutra_workspace_skill_symlinks() {
+        let app_data = tempdir().expect("app data");
+        let workspace = tempdir().expect("workspace");
+        let skill = tempdir().expect("skill");
+        let metadata = create_workspace_metadata(workspace.path()).expect("metadata created");
+        initialize_members(app_data.path(), &metadata.project_id).expect("members initialized");
+        fs::write(
+            skill.path().join("SKILL.md"),
+            "---\nname: Legacy Review\n---\n# Legacy Review",
+        )
+        .expect("manifest");
+        let legacy_skills_dir = workspace.path().join(".golutra/skills");
+        fs::create_dir_all(&legacy_skills_dir).expect("legacy skills dir");
+        std::os::unix::fs::symlink(skill.path(), legacy_skills_dir.join("legacy-review"))
+            .expect("legacy skill symlink");
+
+        let report = validate_data_integrity(app_data.path(), None, Some(workspace.path().into()));
+
+        assert_eq!(report.failed_checks, 0);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::WorkspaceSkillLinks
+                && check.status == DataIntegrityStatus::Passed
+        }));
+    }
+
+    #[test]
+    fn validation_passes_legacy_golutra_contacts_json_without_current_contacts_table() {
+        let app_data = tempdir().expect("app data");
+        fs::write(
+            app_data.path().join("contacts.json"),
+            serde_json::json!([
+                {
+                    "id": "01K00000000000000000000040",
+                    "name": "Legacy Admin",
+                    "avatar": "css:storm",
+                    "roleType": "admin",
+                    "status": "dnd",
+                    "createdAt": 1760000000200_u64
+                }
+            ])
+            .to_string(),
+        )
+        .expect("legacy contacts");
+
+        let report = validate_data_integrity(app_data.path(), None, None);
+
+        assert_eq!(report.failed_checks, 0);
+        assert!(report.checks.iter().any(|check| {
+            check.category == StorageCategory::ContactProfiles
                 && check.status == DataIntegrityStatus::Passed
         }));
     }
@@ -887,7 +1330,7 @@ mod tests {
         );
 
         assert_eq!(report.failed_checks, 1);
-        assert_eq!(report.skipped_checks, 7);
+        assert_eq!(report.skipped_checks, 9);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceMetadata
                 && check.status == DataIntegrityStatus::Failed
@@ -943,11 +1386,84 @@ mod tests {
         let report = validate_data_integrity(app_data.path(), None, None);
 
         assert_eq!(report.failed_checks, 0);
-        assert_eq!(report.skipped_checks, 11);
+        assert_eq!(report.skipped_checks, 13);
         assert!(report.checks.iter().any(|check| {
             check.category == StorageCategory::WorkspaceRegistry
                 && check.status == DataIntegrityStatus::Passed
         }));
+    }
+
+    fn write_legacy_chat_redb(app_data_dir: &Path, workspace_id: &str) {
+        let legacy_dir = app_data_dir.join(workspace_id);
+        fs::create_dir_all(&legacy_dir).expect("legacy chat dir");
+        let db = redb::Database::create(legacy_dir.join("chat.redb")).expect("legacy redb");
+        let conv_id = Ulid::new();
+        let member_id = Ulid::new();
+        let message_id = Ulid::new();
+        let write_txn = db.begin_write().expect("legacy write txn");
+
+        {
+            let mut table = write_txn
+                .open_table(TEST_LEGACY_CONVERSATIONS)
+                .expect("legacy conversations");
+            let meta = TestLegacyConversationMeta {
+                kind: TestLegacyConversationKind::Channel,
+                created_at: 1_760_000_000_000,
+                custom_name: Some("Legacy Workspace".to_owned()),
+                is_default: true,
+                last_message_at: Some(1_760_000_000_100),
+                last_message_preview: Some("legacy hello".to_owned()),
+            };
+            let payload = bincode::serialize(&meta).expect("conversation encoded");
+            table
+                .insert(conv_id.0, payload.as_slice())
+                .expect("legacy conversation inserted");
+        }
+        {
+            let mut table = write_txn
+                .open_table(TEST_LEGACY_USER_CONVS)
+                .expect("legacy user convs");
+            let settings = TestLegacyUserConversationSettings {
+                pinned: true,
+                muted: false,
+                last_read_message_id: Some(message_id.0),
+                last_active_at: Some(1_760_000_000_100),
+            };
+            let payload = bincode::serialize(&settings).expect("settings encoded");
+            table
+                .insert((member_id.0, conv_id.0), payload.as_slice())
+                .expect("legacy settings inserted");
+        }
+        {
+            let mut table = write_txn
+                .open_table(TEST_LEGACY_MEMBERS)
+                .expect("legacy members");
+            let payload = bincode::serialize(&()).expect("member encoded");
+            table
+                .insert((conv_id.0, member_id.0), payload.as_slice())
+                .expect("legacy member inserted");
+        }
+        {
+            let mut table = write_txn
+                .open_table(TEST_LEGACY_MESSAGES)
+                .expect("legacy messages");
+            let message = TestLegacyChatMessage {
+                sender_id: Some(member_id.0),
+                content: TestLegacyMessageContentDb::Text {
+                    text: "legacy hello".to_owned(),
+                },
+                created_at: 1_760_000_000_100,
+                is_ai: false,
+                status: TestLegacyMessageStatus::Sent,
+                attachment: None,
+            };
+            let payload = bincode::serialize(&message).expect("message encoded");
+            table
+                .insert((conv_id.0, message_id.0), payload.as_slice())
+                .expect("legacy message inserted");
+        }
+
+        write_txn.commit().expect("legacy committed");
     }
 
     fn opened_workspace(

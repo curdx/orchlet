@@ -2,6 +2,7 @@ pub mod chat;
 pub mod common;
 pub mod contact;
 pub mod data_integrity;
+pub mod diagnostics;
 pub mod member;
 pub mod notification;
 pub mod orchestration;
@@ -12,12 +13,15 @@ pub mod terminal;
 pub mod workspace;
 
 pub use chat::{
-    ChatMessageProfile, ChatMessageStatus, ClearConversationRequest, ClearConversationResult,
-    ConversationKind, ConversationMemberSummary, ConversationParticipantKind, ConversationProfile,
-    ConversationReadPositionProfile, CreateGroupConversationRequest, CreateGroupConversationResult,
-    DeleteConversationRequest, DeleteConversationResult, ListConversationsRequest,
-    ListConversationsResult, ListMessagesRequest, ListMessagesResult, SendMessageRequest,
-    SendMessageResult, StartPrivateConversationRequest, StartPrivateConversationResult,
+    ChatDataMaintenanceItem, ChatDataMaintenanceItemStatus, ChatMessageProfile, ChatMessageStatus,
+    ClearConversationRequest, ClearConversationResult, ClearWorkspaceChatDataRequest,
+    ClearWorkspaceChatDataResult, ConversationKind, ConversationMemberSummary,
+    ConversationParticipantKind, ConversationProfile, ConversationReadPositionProfile,
+    CreateGroupConversationRequest, CreateGroupConversationResult, DeleteConversationRequest,
+    DeleteConversationResult, ListConversationsRequest, ListConversationsResult,
+    ListMessagesRequest, ListMessagesResult, RepairWorkspaceChatDataRequest,
+    RepairWorkspaceChatDataResult, SendMessageRequest, SendMessageResult,
+    StartPrivateConversationRequest, StartPrivateConversationResult,
     UpdateConversationSettingsRequest, UpdateConversationSettingsResult,
     UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
     UpdateReadPositionRequest, UpdateReadPositionResult,
@@ -33,11 +37,29 @@ pub use data_integrity::{
     DataIntegrityValidateRequest, DataIntegrityValidateResult, StorageCategory, StorageFormat,
     StorageManifestEntry, StorageOwner, StoragePathPolicy, StoragePrivacyClass,
 };
+pub use diagnostics::{
+    CompleteDiagnosticsRunRequest, CompleteDiagnosticsRunResult, DiagnosticsConsistencyScope,
+    DiagnosticsConsistencySummary, DiagnosticsCorrelationIds, DiagnosticsEventProfile,
+    DiagnosticsEventScope, DiagnosticsEventSeverity, DiagnosticsExportPackage,
+    DiagnosticsExportRequest, DiagnosticsExportResult, DiagnosticsExportSection,
+    DiagnosticsIssueAffectedEntities, DiagnosticsIssueProfile, DiagnosticsMetadataEntry,
+    DiagnosticsOverviewRequest, DiagnosticsOverviewResult, DiagnosticsRedactionReason,
+    DiagnosticsRedactionSummary, DiagnosticsRedactionWarning, DiagnosticsRunOutcome,
+    DiagnosticsRunProfile, DiagnosticsRunStatus, DiagnosticsSeverityCounts,
+    DiagnosticsValidationAvailability, DiagnosticsValidationSummary, ListDiagnosticsEventsRequest,
+    ListDiagnosticsEventsResult, RecordDiagnosticsEventRequest, RecordDiagnosticsEventResult,
+    RunChatConsistencyDiagnosticsRequest, RunChatConsistencyDiagnosticsResult,
+    RunTerminalConsistencyDiagnosticsRequest, RunTerminalConsistencyDiagnosticsResult,
+    StartDiagnosticsRunRequest, StartDiagnosticsRunResult, TerminalExitDiagnosticsSummary,
+    TerminalOutputDiagnosticsSummary, TerminalSessionDiagnosticsInput,
+    TerminalSnapshotDiagnosticsSummary,
+};
 pub use member::{
     InviteMemberRequest, InviteMemberResult, InvitedMemberType, ListMembersRequest,
     ListMembersResult, MemberIsolation, MemberPermissions, MemberProfile, MemberRole,
     MemberRuntimeKind, MemberRuntimeProfile, MemberStatus, RemoveMemberRequest, RemoveMemberResult,
-    UpdateMemberStatusRequest, UpdateMemberStatusResult,
+    UpdateMemberProfileRequest, UpdateMemberProfileResult, UpdateMemberStatusRequest,
+    UpdateMemberStatusResult,
 };
 pub use notification::{
     NotificationIgnoreAllRequest, NotificationIgnoreAllResult, NotificationNavigationAction,
@@ -64,15 +86,23 @@ pub use roadmap::{
     UpdateRoadmapTaskRequest, UpdateRoadmapTaskResult,
 };
 pub use settings::{
-    AppPreferencesSettingsSnapshot, DeleteUploadedProfileAvatarRequest,
-    DeleteUploadedProfileAvatarResult, GetProfileSettingsRequest, GetProfileSettingsResult,
-    GetShortcutPreferencesRequest, GetShortcutPreferencesResult, ProfileAvatarKind,
-    ProfileAvatarSnapshot, ProfileSettingsSnapshot, ProfileStatus, ResetProfileAvatarRequest,
-    ResetProfileAvatarResult, ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
+    AppPreferencesSettingsSnapshot, ChatTerminalOutputDisplayMode,
+    ChatTerminalOutputPreferencesSnapshot, DeleteUploadedProfileAvatarRequest,
+    DeleteUploadedProfileAvatarResult, GetChatTerminalOutputPreferencesRequest,
+    GetChatTerminalOutputPreferencesResult, GetProfileSettingsRequest, GetProfileSettingsResult,
+    GetShortcutPreferencesRequest, GetShortcutPreferencesResult, GetTerminalConfigurationRequest,
+    GetTerminalConfigurationResult, ProfileAvatarKind, ProfileAvatarSnapshot,
+    ProfileSettingsSnapshot, ProfileStatus, ResetChatTerminalOutputPreferencesRequest,
+    ResetChatTerminalOutputPreferencesResult, ResetProfileAvatarRequest, ResetProfileAvatarResult,
+    ResetShortcutPreferencesRequest, ResetShortcutPreferencesResult,
+    ResetTerminalConfigurationRequest, ResetTerminalConfigurationResult,
     SelectProfileAvatarPresetRequest, SelectProfileAvatarPresetResult, ShortcutBindingSnapshot,
-    ShortcutKeymapProfile, ShortcutPreferencesSnapshot, UpdateProfileSettingsRequest,
-    UpdateProfileSettingsResult, UpdateShortcutPreferencesRequest, UpdateShortcutPreferencesResult,
-    UploadProfileAvatarRequest, UploadProfileAvatarResult,
+    ShortcutKeymapProfile, ShortcutPreferencesSnapshot, TerminalBuiltInCliEntry,
+    TerminalConfigurationSnapshot, TerminalCustomCliEntry, TerminalCustomTerminalEntry,
+    UpdateChatTerminalOutputPreferencesRequest, UpdateChatTerminalOutputPreferencesResult,
+    UpdateProfileSettingsRequest, UpdateProfileSettingsResult, UpdateShortcutPreferencesRequest,
+    UpdateShortcutPreferencesResult, UpdateTerminalConfigurationRequest,
+    UpdateTerminalConfigurationResult, UploadProfileAvatarRequest, UploadProfileAvatarResult,
 };
 pub use skill::{
     DeleteSkillRequest, DeleteSkillResult, ImportLocalSkillFolderRequest,

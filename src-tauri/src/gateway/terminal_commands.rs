@@ -3,15 +3,21 @@ use std::{path::PathBuf, sync::Arc};
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::{
-    app::{terminal::TerminalRuntimeState, window_context::WindowContextRuntimeState},
+    app::{
+        diagnostics::{best_effort_event, record_workspace_diagnostics_event_best_effort},
+        terminal::TerminalRuntimeState,
+        window_context::WindowContextRuntimeState,
+    },
     contracts::{
-        AppError, TerminalAttachRequest, TerminalAttachResult, TerminalCloseRequest,
-        TerminalCloseResult, TerminalEnvironmentsListRequest, TerminalEnvironmentsListResult,
-        TerminalInputRequest, TerminalInputResult, TerminalOpenRequest, TerminalOpenResult,
-        TerminalResizeRequest, TerminalResizeResult, TerminalTabCloseRequest,
-        TerminalTabCloseResult, TerminalTabCreateRequest, TerminalTabCreateResult,
-        TerminalTabRestoreRequest, TerminalTabRestoreResult, TerminalTabUpdateRequest,
-        TerminalTabUpdateResult, TerminalTabsListRequest, TerminalTabsListResult, WindowMode,
+        AppError, DiagnosticsCorrelationIds, DiagnosticsEventScope, DiagnosticsEventSeverity,
+        DiagnosticsMetadataEntry, TerminalAttachRequest, TerminalAttachResult,
+        TerminalCloseRequest, TerminalCloseResult, TerminalEnvironmentsListRequest,
+        TerminalEnvironmentsListResult, TerminalInputRequest, TerminalInputResult,
+        TerminalOpenRequest, TerminalOpenResult, TerminalResizeRequest, TerminalResizeResult,
+        TerminalTabCloseRequest, TerminalTabCloseResult, TerminalTabCreateRequest,
+        TerminalTabCreateResult, TerminalTabRestoreRequest, TerminalTabRestoreResult,
+        TerminalTabUpdateRequest, TerminalTabUpdateResult, TerminalTabsListRequest,
+        TerminalTabsListResult, WindowMode,
     },
     domain::terminal::{TERMINAL_OUTPUT_EVENT, TERMINAL_STATUS_CHANGE_EVENT},
     gateway::workspace_commands::open_or_focus_window_mode,
@@ -42,9 +48,30 @@ pub async fn terminal_open(
         event_sink,
         status_sink,
     )?;
+    let diagnostics_app_data_dir = app_data_dir.clone();
     terminal_state.ensure_tab_for_session(app_data_dir, &session, session.title.clone())?;
     let window_result =
         open_or_focus_window_mode(&app, &window_context_state, WindowMode::Terminal).await?;
+    record_workspace_diagnostics_event_best_effort(
+        diagnostics_app_data_dir,
+        best_effort_event(
+            &workspace.metadata.project_id,
+            DiagnosticsEventScope::Terminal,
+            "terminal.session.opened",
+            DiagnosticsEventSeverity::Info,
+            DiagnosticsCorrelationIds {
+                workspace_id: Some(workspace.metadata.project_id.clone()),
+                terminal_session_id: Some(session.terminal_session_id.clone()),
+                member_id: session.member_id.clone(),
+                window_label: Some(window_result.window.label.clone()),
+                ..DiagnosticsCorrelationIds::default()
+            },
+            vec![DiagnosticsMetadataEntry {
+                key: "created".to_owned(),
+                value: session_created.to_string(),
+            }],
+        ),
+    );
 
     Ok(TerminalOpenResult {
         window: window_result.window,

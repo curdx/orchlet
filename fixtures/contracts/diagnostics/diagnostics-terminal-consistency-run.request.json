@@ -1,0 +1,27 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "runId": null,
+  "sessions": [
+    {
+      "terminalSessionId": "01K000000000000000000000AA",
+      "terminalTabId": "01K000000000000000000000AB",
+      "status": "running",
+      "snapshot": {
+        "lastSeq": 1,
+        "truncated": false,
+        "updatedAtMs": 1760000008100
+      },
+      "exitReason": null,
+      "outputs": [
+        {
+          "seq": 1,
+          "emittedAtMs": 1760000008100
+        },
+        {
+          "seq": 3,
+          "emittedAtMs": 1760000008300
+        }
+      ]
+    }
+  ]
+}

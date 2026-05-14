@@ -336,6 +336,10 @@ fn is_workspace_metadata_write_error(error: &AppError) -> bool {
         "workspace.metadata.createDirFailed"
             | "workspace.metadata.writeFailed"
             | "workspace.metadata.renameFailed"
+            | "workspace.metadata.legacyCreateDirFailed"
+            | "workspace.metadata.legacyReadFailed"
+            | "workspace.metadata.legacyWriteFailed"
+            | "workspace.metadata.legacyRenameFailed"
     )
 }
 
@@ -527,6 +531,116 @@ mod tests {
         assert_eq!(second.metadata.created_at_ms, first.metadata.created_at_ms);
         assert_eq!(second.access_mode, WorkspaceAccessMode::ReadWrite);
         assert_eq!(second.registry_action, WorkspaceRegistryAction::Reopened);
+    }
+
+    #[test]
+    fn opens_legacy_golutra_workspace_metadata_without_recreating_project_identity() {
+        let temp = tempdir().expect("workspace temp dir");
+        let app_data = tempdir().expect("app data temp dir");
+        let runtime = WorkspaceRuntimeState::default();
+        let legacy_id = legacy_project_id();
+        let legacy_dir = temp.path().join(".golutra");
+        fs::create_dir_all(&legacy_dir).expect("create legacy dir");
+        fs::write(
+            legacy_dir.join("workspace.json"),
+            format!(
+                r#"{{
+  "projectId": "{legacy_id}",
+  "members": [{{"id": "legacy-member"}}],
+  "customField": "preserve-me"
+}}"#
+            ),
+        )
+        .expect("write legacy metadata");
+
+        let opened = open_workspace_from_path(temp.path(), None, app_data.path(), &runtime, "main")
+            .expect("legacy workspace opens")
+            .workspace
+            .expect("opened workspace");
+        let current_metadata = read_workspace_metadata(temp.path())
+            .expect("current metadata reads")
+            .expect("current metadata exists");
+        let mirrored_raw =
+            fs::read_to_string(legacy_dir.join("workspace.json")).expect("legacy metadata mirrors");
+        let mirrored: serde_json::Value =
+            serde_json::from_str(&mirrored_raw).expect("legacy metadata json");
+        let local_raw =
+            fs::read_to_string(legacy_dir.join("local.json")).expect("legacy local state writes");
+        let local: serde_json::Value = serde_json::from_str(&local_raw).expect("legacy local json");
+        let registry = load_workspace_registry(app_data.path()).expect("registry loads");
+
+        assert_eq!(opened.metadata.project_id, legacy_id);
+        assert_eq!(current_metadata.project_id, legacy_id);
+        assert_eq!(registry.entries[0].project_id, legacy_id);
+        assert_eq!(mirrored["projectId"], legacy_id);
+        assert_eq!(mirrored["customField"], "preserve-me");
+        assert!(mirrored["members"].is_array());
+        assert!(local["localMachineId"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
+        assert!(local["lastOpenedAt"].as_u64().unwrap_or_default() > 0);
+    }
+
+    #[test]
+    fn orchlet_metadata_takes_precedence_and_mirrors_active_id_to_golutra_metadata() {
+        let temp = tempdir().expect("workspace temp dir");
+        let app_data = tempdir().expect("app data temp dir");
+        let runtime = WorkspaceRuntimeState::default();
+        let first = open_workspace_from_path(temp.path(), None, app_data.path(), &runtime, "main")
+            .expect("first open")
+            .workspace
+            .expect("first workspace");
+        let legacy_dir = temp.path().join(".golutra");
+        fs::write(
+            legacy_dir.join("workspace.json"),
+            format!(
+                r#"{{
+  "projectId": "{}",
+  "customField": "preserve-me"
+}}"#,
+                legacy_project_id()
+            ),
+        )
+        .expect("replace legacy id");
+
+        let second_runtime = WorkspaceRuntimeState::default();
+        let reopened =
+            open_workspace_from_path(temp.path(), None, app_data.path(), &second_runtime, "main")
+                .expect("reopen with both metadata files")
+                .workspace
+                .expect("workspace");
+        let mirrored_raw =
+            fs::read_to_string(legacy_dir.join("workspace.json")).expect("legacy metadata mirrors");
+        let mirrored: serde_json::Value =
+            serde_json::from_str(&mirrored_raw).expect("legacy metadata json");
+
+        assert_eq!(reopened.metadata.project_id, first.metadata.project_id);
+        assert_eq!(mirrored["projectId"], first.metadata.project_id);
+        assert_eq!(mirrored["customField"], "preserve-me");
+    }
+
+    #[test]
+    fn preserves_existing_golutra_local_machine_id_when_refreshing_local_state() {
+        let temp = tempdir().expect("workspace temp dir");
+        let app_data = tempdir().expect("app data temp dir");
+        let runtime = WorkspaceRuntimeState::default();
+        let legacy_dir = temp.path().join(".golutra");
+        fs::create_dir_all(&legacy_dir).expect("create legacy dir");
+        fs::write(
+            legacy_dir.join("local.json"),
+            r#"{"localMachineId":"legacy-machine","lastOpenedAt":1}"#,
+        )
+        .expect("write legacy local state");
+
+        open_workspace_from_path(temp.path(), None, app_data.path(), &runtime, "main")
+            .expect("workspace opens");
+
+        let local_raw =
+            fs::read_to_string(legacy_dir.join("local.json")).expect("legacy local state reads");
+        let local: serde_json::Value = serde_json::from_str(&local_raw).expect("legacy local json");
+
+        assert_eq!(local["localMachineId"], "legacy-machine");
+        assert!(local["lastOpenedAt"].as_u64().unwrap_or_default() > 1);
     }
 
     #[cfg(unix)]
@@ -952,5 +1066,9 @@ mod tests {
         let mut permissions = fs::metadata(path).expect("metadata").permissions();
         permissions.set_mode(mode);
         fs::set_permissions(path, permissions).expect("set permissions");
+    }
+
+    fn legacy_project_id() -> String {
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned()
     }
 }

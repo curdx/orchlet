@@ -363,7 +363,7 @@ function createBrowserSession(memberId: string | null): TerminalSessionProfile {
     terminalSessionId: nextBrowserUlid(),
     workspaceId: "browser-workspace",
     memberId,
-    title: memberId ? "Member terminal" : "Workspace terminal",
+    title: memberId ? "Member terminal" : "Terminal 1",
     status: "running",
     cols: 120,
     rows: 30,

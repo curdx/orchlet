@@ -37,6 +37,8 @@ export type NotificationApi = {
   dispatchNavigation: (
     request: NotificationNavigationRequest,
   ) => Promise<NotificationNavigationResult>;
+  setPreviewHovered: (hovered: boolean) => Promise<void>;
+  hidePreview: () => Promise<void>;
   subscribeUnreadSummary: (
     handler: (summary: NotificationUnreadSummary) => void,
   ) => Promise<UnlistenFn>;
@@ -183,6 +185,22 @@ export const notificationApi: NotificationApi = {
     return invokeCommand<NotificationNavigationResult>("notification_navigation_dispatch", {
       request,
     });
+  },
+
+  async setPreviewHovered(hovered) {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    return invokeCommand<void>("notification_preview_hover", { hovered });
+  },
+
+  async hidePreview() {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    return invokeCommand<void>("notification_preview_hide");
   },
 
   async subscribeUnreadSummary(handler) {

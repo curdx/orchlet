@@ -1,6 +1,8 @@
 import type {
   ClearConversationRequest,
   ClearConversationResult,
+  ClearWorkspaceChatDataRequest,
+  ClearWorkspaceChatDataResult,
   CreateGroupConversationRequest,
   CreateGroupConversationResult,
   DeleteConversationRequest,
@@ -9,6 +11,8 @@ import type {
   ListConversationsResult,
   ListMessagesRequest,
   ListMessagesResult,
+  RepairWorkspaceChatDataRequest,
+  RepairWorkspaceChatDataResult,
   SendMessageRequest,
   SendMessageResult,
   StartPrivateConversationRequest,
@@ -35,6 +39,12 @@ export type ChatApi = {
   clearConversation: (
     request: ClearConversationRequest,
   ) => Promise<ClearConversationResult>;
+  repairWorkspaceData: (
+    request: RepairWorkspaceChatDataRequest,
+  ) => Promise<RepairWorkspaceChatDataResult>;
+  clearWorkspaceData: (
+    request: ClearWorkspaceChatDataRequest,
+  ) => Promise<ClearWorkspaceChatDataResult>;
   deleteConversation: (
     request: DeleteConversationRequest,
   ) => Promise<DeleteConversationResult>;
@@ -70,6 +80,16 @@ export const chatApi: ChatApi = {
   },
   clearConversation(request) {
     return invokeCommand<ClearConversationResult>("chat_conversation_clear", {
+      request,
+    });
+  },
+  repairWorkspaceData(request) {
+    return invokeCommand<RepairWorkspaceChatDataResult>("chat_data_repair", {
+      request,
+    });
+  },
+  clearWorkspaceData(request) {
+    return invokeCommand<ClearWorkspaceChatDataResult>("chat_data_clear", {
       request,
     });
   },

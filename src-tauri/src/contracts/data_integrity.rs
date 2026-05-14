@@ -13,6 +13,7 @@ pub enum StorageOwner {
     Terminal,
     Skill,
     Roadmap,
+    Diagnostics,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, TS)]
@@ -25,6 +26,8 @@ pub enum StorageCategory {
     WorkspaceFallbacks,
     AppPreferences,
     ShortcutPreferences,
+    ChatTerminalOutputPreferences,
+    TerminalConfiguration,
     NotificationPreferences,
     ProfileSettings,
     AvatarLibrary,
@@ -41,6 +44,8 @@ pub enum StorageCategory {
     WorkspaceSkillLinks,
     RoadmapTasks,
     RoadmapGoals,
+    DiagnosticsRuns,
+    DiagnosticsEvents,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]

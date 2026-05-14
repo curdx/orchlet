@@ -32,13 +32,13 @@
           "id": "startShell",
           "status": "manual",
           "evidence": null,
-          "notes": "Terminal PTY is future scope."
+          "notes": "Terminal PTY lifecycle is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "sendMessage",
           "status": "manual",
           "evidence": null,
-          "notes": "Chat dispatch is future scope."
+          "notes": "Chat dispatch is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "terminalOutput",
@@ -50,7 +50,7 @@
           "id": "notificationJump",
           "status": "manual",
           "evidence": null,
-          "notes": "Notification navigation is future scope."
+          "notes": "Notification navigation is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "restartRecovery",
@@ -80,13 +80,13 @@
           "id": "startShell",
           "status": "manual",
           "evidence": null,
-          "notes": "Terminal PTY is future scope."
+          "notes": "Terminal PTY lifecycle is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "sendMessage",
           "status": "manual",
           "evidence": null,
-          "notes": "Chat dispatch is future scope."
+          "notes": "Chat dispatch is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "terminalOutput",
@@ -98,7 +98,7 @@
           "id": "notificationJump",
           "status": "manual",
           "evidence": null,
-          "notes": "Notification navigation is future scope."
+          "notes": "Notification navigation is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "restartRecovery",
@@ -128,13 +128,13 @@
           "id": "startShell",
           "status": "manual",
           "evidence": null,
-          "notes": "Terminal PTY is future scope."
+          "notes": "Terminal PTY lifecycle is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "sendMessage",
           "status": "manual",
           "evidence": null,
-          "notes": "Chat dispatch is future scope."
+          "notes": "Chat dispatch is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "terminalOutput",
@@ -146,7 +146,7 @@
           "id": "notificationJump",
           "status": "manual",
           "evidence": null,
-          "notes": "Notification navigation is future scope."
+          "notes": "Notification navigation is implemented; packaged smoke evidence is not recorded here."
         },
         {
           "id": "restartRecovery",

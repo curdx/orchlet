@@ -1,0 +1,23 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "cursor": null,
+  "maxEvents": 25,
+  "includeSections": [
+    "runs",
+    "events",
+    "validationReports",
+    "consistencySummaries",
+    "appMetadata",
+    "additionalContext"
+  ],
+  "additionalContext": [
+    {
+      "key": "note",
+      "value": "metadata-only fixture"
+    },
+    {
+      "key": "apiToken",
+      "value": "[redacted fixture token]"
+    }
+  ]
+}

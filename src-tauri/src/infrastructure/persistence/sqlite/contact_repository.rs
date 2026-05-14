@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashSet, fs, path::Path};
 
 use rusqlite::{params, Connection};
 use ulid::Ulid;
@@ -7,7 +7,7 @@ use crate::{
     contracts::{
         AppError, ContactInviteSource, ContactKind, ContactProfile, CreateContactRequest,
         CreateContactResult, DeleteContactRequest, DeleteContactResult, ListContactsResult,
-        MemberProfile, UpdateContactRequest, UpdateContactResult,
+        MemberProfile, MemberStatus, UpdateContactRequest, UpdateContactResult,
     },
     domain::contact::{
         normalize_contact_display_name, normalize_optional_contact_text, validate_contact_id,
@@ -18,7 +18,7 @@ use crate::{
             global_database::{
                 global_database_path, open_global_database, open_global_database_read_only,
             },
-            member_repository::create_local_admin_member,
+            member_repository::create_local_admin_member_with_id,
             workspace_database::sqlite_error,
         },
     },
@@ -26,10 +26,15 @@ use crate::{
 
 const CONTACT_MIGRATION_SQL: &str =
     include_str!("../../../../migrations/global/202605121200__contacts.sql");
+const DEFAULT_CONTACT_AVATAR: &str = "css:orbit";
 
 pub fn list_contacts(app_data_dir: &Path) -> Result<ListContactsResult, AppError> {
     let connection = open_global_database(app_data_dir)?;
+    let had_current_contacts_table = table_exists(&connection, "contacts")?;
     apply_contact_migration(&connection)?;
+    if !had_current_contacts_table {
+        import_legacy_golutra_contacts_if_present(app_data_dir, &connection)?;
+    }
     list_contacts_from_connection(&connection)
 }
 
@@ -49,6 +54,8 @@ pub fn create_contact(
         contact_id: Ulid::new().to_string(),
         display_name,
         contact_kind,
+        avatar: DEFAULT_CONTACT_AVATAR.to_owned(),
+        status: MemberStatus::Offline,
         invite_source: ContactInviteSource::AdminContactInvite,
         notes,
         source_label,
@@ -82,6 +89,9 @@ pub fn update_contact(
 
     contact.display_name = display_name;
     contact.contact_kind = request.contact_kind;
+    if let Some(status) = request.status {
+        contact.status = status;
+    }
     contact.notes = notes;
     contact.source_label = source_label;
     contact.updated_at_ms = now_ms();
@@ -89,12 +99,14 @@ pub fn update_contact(
     connection
         .execute(
             "UPDATE contacts
-             SET display_name = ?1, contact_kind = ?2, invite_source = ?3, notes = ?4,
-                 source_label = ?5, updated_at_ms = ?6
-             WHERE id = ?7",
+             SET display_name = ?1, contact_kind = ?2, avatar = ?3, status = ?4,
+                 invite_source = ?5, notes = ?6, source_label = ?7, updated_at_ms = ?8
+             WHERE id = ?9",
             params![
                 contact.display_name,
                 contact_kind_to_str(&contact.contact_kind),
+                contact.avatar,
+                contact_status_to_str(&contact.status),
                 invite_source_to_str(&contact.invite_source),
                 contact.notes,
                 contact.source_label,
@@ -150,10 +162,12 @@ pub fn contact_by_id(app_data_dir: &Path, contact_id: &str) -> Result<ContactPro
 
 pub fn validate_contact_store(app_data_dir: &Path) -> Result<(), AppError> {
     let Some(connection) = open_global_database_read_only(app_data_dir)? else {
+        load_legacy_golutra_contacts(app_data_dir)?;
         return Ok(());
     };
 
     if !table_exists(&connection, "contacts")? {
+        load_legacy_golutra_contacts(app_data_dir)?;
         return Ok(());
     }
 
@@ -167,13 +181,137 @@ pub fn contact_database_path(app_data_dir: &Path) -> std::path::PathBuf {
 fn apply_contact_migration(connection: &Connection) -> Result<(), AppError> {
     connection
         .execute_batch(CONTACT_MIGRATION_SQL)
-        .map_err(sqlite_error("contact.migration.failed"))
+        .map_err(sqlite_error("contact.migration.failed"))?;
+    ensure_contact_parity_columns(connection)
+}
+
+fn import_legacy_golutra_contacts_if_present(
+    app_data_dir: &Path,
+    connection: &Connection,
+) -> Result<(), AppError> {
+    let contacts = load_legacy_golutra_contacts(app_data_dir)?;
+
+    for contact in contacts {
+        insert_contact(connection, &contact)?;
+    }
+
+    Ok(())
+}
+
+fn legacy_golutra_contacts_path(app_data_dir: &Path) -> std::path::PathBuf {
+    app_data_dir.join("contacts.json")
+}
+
+fn load_legacy_golutra_contacts(app_data_dir: &Path) -> Result<Vec<ContactProfile>, AppError> {
+    let path = legacy_golutra_contacts_path(app_data_dir);
+
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let raw = fs::read_to_string(&path).map_err(|error| {
+        AppError::recoverable_error(
+            "contact.legacyContacts.readFailed",
+            "无法读取旧版联系人数据。",
+            "联系人列表未更新；请检查 contacts.json 权限后重试。",
+            Some(format!("{}: {}", path.display(), error)),
+        )
+    })?;
+    let value: serde_json::Value = serde_json::from_str(&raw).map_err(|error| {
+        AppError::recoverable_error(
+            "contact.legacyContacts.invalidJson",
+            "旧版联系人数据不是有效 JSON。",
+            "请先备份或修复 contacts.json 后重试。",
+            Some(format!("{}: {}", path.display(), error)),
+        )
+    })?;
+    let Some(items) = value.as_array() else {
+        return Ok(Vec::new());
+    };
+    let mut seen_ids = HashSet::new();
+    let mut contacts = Vec::new();
+
+    for item in items {
+        let Some(contact) = legacy_golutra_contact_from_value(item) else {
+            continue;
+        };
+
+        if !seen_ids.insert(contact.contact_id.clone()) {
+            continue;
+        }
+
+        contacts.push(contact);
+    }
+
+    Ok(contacts)
+}
+
+fn legacy_golutra_contact_from_value(value: &serde_json::Value) -> Option<ContactProfile> {
+    let object = value.as_object()?;
+    let id = object.get("id")?.as_str()?.trim();
+    if id.parse::<Ulid>().is_err() {
+        return None;
+    }
+    let name = object.get("name")?.as_str()?.trim();
+    let display_name = normalize_contact_display_name(name).ok()?;
+    let avatar = object
+        .get("avatar")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_CONTACT_AVATAR)
+        .to_owned();
+    let created_at_ms = object
+        .get("createdAt")
+        .and_then(|value| value.as_u64())
+        .filter(|value| *value > 0)
+        .unwrap_or_else(now_ms);
+
+    Some(ContactProfile {
+        contact_id: id.to_owned(),
+        display_name,
+        contact_kind: legacy_contact_kind(
+            object
+                .get("roleType")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default(),
+        ),
+        avatar,
+        status: legacy_contact_status(
+            object
+                .get("status")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default(),
+        ),
+        invite_source: ContactInviteSource::AdminContactInvite,
+        notes: None,
+        source_label: Some("Legacy Golutra contacts.json".to_owned()),
+        created_at_ms,
+        updated_at_ms: created_at_ms,
+    })
+}
+
+fn legacy_contact_kind(role_type: &str) -> ContactKind {
+    if role_type == "admin" {
+        ContactKind::Administrator
+    } else {
+        ContactKind::Contact
+    }
+}
+
+fn legacy_contact_status(status: &str) -> MemberStatus {
+    match status {
+        "online" => MemberStatus::Online,
+        "working" => MemberStatus::Working,
+        "dnd" | "doNotDisturb" => MemberStatus::DoNotDisturb,
+        _ => MemberStatus::Offline,
+    }
 }
 
 fn list_contacts_from_connection(connection: &Connection) -> Result<ListContactsResult, AppError> {
     let mut statement = connection
         .prepare(
-            "SELECT id, display_name, contact_kind, invite_source, notes, source_label,
+            "SELECT id, display_name, contact_kind, avatar, status, invite_source, notes, source_label,
                     created_at_ms, updated_at_ms
              FROM contacts
              ORDER BY CASE contact_kind WHEN 'administrator' THEN 0 ELSE 1 END,
@@ -195,7 +333,7 @@ fn contact_by_id_from_connection(
 ) -> Result<ContactProfile, AppError> {
     let mut statement = connection
         .prepare(
-            "SELECT id, display_name, contact_kind, invite_source, notes, source_label,
+            "SELECT id, display_name, contact_kind, avatar, status, invite_source, notes, source_label,
                     created_at_ms, updated_at_ms
              FROM contacts
              WHERE id = ?1",
@@ -219,13 +357,15 @@ fn insert_contact(connection: &Connection, contact: &ContactProfile) -> Result<(
     connection
         .execute(
             "INSERT INTO contacts (
-                id, display_name, contact_kind, invite_source, notes, source_label,
+                id, display_name, contact_kind, avatar, status, invite_source, notes, source_label,
                 created_at_ms, updated_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 contact.contact_id,
                 contact.display_name,
                 contact_kind_to_str(&contact.contact_kind),
+                contact.avatar,
+                contact_status_to_str(&contact.status),
                 invite_source_to_str(&contact.invite_source),
                 contact.notes,
                 contact.source_label,
@@ -251,7 +391,12 @@ fn create_admin_member_for_contact(
         return Ok(None);
     };
 
-    match create_local_admin_member(app_data_dir, &workspace_id, &contact.display_name) {
+    match create_local_admin_member_with_id(
+        app_data_dir,
+        &workspace_id,
+        &contact.contact_id,
+        &contact.display_name,
+    ) {
         Ok(member) => Ok(Some(member)),
         Err(error) => {
             let _ = connection.execute(
@@ -268,12 +413,66 @@ fn contact_from_row(row: &rusqlite::Row<'_>) -> Result<ContactProfile, rusqlite:
         contact_id: row.get(0)?,
         display_name: row.get(1)?,
         contact_kind: contact_kind_from_str(row.get::<_, String>(2)?.as_str()),
-        invite_source: invite_source_from_str(row.get::<_, String>(3)?.as_str()),
-        notes: row.get(4)?,
-        source_label: row.get(5)?,
-        created_at_ms: row.get::<_, i64>(6)? as u64,
-        updated_at_ms: row.get::<_, i64>(7)? as u64,
+        avatar: row.get(3)?,
+        status: contact_status_from_str(row.get::<_, String>(4)?.as_str()),
+        invite_source: invite_source_from_str(row.get::<_, String>(5)?.as_str()),
+        notes: row.get(6)?,
+        source_label: row.get(7)?,
+        created_at_ms: row.get::<_, i64>(8)? as u64,
+        updated_at_ms: row.get::<_, i64>(9)? as u64,
     })
+}
+
+fn ensure_contact_parity_columns(connection: &Connection) -> Result<(), AppError> {
+    let columns = contact_columns(connection)?;
+
+    if !columns.iter().any(|column| column == "avatar") {
+        connection
+            .execute(
+                "ALTER TABLE contacts ADD COLUMN avatar TEXT NOT NULL DEFAULT 'css:orbit'",
+                [],
+            )
+            .map_err(sqlite_error("contact.migration.avatarFailed"))?;
+    }
+
+    if !columns.iter().any(|column| column == "status") {
+        connection
+            .execute(
+                "ALTER TABLE contacts ADD COLUMN status TEXT NOT NULL DEFAULT 'offline'",
+                [],
+            )
+            .map_err(sqlite_error("contact.migration.statusFailed"))?;
+    }
+
+    connection
+        .execute(
+            "UPDATE contacts SET status = 'doNotDisturb' WHERE status = 'dnd'",
+            [],
+        )
+        .map_err(sqlite_error("contact.migration.statusAliasFailed"))?;
+
+    connection
+        .execute(
+            "UPDATE contacts
+             SET status = 'offline'
+             WHERE status NOT IN ('online', 'working', 'doNotDisturb', 'offline')",
+            [],
+        )
+        .map_err(sqlite_error("contact.migration.statusNormalizeFailed"))?;
+
+    Ok(())
+}
+
+fn contact_columns(connection: &Connection) -> Result<Vec<String>, AppError> {
+    let mut statement = connection
+        .prepare("PRAGMA table_info(contacts)")
+        .map_err(sqlite_error("contact.migration.tableInfoPrepareFailed"))?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(sqlite_error("contact.migration.tableInfoQueryFailed"))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(sqlite_error("contact.migration.tableInfoDecodeFailed"))?;
+    Ok(columns)
 }
 
 fn table_exists(connection: &Connection, table_name: &str) -> Result<bool, AppError> {
@@ -298,6 +497,24 @@ fn contact_kind_from_str(value: &str) -> ContactKind {
     match value {
         "administrator" => ContactKind::Administrator,
         _ => ContactKind::Contact,
+    }
+}
+
+fn contact_status_to_str(status: &MemberStatus) -> &'static str {
+    match status {
+        MemberStatus::Online => "online",
+        MemberStatus::Working => "working",
+        MemberStatus::DoNotDisturb => "doNotDisturb",
+        MemberStatus::Offline => "offline",
+    }
+}
+
+fn contact_status_from_str(value: &str) -> MemberStatus {
+    match value {
+        "online" => MemberStatus::Online,
+        "working" => MemberStatus::Working,
+        "doNotDisturb" | "dnd" => MemberStatus::DoNotDisturb,
+        _ => MemberStatus::Offline,
     }
 }
 

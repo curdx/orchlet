@@ -449,7 +449,13 @@ mod tests {
             TerminalStreamKind, UpdateMemberStatusRequest, WorkspaceAccessMode, WorkspaceMetadata,
             WorkspaceRegistryAction, WorkspaceRegistryEntry,
         },
-        infrastructure::persistence::sqlite::dispatch_repository::dispatches_for_message,
+        infrastructure::persistence::{
+            json_store::terminal_configuration_store::{
+                default_terminal_configuration, load_terminal_configuration,
+                save_terminal_configuration,
+            },
+            sqlite::dispatch_repository::dispatches_for_message,
+        },
     };
 
     #[derive(Default)]
@@ -1659,7 +1665,31 @@ mod tests {
     fn available_command(root: &std::path::Path, name: &str) -> String {
         let path = root.join(name);
         fs::write(&path, "").expect("test command file");
-        path.display().to_string()
+        let command = path.display().to_string();
+
+        configure_built_in_cli_command(root, name, &command);
+
+        command
+    }
+
+    fn configure_built_in_cli_command(root: &std::path::Path, name: &str, command: &str) {
+        let runtime_id = match name {
+            "codex" => "codex",
+            "claude" => "claude-code",
+            "gemini" => "gemini-cli",
+            "opencode" => "opencode",
+            "qwen" => "qwen-code",
+            _ => return,
+        };
+        let mut configuration =
+            load_terminal_configuration(root).unwrap_or_else(|_| default_terminal_configuration());
+        let entry = configuration
+            .built_in_cli_entries
+            .iter_mut()
+            .find(|entry| entry.runtime_id == runtime_id)
+            .expect("supported built-in CLI entry");
+        entry.command = command.to_owned();
+        save_terminal_configuration(root, &configuration).expect("saved terminal config");
     }
 
     fn workspace() -> OpenedWorkspace {

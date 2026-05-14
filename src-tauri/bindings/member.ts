@@ -14,7 +14,7 @@ export type MemberIsolation = { sandboxed: boolean, unlimitedAccess: boolean, };
 
 export type MemberPermissions = { canMention: boolean, canRemove: boolean, };
 
-export type MemberProfile = { memberId: string, workspaceId: string, role: MemberRole, displayName: string, instanceIndex: number, instanceLabel: string, status: MemberStatus, runtime: MemberRuntimeProfile, permissions: MemberPermissions, isolation: MemberIsolation, createdAtMs: number, updatedAtMs: number, };
+export type MemberProfile = { memberId: string, workspaceId: string, role: MemberRole, displayName: string, avatar: string, instanceIndex: number, instanceLabel: string, status: MemberStatus, runtime: MemberRuntimeProfile, permissions: MemberPermissions, isolation: MemberIsolation, createdAtMs: number, updatedAtMs: number, };
 
 export type MemberRole = "owner" | "admin" | "assistant" | "member";
 
@@ -27,6 +27,10 @@ export type MemberStatus = "online" | "offline" | "working" | "doNotDisturb";
 export type RemoveMemberRequest = { workspaceId: string, memberId: string, };
 
 export type RemoveMemberResult = { removedMemberId: string, members: Array<MemberProfile>, };
+
+export type UpdateMemberProfileRequest = { workspaceId: string, memberId: string, displayName: string, };
+
+export type UpdateMemberProfileResult = { member: MemberProfile, members: Array<MemberProfile>, };
 
 export type UpdateMemberStatusRequest = { workspaceId: string, memberId: string, status: MemberStatus, };
 

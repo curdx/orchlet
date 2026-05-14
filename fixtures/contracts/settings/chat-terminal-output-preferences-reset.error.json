@@ -1,0 +1,9 @@
+{
+  "code": "settings.chatTerminalOutput.invalidRecordVersion",
+  "message": "聊天终端输出展示偏好版本不受支持。",
+  "userAction": "聊天终端输出展示偏好未更新；请使用兼容版本的 orchlet，或先备份 chat-terminal-output.json。",
+  "recoverable": true,
+  "severity": "warning",
+  "details": "schemaVersion=2 expected=1",
+  "correlationId": null
+}

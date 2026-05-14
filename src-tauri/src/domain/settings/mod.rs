@@ -1,15 +1,21 @@
 use std::path::Path;
 
 use crate::contracts::{
-    AppError, AppPreferencesSettingsSnapshot, ProfileAvatarKind, ProfileAvatarSnapshot,
-    ProfileSettingsSnapshot, ProfileStatus, ShortcutBindingSnapshot, ShortcutKeymapProfile,
-    ShortcutPreferencesSnapshot,
+    AppError, AppPreferencesSettingsSnapshot, ChatTerminalOutputPreferencesSnapshot,
+    ProfileAvatarKind, ProfileAvatarSnapshot, ProfileSettingsSnapshot, ProfileStatus,
+    ShortcutBindingSnapshot, ShortcutKeymapProfile, ShortcutPreferencesSnapshot,
+    TerminalBuiltInCliEntry, TerminalConfigurationSnapshot, TerminalCustomCliEntry,
+    TerminalCustomTerminalEntry,
 };
 
 pub const APP_PREFERENCES_SCHEMA_VERSION: u32 = 1;
 pub const APP_PREFERENCES_FILE_NAME: &str = "preferences.json";
 pub const SHORTCUT_PREFERENCES_SCHEMA_VERSION: u32 = 1;
 pub const SHORTCUT_PREFERENCES_FILE_NAME: &str = "shortcuts.json";
+pub const CHAT_TERMINAL_OUTPUT_PREFERENCES_SCHEMA_VERSION: u32 = 1;
+pub const CHAT_TERMINAL_OUTPUT_PREFERENCES_FILE_NAME: &str = "chat-terminal-output.json";
+pub const TERMINAL_CONFIGURATION_SCHEMA_VERSION: u32 = 1;
+pub const TERMINAL_CONFIGURATION_FILE_NAME: &str = "terminal-config.json";
 pub const PROFILE_SETTINGS_SCHEMA_VERSION: u32 = 1;
 pub const PROFILE_SETTINGS_DIR_NAME: &str = "settings";
 pub const PROFILE_SETTINGS_FILE_NAME: &str = "profile.json";
@@ -35,6 +41,18 @@ pub const SHORTCUT_ACTION_NOTIFICATION_VIEW_ALL: &str = "notification.viewAll";
 pub const SHORTCUT_ACTION_NOTIFICATION_IGNORE_ALL: &str = "notification.ignoreAll";
 pub const SHORTCUT_ACTION_NOTIFICATION_OPEN_TERMINAL: &str = "notification.openTerminal";
 pub const SHORTCUT_ACTION_APP_GLOBAL_SETTINGS: &str = "app.globalOpenSettings";
+pub const BUILT_IN_CLI_CODEX: &str = "codex";
+pub const BUILT_IN_CLI_CLAUDE_CODE: &str = "claude-code";
+pub const BUILT_IN_CLI_GEMINI: &str = "gemini-cli";
+pub const BUILT_IN_CLI_OPENCODE: &str = "opencode";
+pub const BUILT_IN_CLI_QWEN: &str = "qwen-code";
+pub const SUPPORTED_BUILT_IN_CLI_IDS: &[&str] = &[
+    BUILT_IN_CLI_CODEX,
+    BUILT_IN_CLI_CLAUDE_CODE,
+    BUILT_IN_CLI_GEMINI,
+    BUILT_IN_CLI_OPENCODE,
+    BUILT_IN_CLI_QWEN,
+];
 
 pub const SUPPORTED_SHORTCUT_ACTION_IDS: &[&str] = &[
     SHORTCUT_ACTION_CHAT_SEND,
@@ -70,6 +88,295 @@ pub fn default_profile_timezone() -> String {
         .ok()
         .and_then(|timezone| normalize_profile_timezone(timezone).ok())
         .unwrap_or_else(|| DEFAULT_PROFILE_TIMEZONE.to_owned())
+}
+
+pub fn default_built_in_cli_entries() -> Vec<TerminalBuiltInCliEntry> {
+    vec![
+        TerminalBuiltInCliEntry {
+            runtime_id: BUILT_IN_CLI_CODEX.to_owned(),
+            label: "Codex CLI".to_owned(),
+            command: "codex".to_owned(),
+        },
+        TerminalBuiltInCliEntry {
+            runtime_id: BUILT_IN_CLI_CLAUDE_CODE.to_owned(),
+            label: "Claude Code".to_owned(),
+            command: "claude".to_owned(),
+        },
+        TerminalBuiltInCliEntry {
+            runtime_id: BUILT_IN_CLI_GEMINI.to_owned(),
+            label: "Gemini CLI".to_owned(),
+            command: "gemini".to_owned(),
+        },
+        TerminalBuiltInCliEntry {
+            runtime_id: BUILT_IN_CLI_OPENCODE.to_owned(),
+            label: "OpenCode".to_owned(),
+            command: "opencode".to_owned(),
+        },
+        TerminalBuiltInCliEntry {
+            runtime_id: BUILT_IN_CLI_QWEN.to_owned(),
+            label: "Qwen Code".to_owned(),
+            command: "qwen".to_owned(),
+        },
+    ]
+}
+
+pub fn normalize_terminal_configuration(
+    configuration: &mut TerminalConfigurationSnapshot,
+) -> Result<(), AppError> {
+    for entry in &mut configuration.built_in_cli_entries {
+        entry.runtime_id = entry.runtime_id.trim().to_owned();
+        entry.label = entry.label.trim().to_owned();
+        entry.command = entry.command.trim().to_owned();
+    }
+    for entry in &mut configuration.custom_cli_entries {
+        entry.cli_id = entry.cli_id.trim().to_owned();
+        entry.label = entry.label.trim().to_owned();
+        entry.command = entry.command.trim().to_owned();
+    }
+    for entry in &mut configuration.custom_terminal_entries {
+        entry.terminal_id = entry.terminal_id.trim().to_owned();
+        entry.label = entry.label.trim().to_owned();
+        entry.command = entry.command.trim().to_owned();
+    }
+    if let Some(default_terminal_id) = configuration.default_terminal_id.as_mut() {
+        let normalized = default_terminal_id.trim().to_owned();
+        if normalized.is_empty() {
+            configuration.default_terminal_id = None;
+        } else {
+            *default_terminal_id = normalized;
+        }
+    }
+
+    configuration
+        .built_in_cli_entries
+        .sort_by(|left, right| left.runtime_id.cmp(&right.runtime_id));
+    configuration
+        .custom_cli_entries
+        .sort_by(|left, right| left.cli_id.cmp(&right.cli_id));
+    configuration
+        .custom_terminal_entries
+        .sort_by(|left, right| left.terminal_id.cmp(&right.terminal_id));
+    validate_terminal_configuration(configuration)
+}
+
+pub fn validate_terminal_configuration(
+    configuration: &TerminalConfigurationSnapshot,
+) -> Result<(), AppError> {
+    if configuration.schema_version != TERMINAL_CONFIGURATION_SCHEMA_VERSION {
+        return Err(terminal_configuration_field_error(
+            "settings.terminalConfig.invalidRecordVersion",
+            "CLI 与终端配置版本不受支持。",
+            "请使用兼容版本的 orchlet，或先备份 terminal-config.json。",
+            Some(format!(
+                "schemaVersion={} expected={}",
+                configuration.schema_version, TERMINAL_CONFIGURATION_SCHEMA_VERSION
+            )),
+        ));
+    }
+
+    let mut built_in_ids = Vec::new();
+    for entry in &configuration.built_in_cli_entries {
+        validate_built_in_cli_entry(entry)?;
+        if built_in_ids.iter().any(|id| id == &entry.runtime_id) {
+            return Err(terminal_configuration_field_error(
+                "settings.terminalConfig.duplicateBuiltInCli",
+                "内置 CLI 配置存在重复项。",
+                "请保留每个内置 CLI 的唯一配置后重试。",
+                Some(format!("runtimeId={}", entry.runtime_id)),
+            ));
+        }
+        built_in_ids.push(entry.runtime_id.clone());
+    }
+
+    for supported_id in SUPPORTED_BUILT_IN_CLI_IDS {
+        if !built_in_ids.iter().any(|id| id == supported_id) {
+            return Err(terminal_configuration_field_error(
+                "settings.terminalConfig.missingBuiltInCli",
+                "内置 CLI 配置不完整。",
+                "请恢复默认 CLI 配置后重试。",
+                Some(format!("runtimeId={}", supported_id)),
+            ));
+        }
+    }
+
+    let mut custom_cli_ids = Vec::new();
+    for entry in &configuration.custom_cli_entries {
+        validate_custom_cli_entry(entry)?;
+        if custom_cli_ids.iter().any(|id| id == &entry.cli_id) {
+            return Err(terminal_configuration_field_error(
+                "settings.terminalConfig.duplicateCustomCli",
+                "自定义 CLI 配置存在重复项。",
+                "请保留每个自定义 CLI 的唯一配置后重试。",
+                Some(format!("cliId={}", entry.cli_id)),
+            ));
+        }
+        custom_cli_ids.push(entry.cli_id.clone());
+    }
+
+    let mut custom_terminal_ids = Vec::new();
+    for entry in &configuration.custom_terminal_entries {
+        validate_custom_terminal_entry(entry)?;
+        if custom_terminal_ids
+            .iter()
+            .any(|id| id == &entry.terminal_id)
+        {
+            return Err(terminal_configuration_field_error(
+                "settings.terminalConfig.duplicateCustomTerminal",
+                "自定义终端配置存在重复项。",
+                "请保留每个自定义终端的唯一配置后重试。",
+                Some(format!("terminalId={}", entry.terminal_id)),
+            ));
+        }
+        custom_terminal_ids.push(entry.terminal_id.clone());
+    }
+
+    if let Some(default_terminal_id) = configuration.default_terminal_id.as_deref() {
+        if !custom_terminal_ids
+            .iter()
+            .any(|terminal_id| terminal_id == default_terminal_id)
+        {
+            return Err(terminal_configuration_field_error(
+                "settings.terminalConfig.invalidDefaultTerminal",
+                "默认终端配置不存在。",
+                "请选择系统默认终端或一个已保存的自定义终端后重试。",
+                Some(format!("defaultTerminalId={}", default_terminal_id)),
+            ));
+        }
+    }
+
+    if configuration.created_at_ms == 0 || configuration.updated_at_ms < configuration.created_at_ms
+    {
+        return Err(terminal_configuration_field_error(
+            "settings.terminalConfig.invalidTimestamp",
+            "CLI 与终端配置时间戳无效。",
+            "请修复 terminal-config.json 中的时间戳后重试。",
+            Some(format!(
+                "createdAtMs={} updatedAtMs={}",
+                configuration.created_at_ms, configuration.updated_at_ms
+            )),
+        ));
+    }
+
+    Ok(())
+}
+
+pub fn validate_chat_terminal_output_preferences(
+    preferences: &ChatTerminalOutputPreferencesSnapshot,
+) -> Result<(), AppError> {
+    if preferences.schema_version != CHAT_TERMINAL_OUTPUT_PREFERENCES_SCHEMA_VERSION {
+        return Err(chat_terminal_output_preferences_error(
+            "settings.chatTerminalOutput.invalidRecordVersion",
+            "聊天终端输出展示偏好版本不受支持。",
+            "聊天终端输出展示偏好未更新；请使用兼容版本的 orchlet，或先备份 chat-terminal-output.json。",
+            Some(format!(
+                "schemaVersion={} expected={}",
+                preferences.schema_version, CHAT_TERMINAL_OUTPUT_PREFERENCES_SCHEMA_VERSION
+            )),
+        ));
+    }
+
+    if preferences.created_at_ms == 0 || preferences.updated_at_ms < preferences.created_at_ms {
+        return Err(chat_terminal_output_preferences_error(
+            "settings.chatTerminalOutput.invalidTimestamp",
+            "聊天终端输出展示偏好时间戳无效。",
+            "聊天终端输出展示偏好未更新；请恢复默认偏好后重试。",
+            Some(format!(
+                "createdAtMs={} updatedAtMs={}",
+                preferences.created_at_ms, preferences.updated_at_ms
+            )),
+        ));
+    }
+
+    Ok(())
+}
+
+pub fn validate_built_in_cli_id(runtime_id: &str) -> Result<(), AppError> {
+    if SUPPORTED_BUILT_IN_CLI_IDS
+        .iter()
+        .any(|supported_id| supported_id == &runtime_id)
+    {
+        return Ok(());
+    }
+
+    Err(terminal_configuration_field_error(
+        "settings.terminalConfig.unsupportedBuiltInCli",
+        "内置 CLI 标识不受支持。",
+        "请选择支持的内置 CLI 后重试。",
+        Some(format!("runtimeId={}", runtime_id)),
+    ))
+}
+
+fn validate_built_in_cli_entry(entry: &TerminalBuiltInCliEntry) -> Result<(), AppError> {
+    validate_built_in_cli_id(&entry.runtime_id)?;
+    validate_terminal_config_label(&entry.label, "builtInCliEntries.label")?;
+    validate_terminal_config_command(&entry.command, "builtInCliEntries.command")
+}
+
+fn validate_custom_cli_entry(entry: &TerminalCustomCliEntry) -> Result<(), AppError> {
+    validate_terminal_config_id(&entry.cli_id, "customCliEntries.cliId")?;
+    validate_terminal_config_label(&entry.label, "customCliEntries.label")?;
+    validate_terminal_config_command(&entry.command, "customCliEntries.command")
+}
+
+fn validate_custom_terminal_entry(entry: &TerminalCustomTerminalEntry) -> Result<(), AppError> {
+    validate_terminal_config_id(&entry.terminal_id, "customTerminalEntries.terminalId")?;
+    validate_terminal_config_label(&entry.label, "customTerminalEntries.label")?;
+    validate_terminal_config_command(&entry.command, "customTerminalEntries.command")
+}
+
+fn validate_terminal_config_id(value: &str, field: &str) -> Result<(), AppError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty()
+        || trimmed.chars().count() > 80
+        || !trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.')
+    {
+        return Err(terminal_configuration_field_error(
+            "settings.terminalConfig.invalidId",
+            "CLI 或终端配置标识无效。",
+            "请使用字母、数字、点、短横线或下划线作为配置标识。",
+            Some(format!("field={} value={}", field, value)),
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_terminal_config_label(value: &str, field: &str) -> Result<(), AppError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 80 {
+        return Err(terminal_configuration_field_error(
+            "settings.terminalConfig.invalidLabel",
+            "CLI 或终端名称无效。",
+            "请填写 1 到 80 个字符的显示名称后重试。",
+            Some(format!(
+                "field={} length={}",
+                field,
+                trimmed.chars().count()
+            )),
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_terminal_config_command(value: &str, field: &str) -> Result<(), AppError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 500 {
+        return Err(terminal_configuration_field_error(
+            "settings.terminalConfig.invalidCommand",
+            "CLI 或终端命令无效。",
+            "请填写 1 到 500 个字符的命令或路径后重试。",
+            Some(format!(
+                "field={} length={}",
+                field,
+                trimmed.chars().count()
+            )),
+        ));
+    }
+
+    Ok(())
 }
 
 pub fn normalize_profile_display_name(display_name: impl AsRef<str>) -> Result<String, AppError> {
@@ -682,6 +989,97 @@ fn shortcut_field_error(
     AppError::recoverable_error(code, message, user_action, Some(format!("field={}", field)))
 }
 
+fn terminal_configuration_field_error(
+    code: &str,
+    message: impl Into<String>,
+    user_action: impl Into<String>,
+    details: Option<String>,
+) -> AppError {
+    AppError::recoverable_error(code, message, user_action, details)
+}
+
+fn chat_terminal_output_preferences_error(
+    code: &str,
+    message: impl Into<String>,
+    user_action: impl Into<String>,
+    details: Option<String>,
+) -> AppError {
+    AppError::recoverable_error(code, message, user_action, details)
+}
+
 fn profile_field_error(code: &str, message: &str, user_action: &str, field: &str) -> AppError {
     AppError::recoverable_error(code, message, user_action, Some(format!("field={}", field)))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::contracts::{
+        TerminalConfigurationSnapshot, TerminalCustomCliEntry, TerminalCustomTerminalEntry,
+    };
+
+    use super::{
+        default_built_in_cli_entries, normalize_terminal_configuration,
+        TERMINAL_CONFIGURATION_SCHEMA_VERSION,
+    };
+
+    fn terminal_configuration() -> TerminalConfigurationSnapshot {
+        TerminalConfigurationSnapshot {
+            schema_version: TERMINAL_CONFIGURATION_SCHEMA_VERSION,
+            built_in_cli_entries: default_built_in_cli_entries(),
+            custom_cli_entries: Vec::new(),
+            custom_terminal_entries: Vec::new(),
+            default_terminal_id: None,
+            created_at_ms: 1,
+            updated_at_ms: 1,
+        }
+    }
+
+    #[test]
+    fn terminal_configuration_normalization_trims_custom_ids_before_duplicate_checks() {
+        let mut configuration = terminal_configuration();
+        configuration.custom_cli_entries = vec![
+            TerminalCustomCliEntry {
+                cli_id: "local-reviewer".to_owned(),
+                label: "Local Reviewer".to_owned(),
+                command: "reviewer --stdio".to_owned(),
+            },
+            TerminalCustomCliEntry {
+                cli_id: " local-reviewer ".to_owned(),
+                label: "Duplicate Reviewer".to_owned(),
+                command: "reviewer-2".to_owned(),
+            },
+        ];
+
+        let error =
+            normalize_terminal_configuration(&mut configuration).expect_err("duplicate custom CLI");
+
+        assert_eq!(error.code, "settings.terminalConfig.duplicateCustomCli");
+    }
+
+    #[test]
+    fn terminal_configuration_normalization_trims_default_terminal_references() {
+        let mut configuration = terminal_configuration();
+        configuration.custom_terminal_entries = vec![TerminalCustomTerminalEntry {
+            terminal_id: " workspace-zsh ".to_owned(),
+            label: " Workspace Zsh ".to_owned(),
+            command: " /bin/zsh ".to_owned(),
+        }];
+        configuration.default_terminal_id = Some(" workspace-zsh ".to_owned());
+
+        normalize_terminal_configuration(&mut configuration).expect("normalized");
+
+        assert_eq!(
+            configuration.custom_terminal_entries[0].terminal_id,
+            "workspace-zsh"
+        );
+        assert_eq!(
+            configuration.custom_terminal_entries[0].label,
+            "Workspace Zsh"
+        );
+        assert_eq!(configuration.custom_terminal_entries[0].command, "/bin/zsh");
+        assert_eq!(
+            configuration.default_terminal_id.as_deref(),
+            Some("workspace-zsh")
+        );
+    }
 }

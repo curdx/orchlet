@@ -1,0 +1,100 @@
+{
+  "workspaceId": "01K00000000000000000000000",
+  "generatedAtMs": 1760000010000,
+  "runs": [
+    {
+      "runId": "01K00000000000000000000800",
+      "workspaceId": "01K00000000000000000000000",
+      "status": "active",
+      "reason": "Investigate chat dispatch",
+      "initiatedBy": "test-harness",
+      "outcome": null,
+      "summary": null,
+      "startedAtMs": 1760000008000,
+      "completedAtMs": null,
+      "updatedAtMs": 1760000008000
+    }
+  ],
+  "keyEvents": [
+    {
+      "eventId": "01K00000000000000000000810",
+      "runId": "01K00000000000000000000800",
+      "workspaceId": "01K00000000000000000000000",
+      "scope": "terminal",
+      "eventName": "terminal.snapshot.stale",
+      "severity": "warning",
+      "correlations": {
+        "workspaceId": "01K00000000000000000000000",
+        "conversationId": null,
+        "messageId": null,
+        "memberId": null,
+        "terminalSessionId": "01K000000000000000000000AA",
+        "terminalTabId": null,
+        "windowLabel": null,
+        "dispatchId": null
+      },
+      "metadata": [
+        {
+          "key": "latestSeq",
+          "value": "3"
+        }
+      ],
+      "recordedAtMs": 1760000009000
+    },
+    {
+      "eventId": "01K00000000000000000000811",
+      "runId": "01K00000000000000000000800",
+      "workspaceId": "01K00000000000000000000000",
+      "scope": "chat",
+      "eventName": "chat.unread.mismatch",
+      "severity": "error",
+      "correlations": {
+        "workspaceId": "01K00000000000000000000000",
+        "conversationId": "01K00000000000000000000010",
+        "messageId": null,
+        "memberId": null,
+        "terminalSessionId": null,
+        "terminalTabId": null,
+        "windowLabel": null,
+        "dispatchId": null
+      },
+      "metadata": [
+        {
+          "key": "expectedUnread",
+          "value": "2"
+        }
+      ],
+      "recordedAtMs": 1760000009100
+    }
+  ],
+  "consistencySummary": {
+    "terminalIssueCount": 1,
+    "chatIssueCount": 1,
+    "severityCounts": {
+      "info": 0,
+      "warning": 1,
+      "error": 1
+    },
+    "recentIssueCodes": [
+      "terminal.snapshot.stale",
+      "chat.unread.mismatch"
+    ],
+    "recommendedNextActions": [
+      "重新 attach 受影响终端会话，并检查终端快照/退出状态。",
+      "运行聊天一致性诊断或聊天数据修复以定位孤立记录。"
+    ]
+  },
+  "validationSummary": {
+    "availability": "notAvailable",
+    "status": null,
+    "message": "当前诊断导出不持久化数据完整性报告；请从数据验证面板重新运行。",
+    "reportId": null,
+    "generatedAtMs": null,
+    "totalChecks": 0,
+    "passedChecks": 0,
+    "failedChecks": 0,
+    "skippedChecks": 0
+  },
+  "hasMore": true,
+  "nextCursor": "25"
+}

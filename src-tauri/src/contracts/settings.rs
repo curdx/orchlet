@@ -151,6 +151,147 @@ pub struct ResetShortcutPreferencesResult {
     pub preferences: ShortcutPreferencesSnapshot,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub enum ChatTerminalOutputDisplayMode {
+    Stream,
+    FinalOnly,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ChatTerminalOutputPreferencesSnapshot {
+    pub schema_version: u32,
+    pub display_mode: ChatTerminalOutputDisplayMode,
+    #[ts(type = "number")]
+    pub created_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct GetChatTerminalOutputPreferencesRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct GetChatTerminalOutputPreferencesResult {
+    pub preferences: ChatTerminalOutputPreferencesSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct UpdateChatTerminalOutputPreferencesRequest {
+    pub display_mode: ChatTerminalOutputDisplayMode,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct UpdateChatTerminalOutputPreferencesResult {
+    pub preferences: ChatTerminalOutputPreferencesSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ResetChatTerminalOutputPreferencesRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ResetChatTerminalOutputPreferencesResult {
+    pub preferences: ChatTerminalOutputPreferencesSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct TerminalBuiltInCliEntry {
+    pub runtime_id: String,
+    pub label: String,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct TerminalCustomCliEntry {
+    pub cli_id: String,
+    pub label: String,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct TerminalCustomTerminalEntry {
+    pub terminal_id: String,
+    pub label: String,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct TerminalConfigurationSnapshot {
+    pub schema_version: u32,
+    pub built_in_cli_entries: Vec<TerminalBuiltInCliEntry>,
+    pub custom_cli_entries: Vec<TerminalCustomCliEntry>,
+    pub custom_terminal_entries: Vec<TerminalCustomTerminalEntry>,
+    pub default_terminal_id: Option<String>,
+    #[ts(type = "number")]
+    pub created_at_ms: u64,
+    #[ts(type = "number")]
+    pub updated_at_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct GetTerminalConfigurationRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct GetTerminalConfigurationResult {
+    pub configuration: TerminalConfigurationSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct UpdateTerminalConfigurationRequest {
+    pub built_in_cli_entries: Vec<TerminalBuiltInCliEntry>,
+    pub custom_cli_entries: Vec<TerminalCustomCliEntry>,
+    pub custom_terminal_entries: Vec<TerminalCustomTerminalEntry>,
+    pub default_terminal_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct UpdateTerminalConfigurationResult {
+    pub configuration: TerminalConfigurationSnapshot,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ResetTerminalConfigurationRequest {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "settings.ts")]
+pub struct ResetTerminalConfigurationResult {
+    pub configuration: TerminalConfigurationSnapshot,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "settings.ts")]

@@ -1,18 +1,28 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
+  ChatTerminalOutputPreferencesSnapshot,
   DeleteUploadedProfileAvatarResult,
+  GetChatTerminalOutputPreferencesResult,
   GetProfileSettingsResult,
   GetShortcutPreferencesResult,
+  GetTerminalConfigurationResult,
   ProfileStatus,
+  ResetChatTerminalOutputPreferencesResult,
   ResetProfileAvatarResult,
   ResetShortcutPreferencesRequest,
   ResetShortcutPreferencesResult,
+  ResetTerminalConfigurationResult,
   SelectProfileAvatarPresetResult,
   ShortcutKeymapProfile,
   ShortcutPreferencesSnapshot,
+  TerminalConfigurationSnapshot,
+  UpdateChatTerminalOutputPreferencesRequest,
+  UpdateChatTerminalOutputPreferencesResult,
   UpdateProfileSettingsResult,
   UpdateShortcutPreferencesRequest,
   UpdateShortcutPreferencesResult,
+  UpdateTerminalConfigurationRequest,
+  UpdateTerminalConfigurationResult,
   UploadProfileAvatarResult,
 } from "../../contracts/generated/settings";
 import { invokeCommand, isTauriRuntime } from "./client";
@@ -43,9 +53,21 @@ export type SettingsApi = {
   resetShortcutPreferences: (
     input: ResetShortcutPreferencesRequest,
   ) => Promise<ResetShortcutPreferencesResult>;
+  getChatTerminalOutputPreferences: () => Promise<GetChatTerminalOutputPreferencesResult>;
+  updateChatTerminalOutputPreferences: (
+    input: UpdateChatTerminalOutputPreferencesRequest,
+  ) => Promise<UpdateChatTerminalOutputPreferencesResult>;
+  resetChatTerminalOutputPreferences: () => Promise<ResetChatTerminalOutputPreferencesResult>;
+  getTerminalConfiguration: () => Promise<GetTerminalConfigurationResult>;
+  updateTerminalConfiguration: (
+    input: UpdateTerminalConfigurationRequest,
+  ) => Promise<UpdateTerminalConfigurationResult>;
+  resetTerminalConfiguration: () => Promise<ResetTerminalConfigurationResult>;
 };
 
 let browserShortcutPreferences = createDefaultShortcutPreferences("default");
+let browserChatTerminalOutputPreferences = createDefaultChatTerminalOutputPreferences();
+let browserTerminalConfiguration = createDefaultTerminalConfiguration();
 
 export const settingsApi: SettingsApi = {
   getProfileSettings() {
@@ -153,6 +175,103 @@ export const settingsApi: SettingsApi = {
       request: input,
     });
   },
+
+  async getChatTerminalOutputPreferences() {
+    if (!isTauriRuntime()) {
+      return { preferences: browserChatTerminalOutputPreferences };
+    }
+
+    return invokeCommand<GetChatTerminalOutputPreferencesResult>(
+      "chat_terminal_output_preferences_get",
+      {
+        request: {},
+      },
+    );
+  },
+
+  async updateChatTerminalOutputPreferences(input) {
+    if (!isTauriRuntime()) {
+      browserChatTerminalOutputPreferences = {
+        ...browserChatTerminalOutputPreferences,
+        displayMode: input.displayMode,
+        updatedAtMs: Date.now(),
+      };
+
+      return { preferences: browserChatTerminalOutputPreferences };
+    }
+
+    return invokeCommand<UpdateChatTerminalOutputPreferencesResult>(
+      "chat_terminal_output_preferences_update",
+      {
+        request: input,
+      },
+    );
+  },
+
+  async resetChatTerminalOutputPreferences() {
+    if (!isTauriRuntime()) {
+      browserChatTerminalOutputPreferences = {
+        ...createDefaultChatTerminalOutputPreferences(),
+        createdAtMs: browserChatTerminalOutputPreferences.createdAtMs,
+        updatedAtMs: Date.now(),
+      };
+
+      return { preferences: browserChatTerminalOutputPreferences };
+    }
+
+    return invokeCommand<ResetChatTerminalOutputPreferencesResult>(
+      "chat_terminal_output_preferences_reset",
+      {
+        request: {},
+      },
+    );
+  },
+
+  async getTerminalConfiguration() {
+    if (!isTauriRuntime()) {
+      return { configuration: browserTerminalConfiguration };
+    }
+
+    return invokeCommand<GetTerminalConfigurationResult>("terminal_configuration_get", {
+      request: {},
+    });
+  },
+
+  async updateTerminalConfiguration(input) {
+    if (!isTauriRuntime()) {
+      browserTerminalConfiguration = {
+        schemaVersion: browserTerminalConfiguration.schemaVersion,
+        builtInCliEntries: input.builtInCliEntries.map((entry) => ({ ...entry })),
+        customCliEntries: input.customCliEntries.map((entry) => ({ ...entry })),
+        customTerminalEntries: input.customTerminalEntries.map((entry) => ({ ...entry })),
+        defaultTerminalId: input.defaultTerminalId,
+        createdAtMs: browserTerminalConfiguration.createdAtMs,
+        updatedAtMs: Date.now(),
+      };
+
+      return { configuration: browserTerminalConfiguration };
+    }
+
+    return invokeCommand<UpdateTerminalConfigurationResult>("terminal_configuration_update", {
+      request: input,
+    });
+  },
+
+  async resetTerminalConfiguration() {
+    if (!isTauriRuntime()) {
+      browserTerminalConfiguration = {
+        ...createDefaultTerminalConfiguration(),
+        createdAtMs: browserTerminalConfiguration.createdAtMs,
+        updatedAtMs: Date.now(),
+      };
+
+      return { configuration: browserTerminalConfiguration };
+    }
+
+    return invokeCommand<ResetTerminalConfigurationResult>("terminal_configuration_reset", {
+      request: {},
+    });
+  },
 };
 
 function createDefaultShortcutPreferences(
@@ -209,4 +328,35 @@ function shortcutBindingsForProfile(
     enabled: available && !disabledActionIds.includes(actionId),
     unavailableReason,
   }));
+}
+
+function createDefaultChatTerminalOutputPreferences(): ChatTerminalOutputPreferencesSnapshot {
+  const timestamp = Date.now();
+
+  return {
+    schemaVersion: 1,
+    displayMode: "stream",
+    createdAtMs: timestamp,
+    updatedAtMs: timestamp,
+  };
+}
+
+function createDefaultTerminalConfiguration(): TerminalConfigurationSnapshot {
+  const timestamp = Date.now();
+
+  return {
+    schemaVersion: 1,
+    builtInCliEntries: [
+      { runtimeId: "claude-code", label: "Claude Code", command: "claude" },
+      { runtimeId: "codex", label: "Codex CLI", command: "codex" },
+      { runtimeId: "gemini-cli", label: "Gemini CLI", command: "gemini" },
+      { runtimeId: "opencode", label: "OpenCode", command: "opencode" },
+      { runtimeId: "qwen-code", label: "Qwen Code", command: "qwen" },
+    ],
+    customCliEntries: [],
+    customTerminalEntries: [],
+    defaultTerminalId: null,
+    createdAtMs: timestamp,
+    updatedAtMs: timestamp,
+  };
 }

@@ -4,6 +4,6 @@
   "severity": "error",
   "recoverable": true,
   "userAction": "请重新打开工作区；如果问题持续，请运行数据验证。",
-  "details": "workspaceId must be a ULID string: not-a-workspace",
+  "details": "workspaceId must be a ULID string or legacy 64-character SHA-256 hex string: not-a-workspace",
   "correlationId": null
 }
