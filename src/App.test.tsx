@@ -6308,6 +6308,111 @@ describe("App workspace entry", () => {
     });
   });
 
+  it("resolves a typed @member token before sending and dispatching", async () => {
+    const user = userEvent.setup();
+    const codex = memberProfile({
+      memberId: "01KMEMBER000000000000000010",
+      role: "assistant",
+      displayName: "Codex",
+      instanceLabel: "Codex",
+      runtime: {
+        kind: "builtInAiCli",
+        runtimeId: "codex",
+        label: "Codex CLI",
+        command: "codex",
+      },
+      permissions: {
+        canMention: true,
+        canRemove: true,
+      },
+    });
+    const channel = defaultChannel();
+    const body = "@Codex 帮我查下今天北京的天气";
+    const sentMessage = chatMessage({
+      messageId: "01K00000000000000000000077",
+      body,
+      mentionedMemberIds: [codex.memberId],
+      createdAtMs: 1760000007000,
+      updatedAtMs: 1760000007000,
+    });
+    const sendMessageAndDispatch = vi.fn((request: SendMessageAndDispatchRequest) =>
+      Promise.resolve({
+        message: sentMessage,
+        conversation: {
+          ...channel,
+          lastMessagePreview: request.body,
+          lastActivityAtMs: sentMessage.createdAtMs,
+          updatedAtMs: sentMessage.updatedAtMs,
+        },
+        readPosition: readPosition({
+          lastReadMessageId: sentMessage.messageId,
+          lastReadAtMs: sentMessage.createdAtMs,
+        }),
+        dispatches: [
+          {
+            dispatch: {
+              schemaVersion: 1,
+              dispatchRequestId: "01KDISPATCH00000000000018",
+              workspaceId: channel.workspaceId,
+              conversationId: channel.conversationId,
+              messageId: sentMessage.messageId,
+              sourceMessageIds: [sentMessage.messageId],
+              memberId: codex.memberId,
+              targetResolution: {
+                memberId: codex.memberId,
+                source: "explicitMention",
+                reason: "消息明确提及 Codex。",
+              },
+              status: "dispatched",
+              terminalSessionId: "01KTERMINAL00000000000018",
+              failure: null,
+              createdAtMs: 1760000007000,
+              updatedAtMs: 1760000007001,
+            },
+            terminalSession: terminalOpenResult({
+              session: {
+                ...terminalOpenResult().session,
+                terminalSessionId: "01KTERMINAL00000000000018",
+                memberId: codex.memberId,
+                title: "Codex",
+              },
+            }).session,
+            sessionCreated: true,
+          },
+        ],
+      } satisfies SendMessageAndDispatchResult),
+    );
+
+    renderWorkspaceSelection({
+      getWorkspaceSelectionStatus: () => Promise.resolve(status),
+      pickAndOpenWorkspace: () => Promise.resolve(openedWorkspaceResult()),
+      memberApi: {
+        listMembers: () => Promise.resolve({ members: [codex] }),
+      },
+      chatApi: {
+        listConversations: () => Promise.resolve({ conversations: [channel] }),
+        sendMessageAndDispatch,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "打开文件夹" }));
+
+    const conversationPanel = await screen.findByRole("region", { name: "会话列表" });
+    await user.type(within(conversationPanel).getByLabelText("输入消息"), body);
+    await user.click(within(conversationPanel).getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(sendMessageAndDispatch).toHaveBeenCalledWith({
+        workspaceId: "01K00000000000000000000000",
+        conversationId: channel.conversationId,
+        body,
+        mentionedMemberIds: [codex.memberId],
+        mentionAll: false,
+      });
+    });
+    expect(await within(conversationPanel).findByText(/已派发到 Codex/)).toBeInTheDocument();
+  });
+
   it("sends @all as a structured fan-out request", async () => {
     const user = userEvent.setup();
     const reviewer = memberProfile({

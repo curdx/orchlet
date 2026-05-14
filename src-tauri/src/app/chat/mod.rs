@@ -20,7 +20,10 @@ use crate::{
         UpdateGroupConversationMembersRequest, UpdateGroupConversationMembersResult,
         UpdateReadPositionRequest, UpdateReadPositionResult,
     },
-    domain::{chat::has_all_mention_token, orchestration::plan_send_dispatch_targets},
+    domain::{
+        chat::{has_all_mention_token, resolve_mentioned_member_ids_from_body},
+        orchestration::plan_send_dispatch_targets,
+    },
     infrastructure::persistence::sqlite::conversation_repository::{
         clear_conversation, clear_workspace_chat_data, create_group_conversation,
         delete_conversation, list_conversations, list_messages, repair_workspace_chat_data,
@@ -109,17 +112,22 @@ pub fn send_workspace_message_and_dispatch(
         ));
     }
 
-    let mention_all = has_all_mention_token(&request.body);
+    let members = initialize_member_store(&app_data_dir, &request.workspace_id)?.members;
+    let mention_all = request.mention_all || has_all_mention_token(&request.body);
+    let mentioned_member_ids = resolve_mentioned_member_ids_from_body(
+        &request.body,
+        request.mentioned_member_ids,
+        &members,
+    );
     let sent = persist_workspace_message(
         &app_data_dir,
         SendMessageRequest {
             workspace_id: request.workspace_id,
             conversation_id: request.conversation_id,
             body: request.body,
-            mentioned_member_ids: request.mentioned_member_ids,
+            mentioned_member_ids,
         },
     )?;
-    let members = initialize_member_store(&app_data_dir, &sent.message.workspace_id)?.members;
     let targets =
         plan_send_dispatch_targets(mention_all, &sent.message, &sent.conversation, &members);
     let mut dispatches = Vec::new();

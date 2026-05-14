@@ -2329,6 +2329,9 @@ export function WorkspaceSelectionPage({
 
   function handleMessageDraftChange(value: string) {
     setMessageDraft(value);
+    setMentionedMemberIds((current) =>
+      resolveMentionedMemberIdsFromBody(value, current, profiledMembers),
+    );
   }
 
   function addMentionMember(member: MemberProfile) {
@@ -2858,6 +2861,11 @@ export function WorkspaceSelectionPage({
     }
 
     const mentionAll = hasAllMentionToken(body);
+    const resolvedMentionedMemberIds = resolveMentionedMemberIdsFromBody(
+      body,
+      mentionedMemberIds,
+      profiledMembers,
+    );
     const timestamp = Date.now();
     const pendingMessage: ChatMessageProfile = {
       messageId: `pending-${timestamp}`,
@@ -2865,7 +2873,7 @@ export function WorkspaceSelectionPage({
       conversationId: selectedConversation.conversationId,
       authorMemberId: "local",
       body,
-      mentionedMemberIds,
+      mentionedMemberIds: resolvedMentionedMemberIds,
       status: "sending",
       createdAtMs: timestamp,
       updatedAtMs: timestamp,
@@ -2882,7 +2890,7 @@ export function WorkspaceSelectionPage({
         workspaceId: activeWorkspaceId,
         conversationId: selectedConversation.conversationId,
         body,
-        mentionedMemberIds,
+        mentionedMemberIds: resolvedMentionedMemberIds,
         mentionAll,
       });
 
@@ -2905,7 +2913,9 @@ export function WorkspaceSelectionPage({
       applySendDispatchStates(
         result.message,
         result.dispatches,
-        mentionAll || mentionedMemberIds.length > 0 || selectedConversation.kind === "private",
+        mentionAll ||
+          resolvedMentionedMemberIds.length > 0 ||
+          selectedConversation.kind === "private",
       );
     } catch (error) {
       const appError = normalizeAppError(error);
@@ -13998,6 +14008,120 @@ function appendInlineText(draft: string, text: string) {
   }
 
   return `${draft} ${text}`;
+}
+
+function resolveMentionedMemberIdsFromBody(
+  body: string,
+  selectedMemberIds: string[],
+  members: MemberProfile[],
+) {
+  const mentionableMembers = members.filter((member) => member.permissions.canMention);
+  const displayNameCounts = new Map<string, number>();
+
+  for (const member of mentionableMembers) {
+    const normalizedDisplayName = normalizeMentionLabel(member.displayName);
+    if (!normalizedDisplayName) {
+      continue;
+    }
+    displayNameCounts.set(
+      normalizedDisplayName,
+      (displayNameCounts.get(normalizedDisplayName) ?? 0) + 1,
+    );
+  }
+
+  const mentions: Array<{ memberId: string; index: number; selectedIndex: number }> = [];
+  const seenMemberIds = new Set<string>();
+
+  function addMention(member: MemberProfile, index: number) {
+    if (seenMemberIds.has(member.memberId)) {
+      return;
+    }
+
+    seenMemberIds.add(member.memberId);
+    mentions.push({
+      memberId: member.memberId,
+      index,
+      selectedIndex: selectedMemberIds.indexOf(member.memberId),
+    });
+  }
+
+  for (const member of mentionableMembers) {
+    const instanceMentionIndex = mentionLabelIndex(body, member.instanceLabel);
+    if (instanceMentionIndex !== null) {
+      addMention(member, instanceMentionIndex);
+      continue;
+    }
+
+    const normalizedDisplayName = normalizeMentionLabel(member.displayName);
+    if (
+      normalizedDisplayName &&
+      normalizeMentionLabel(member.instanceLabel) !== normalizedDisplayName &&
+      displayNameCounts.get(normalizedDisplayName) === 1
+    ) {
+      const displayNameMentionIndex = mentionLabelIndex(body, member.displayName);
+      if (displayNameMentionIndex !== null) {
+        addMention(member, displayNameMentionIndex);
+      }
+    }
+  }
+
+  return mentions
+    .sort((left, right) => {
+      const leftSelected =
+        left.selectedIndex === -1 ? Number.MAX_SAFE_INTEGER : left.selectedIndex;
+      const rightSelected =
+        right.selectedIndex === -1 ? Number.MAX_SAFE_INTEGER : right.selectedIndex;
+
+      return left.index - right.index || leftSelected - rightSelected;
+    })
+    .map((mention) => mention.memberId);
+}
+
+function mentionLabelIndex(body: string, label: string) {
+  const normalizedLabel = normalizeMentionLabel(label);
+  if (!normalizedLabel) {
+    return null;
+  }
+
+  const normalizedBody = body.toLocaleLowerCase();
+  const token = `@${normalizedLabel}`;
+  let offset = 0;
+
+  while (offset < normalizedBody.length) {
+    const relativeIndex = normalizedBody.slice(offset).indexOf(token);
+    if (relativeIndex === -1) {
+      return null;
+    }
+
+    const index = offset + relativeIndex;
+    const before = index === 0 ? "" : normalizedBody[index - 1] ?? "";
+    const afterIndex = index + token.length;
+    const after = normalizedBody[afterIndex] ?? "";
+    const hasStartBoundary = index === 0 || isMentionBoundary(before);
+    const hasEndBoundary = afterIndex >= normalizedBody.length || isMentionBoundary(after);
+
+    if (hasStartBoundary && hasEndBoundary) {
+      return index;
+    }
+
+    offset = index + token.length;
+  }
+
+  return null;
+}
+
+function normalizeMentionLabel(label: string) {
+  return label.trim().toLocaleLowerCase();
+}
+
+function isMentionBoundary(character: string) {
+  return (
+    character.length === 0 ||
+    /\s/.test(character) ||
+    [",", ".", "!", "?", ";", ":", "，", "。", "！", "？", "；", "："].includes(
+      character,
+    )
+  );
 }
 
 function appendDraftBlock(draft: string, text: string) {

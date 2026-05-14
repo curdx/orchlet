@@ -1,6 +1,8 @@
+use std::collections::HashSet;
+
 use ulid::Ulid;
 
-use crate::contracts::AppError;
+use crate::contracts::{AppError, MemberProfile};
 
 pub const PRIVATE_CONVERSATION_SCHEMA_VERSION: u32 = 1;
 pub const CONVERSATION_MAX_TITLE_LEN: usize = 80;
@@ -94,6 +96,111 @@ pub fn has_all_mention_token(body: &str) -> bool {
             )
     })
     .any(|token| token == "@all")
+}
+
+pub fn resolve_mentioned_member_ids_from_body(
+    body: &str,
+    selected_member_ids: Vec<String>,
+    members: &[MemberProfile],
+) -> Vec<String> {
+    let mentionable_members = members
+        .iter()
+        .filter(|member| member.permissions.can_mention)
+        .collect::<Vec<_>>();
+    let mut display_name_counts = std::collections::HashMap::new();
+    for member in &mentionable_members {
+        let normalized = normalize_mention_label(&member.display_name);
+        if normalized.is_empty() {
+            continue;
+        }
+        *display_name_counts.entry(normalized).or_insert(0usize) += 1;
+    }
+
+    let mut seen = HashSet::new();
+    let mut resolved = Vec::new();
+
+    for member_id in selected_member_ids {
+        if seen.insert(member_id.clone()) {
+            resolved.push(member_id);
+        }
+    }
+
+    let mut mentions = Vec::new();
+
+    for member in mentionable_members {
+        if let Some(index) = mention_label_index(body, &member.instance_label) {
+            if seen.insert(member.member_id.clone()) {
+                mentions.push((member.member_id.clone(), index));
+            }
+            continue;
+        }
+
+        let display_name = normalize_mention_label(&member.display_name);
+        if display_name.is_empty()
+            || display_name == normalize_mention_label(&member.instance_label)
+            || display_name_counts.get(&display_name).copied().unwrap_or(0) != 1
+        {
+            continue;
+        }
+
+        if let Some(index) = mention_label_index(body, &member.display_name) {
+            if seen.insert(member.member_id.clone()) {
+                mentions.push((member.member_id.clone(), index));
+            }
+        }
+    }
+
+    mentions.sort_by(|left, right| left.1.cmp(&right.1));
+    resolved.extend(mentions.into_iter().map(|(member_id, _)| member_id));
+    resolved
+}
+
+fn mention_label_index(body: &str, label: &str) -> Option<usize> {
+    let label = normalize_mention_label(label);
+    if label.is_empty() {
+        return None;
+    }
+
+    let body = body.to_lowercase();
+    let token = format!("@{}", label);
+    let mut offset = 0usize;
+    while offset < body.len() {
+        let relative_index = body[offset..].find(&token)?;
+        let index = offset + relative_index;
+        let after_index = index + token.len();
+        let has_start_boundary = index == 0
+            || body[..index]
+                .chars()
+                .next_back()
+                .map(is_mention_boundary)
+                .unwrap_or(true);
+        let has_end_boundary = after_index >= body.len()
+            || body[after_index..]
+                .chars()
+                .next()
+                .map(is_mention_boundary)
+                .unwrap_or(true);
+
+        if has_start_boundary && has_end_boundary {
+            return Some(index);
+        }
+
+        offset = after_index;
+    }
+
+    None
+}
+
+fn normalize_mention_label(label: &str) -> String {
+    label.trim().to_lowercase()
+}
+
+fn is_mention_boundary(character: char) -> bool {
+    character.is_whitespace()
+        || matches!(
+            character,
+            ',' | '.' | '!' | '?' | ';' | ':' | '，' | '。' | '！' | '？' | '；' | '：'
+        )
 }
 
 pub fn normalize_message_page_limit(limit: Option<u32>) -> Result<u32, AppError> {

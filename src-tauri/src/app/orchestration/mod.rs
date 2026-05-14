@@ -912,6 +912,74 @@ mod tests {
     }
 
     #[test]
+    fn send_and_dispatch_resolves_typed_member_mention_from_body() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let command = available_command(app_data.path(), "codex");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(command),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: None,
+            },
+        )
+        .expect("member")
+        .member;
+        let conversation = list_workspace_conversations(
+            app_data.path(),
+            ListConversationsRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+            },
+        )
+        .expect("conversations")
+        .conversations
+        .remove(0);
+        let launcher = Arc::new(MockLauncher::default());
+        let terminal_state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        let result = send_workspace_message_and_dispatch(
+            app_data.path().to_path_buf(),
+            &workspace,
+            SendMessageAndDispatchRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                conversation_id: conversation.conversation_id.clone(),
+                body: "@Codex 帮我查下今天北京的天气".to_owned(),
+                mentioned_member_ids: Vec::new(),
+                mention_all: false,
+            },
+            &terminal_state,
+            Arc::new(|_| {}) as TerminalEventSink,
+            Arc::new(|_| {}) as TerminalStatusSink,
+        )
+        .expect("send and dispatch typed mention");
+
+        assert_eq!(
+            result.message.mentioned_member_ids,
+            vec![member.member_id.clone()]
+        );
+        assert_eq!(result.dispatches.len(), 1);
+        assert_eq!(result.dispatches[0].dispatch.member_id, member.member_id);
+        assert_eq!(
+            result.dispatches[0].dispatch.target_resolution.source,
+            DispatchTargetResolutionSource::ExplicitMention
+        );
+        assert_eq!(
+            launcher.operations.lock().expect("operations").as_slice(),
+            ["input:@Codex 帮我查下今天北京的天气\n"]
+        );
+    }
+
+    #[test]
     fn send_and_dispatch_fans_out_to_multiple_mentions() {
         let app_data = tempdir().expect("app data");
         let workspace = workspace();
