@@ -1,5 +1,6 @@
 use std::{
     env,
+    ffi::OsString,
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::Mutex,
@@ -273,7 +274,7 @@ pub fn resolve_terminal_command(command: &str) -> TerminalCommandResolution {
         details: Some(format!(
             "executable={} pathEntriesChecked={}",
             executable,
-            env::split_paths(&env::var_os("PATH").unwrap_or_default()).count()
+            executable_search_dirs().len()
         )),
     }
 }
@@ -309,11 +310,9 @@ pub fn terminal_command_unavailable_error(
 }
 
 fn command_builder(profile: &TerminalLaunchProfile) -> CommandBuilder {
-    if !profile.use_shell_wrapper {
-        return CommandBuilder::new(&profile.command);
-    }
-
-    if cfg!(windows) {
+    let mut command = if !profile.use_shell_wrapper {
+        CommandBuilder::new(&profile.command)
+    } else if cfg!(windows) {
         let mut command = CommandBuilder::new(
             std::env::var("COMSPEC")
                 .ok()
@@ -321,12 +320,14 @@ fn command_builder(profile: &TerminalLaunchProfile) -> CommandBuilder {
                 .unwrap_or_else(|| "cmd.exe".to_owned()),
         );
         command.args(["/K", profile.command.as_str()]);
-        return command;
-    }
-
-    let shell = default_shell_command();
-    let mut command = CommandBuilder::new(shell);
-    command.args(["-lc", profile.command.as_str()]);
+        command
+    } else {
+        let shell = default_shell_command();
+        let mut command = CommandBuilder::new(shell);
+        command.args(["-lc", profile.command.as_str()]);
+        command
+    };
+    apply_terminal_command_environment(&mut command);
     command
 }
 
@@ -453,10 +454,13 @@ fn has_path_separator(value: &str) -> bool {
 }
 
 fn find_executable_in_path(executable: &str) -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
+    find_executable_in_dirs(executable, executable_search_dirs())
+}
+
+fn find_executable_in_dirs(executable: &str, directories: Vec<PathBuf>) -> Option<PathBuf> {
     let extensions = executable_extensions(executable);
 
-    for directory in env::split_paths(&path) {
+    for directory in directories {
         for extension in &extensions {
             let candidate = directory.join(format!("{}{}", executable, extension));
 
@@ -467,6 +471,103 @@ fn find_executable_in_path(executable: &str) -> Option<PathBuf> {
     }
 
     None
+}
+
+fn apply_terminal_command_environment(command: &mut CommandBuilder) {
+    if let Some(path) = augmented_path() {
+        command.env("PATH", path);
+    }
+
+    command.env("TERM", "xterm-256color");
+}
+
+fn augmented_path() -> Option<OsString> {
+    env::join_paths(executable_search_dirs()).ok()
+}
+
+fn executable_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    if let Some(path) = env::var_os("PATH") {
+        for directory in env::split_paths(&path) {
+            push_existing_dir(&mut dirs, directory);
+        }
+    }
+
+    for directory in common_binary_dirs() {
+        push_existing_dir(&mut dirs, directory);
+    }
+
+    dirs
+}
+
+fn common_binary_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    if cfg!(windows) {
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("LOCALAPPDATA").map(|value| PathBuf::from(value).join("Programs")),
+        );
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("LOCALAPPDATA")
+                .map(|value| PathBuf::from(value).join("Microsoft\\WindowsApps")),
+        );
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("APPDATA").map(|value| PathBuf::from(value).join("npm")),
+        );
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("LOCALAPPDATA").map(|value| PathBuf::from(value).join("npm")),
+        );
+        push_optional_dir(&mut dirs, env::var_os("ProgramFiles").map(PathBuf::from));
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("ProgramFiles(x86)").map(PathBuf::from),
+        );
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("USERPROFILE").map(|value| PathBuf::from(value).join("scoop\\shims")),
+        );
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("SCOOP").map(|value| PathBuf::from(value).join("shims")),
+        );
+    } else {
+        push_existing_dir(&mut dirs, PathBuf::from("/usr/local/bin"));
+        push_existing_dir(&mut dirs, PathBuf::from("/usr/bin"));
+        push_existing_dir(&mut dirs, PathBuf::from("/bin"));
+        push_existing_dir(&mut dirs, PathBuf::from("/opt/homebrew/bin"));
+        push_existing_dir(&mut dirs, PathBuf::from("/opt/bin"));
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("HOME").map(|value| PathBuf::from(value).join(".local/bin")),
+        );
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("HOME").map(|value| PathBuf::from(value).join(".cargo/bin")),
+        );
+        push_optional_dir(
+            &mut dirs,
+            env::var_os("HOME").map(|value| PathBuf::from(value).join(".bun/bin")),
+        );
+    }
+
+    dirs
+}
+
+fn push_optional_dir(dirs: &mut Vec<PathBuf>, directory: Option<PathBuf>) {
+    if let Some(directory) = directory {
+        push_existing_dir(dirs, directory);
+    }
+}
+
+fn push_existing_dir(dirs: &mut Vec<PathBuf>, directory: PathBuf) {
+    if directory.is_dir() && !dirs.iter().any(|existing| existing == &directory) {
+        dirs.push(directory);
+    }
 }
 
 fn executable_extensions(executable: &str) -> Vec<String> {
@@ -504,5 +605,39 @@ fn launch_subject(executable: &str) -> String {
         String::new()
     } else {
         format!("（{}）", executable)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_executable_in_dirs, push_existing_dir};
+    use tempfile::tempdir;
+
+    #[test]
+    fn finds_executable_in_extra_search_directory() {
+        let root = tempdir().expect("temp dir");
+        let bin = root.path().join("bin");
+        std::fs::create_dir_all(&bin).expect("bin dir");
+        let command = bin.join("orchlet-test-cli");
+        std::fs::write(&command, "").expect("command file");
+
+        let found = find_executable_in_dirs("orchlet-test-cli", vec![bin]).expect("found command");
+
+        assert_eq!(found, command);
+    }
+
+    #[test]
+    fn skips_duplicate_and_missing_search_directories() {
+        let root = tempdir().expect("temp dir");
+        let bin = root.path().join("bin");
+        std::fs::create_dir_all(&bin).expect("bin dir");
+        let missing = root.path().join("missing");
+        let mut dirs = Vec::new();
+
+        push_existing_dir(&mut dirs, bin.clone());
+        push_existing_dir(&mut dirs, bin.clone());
+        push_existing_dir(&mut dirs, missing);
+
+        assert_eq!(dirs, vec![bin]);
     }
 }
