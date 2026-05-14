@@ -346,9 +346,9 @@ fn ambiguous_target_error(message: &str, candidates: &[&MemberProfile]) -> AppEr
 }
 
 pub fn normalize_dispatch_payload(body: &str) -> String {
-    if body.ends_with('\n') {
+    if body.ends_with('\r') {
         body.to_owned()
     } else {
-        format!("{}\n", body)
+        format!("{}\r", body)
     }
 }

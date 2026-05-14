@@ -1,11 +1,12 @@
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, MutexGuard,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    thread,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use ulid::Ulid;
@@ -308,6 +309,46 @@ impl TerminalRuntimeState {
         entry.profile.updated_at_ms = now_ms().max(entry.profile.updated_at_ms);
 
         Ok(entry.profile_with_snapshot())
+    }
+
+    pub fn wait_for_session_output_quiet(
+        &self,
+        workspace_id: &str,
+        terminal_session_id: &str,
+        timeout: Duration,
+        quiet: Duration,
+    ) -> Result<TerminalSessionProfile, AppError> {
+        validate_workspace_id(workspace_id)?;
+        validate_terminal_session_id(terminal_session_id)?;
+
+        let started_at = Instant::now();
+        let poll_interval = Duration::from_millis(50);
+        let mut last_seq = None;
+        let mut last_change_at = Instant::now();
+
+        loop {
+            let profile = self.session_by_id_for_workspace(terminal_session_id, workspace_id)?;
+            let current_seq = profile.snapshot.last_seq;
+
+            if output_has_startup_ready_marker(&profile.snapshot.text) {
+                return Ok(profile);
+            }
+
+            if last_seq != Some(current_seq) {
+                last_seq = Some(current_seq);
+                last_change_at = Instant::now();
+            }
+
+            if current_seq > 0 && last_change_at.elapsed() >= quiet {
+                return Ok(profile);
+            }
+
+            if started_at.elapsed() >= timeout {
+                return Ok(profile);
+            }
+
+            thread::sleep(poll_interval);
+        }
     }
 
     pub fn resize_session(
@@ -871,7 +912,7 @@ fn configured_member_runtime_command(
     member: &MemberProfile,
     configuration: &TerminalConfigurationSnapshot,
 ) -> String {
-    match member.runtime.kind {
+    let command = match member.runtime.kind {
         MemberRuntimeKind::BuiltInAiCli => member
             .runtime
             .runtime_id
@@ -900,7 +941,104 @@ fn configured_member_runtime_command(
             .unwrap_or_default(),
         MemberRuntimeKind::Shell => trimmed_runtime_command(member).unwrap_or_default(),
         MemberRuntimeKind::None => String::new(),
+    };
+
+    apply_unlimited_access_flag(member, command)
+}
+
+fn apply_unlimited_access_flag(member: &MemberProfile, command: String) -> String {
+    if !member.isolation.unlimited_access || command.trim().is_empty() {
+        return command;
     }
+
+    let Some(runtime_id) = member.runtime.runtime_id.as_deref() else {
+        return command;
+    };
+    let Some(flag) = built_in_unlimited_access_flag(runtime_id) else {
+        return command;
+    };
+
+    if command_has_flag(&command, flag) || command_has_flag(&command, "--yolo") {
+        return command;
+    }
+
+    let Some(executable_name) = command_executable_name(&command) else {
+        return command;
+    };
+    if !built_in_runtime_matches_executable(runtime_id, &executable_name) {
+        return command;
+    }
+
+    format!("{} {}", command.trim_end(), flag)
+}
+
+fn built_in_unlimited_access_flag(runtime_id: &str) -> Option<&'static str> {
+    match runtime_id.trim() {
+        "codex" => Some("--dangerously-bypass-approvals-and-sandbox"),
+        "claude-code" => Some("--dangerously-skip-permissions"),
+        "gemini" | "qwen-code" => Some("--yolo"),
+        _ => None,
+    }
+}
+
+fn built_in_runtime_matches_executable(runtime_id: &str, executable_name: &str) -> bool {
+    matches!(
+        (runtime_id.trim(), executable_name),
+        ("codex", "codex")
+            | ("claude-code", "claude")
+            | ("gemini", "gemini")
+            | ("qwen-code", "qwen")
+    )
+}
+
+fn command_has_flag(command: &str, flag: &str) -> bool {
+    command.split_whitespace().any(|part| part == flag)
+}
+
+fn command_executable_name(command: &str) -> Option<String> {
+    let executable = command_executable_token(command)?;
+    Path::new(&executable)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.to_owned())
+}
+
+fn command_executable_token(command: &str) -> Option<String> {
+    let command = command.trim();
+    if command.is_empty() {
+        return None;
+    }
+
+    let mut chars = command.chars();
+    let first = chars.next()?;
+
+    if first == '"' || first == '\'' {
+        let mut executable = String::new();
+        let mut escaped = false;
+
+        for value in chars {
+            if escaped {
+                executable.push(value);
+                escaped = false;
+                continue;
+            }
+
+            if value == '\\' {
+                escaped = true;
+                continue;
+            }
+
+            if value == first {
+                return Some(executable);
+            }
+
+            executable.push(value);
+        }
+
+        return None;
+    }
+
+    Some(command.split_whitespace().next()?.to_owned())
 }
 
 fn configured_member_runtime_label(
@@ -1105,6 +1243,10 @@ fn clone_snapshot(snapshot_state: &Arc<Mutex<TerminalSessionSnapshot>>) -> Termi
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
+}
+
+fn output_has_startup_ready_marker(text: &str) -> bool {
+    text.contains("\x1b]633;A") || text.to_ascii_lowercase().contains("ready")
 }
 
 fn ensure_session_workspace(
@@ -1364,6 +1506,71 @@ mod tests {
         assert_eq!(
             launcher.launches.lock().expect("launches")[0].command,
             cli_command
+        );
+    }
+
+    #[test]
+    fn launches_unlimited_built_in_member_with_cli_bypass_flag() {
+        let app_data = tempdir().expect("app data");
+        let workspace = workspace();
+        let cli_command = available_command(app_data.path(), "codex");
+        let mut configuration =
+            crate::infrastructure::persistence::json_store::terminal_configuration_store::default_terminal_configuration();
+        configuration
+            .built_in_cli_entries
+            .iter_mut()
+            .find(|entry| entry.runtime_id == "codex")
+            .expect("codex entry")
+            .command = cli_command.clone();
+        configuration.updated_at_ms = configuration.created_at_ms + 1;
+        crate::domain::settings::normalize_terminal_configuration(&mut configuration)
+            .expect("normalized");
+        crate::infrastructure::persistence::json_store::terminal_configuration_store::save_terminal_configuration(
+            app_data.path(),
+            &configuration,
+        )
+        .expect("terminal configuration saved");
+        let member = invite_workspace_member(
+            app_data.path(),
+            InviteMemberRequest {
+                workspace_id: workspace.metadata.project_id.clone(),
+                member_type: InvitedMemberType::Assistant,
+                display_name: "Codex Reviewer".to_owned(),
+                runtime: MemberRuntimeProfile {
+                    kind: MemberRuntimeKind::BuiltInAiCli,
+                    runtime_id: Some("codex".to_owned()),
+                    label: Some("Codex CLI".to_owned()),
+                    command: Some(cli_command.clone()),
+                },
+                instance_count: None,
+                permissions: None,
+                isolation: Some(MemberIsolation {
+                    sandboxed: false,
+                    unlimited_access: true,
+                }),
+            },
+        )
+        .expect("member")
+        .member;
+        let launcher = Arc::new(MockLauncher::default());
+        let state = TerminalRuntimeState::with_launcher(launcher.clone());
+
+        state
+            .open_or_create_session(
+                app_data.path().to_path_buf(),
+                &workspace,
+                TerminalOpenRequest {
+                    member_id: Some(member.member_id),
+                    attach_current: false,
+                },
+                Arc::new(|_| {}),
+                Arc::new(|_| {}),
+            )
+            .expect("member session");
+
+        assert_eq!(
+            launcher.launches.lock().expect("launches")[0].command,
+            format!("{} --dangerously-bypass-approvals-and-sandbox", cli_command)
         );
     }
 

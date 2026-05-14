@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::Duration};
 
 use crate::{
     app::terminal::{TerminalEventSink, TerminalRuntimeState, TerminalStatusSink},
@@ -6,7 +6,8 @@ use crate::{
         AppError, ChatMessageProfile, ChatMessageStatus, ConversationProfile,
         DispatchChatMessageRequest, DispatchChatMessageResult, DispatchQueueResumeRequest,
         DispatchQueueResumeResult, DispatchRequestProfile, DispatchTargetResolutionProfile,
-        MemberProfile, MemberStatus, OpenedWorkspace, TerminalInputRequest, TerminalOpenRequest,
+        MemberProfile, MemberRuntimeKind, MemberStatus, OpenedWorkspace, TerminalInputRequest,
+        TerminalOpenRequest,
     },
     domain::chat::has_all_mention_token,
     domain::orchestration::{
@@ -29,6 +30,8 @@ use crate::{
 
 const DISPATCH_MERGE_LOOKBACK_LIMIT: u32 = 8;
 const DISPATCH_MERGE_WINDOW_MS: u64 = 5 * 60 * 1000;
+const INITIAL_AI_DISPATCH_READY_TIMEOUT_MS: u64 = 6_000;
+const INITIAL_AI_DISPATCH_READY_QUIET_MS: u64 = 500;
 
 #[derive(Clone, Copy)]
 enum DispatchMergeMode {
@@ -262,6 +265,7 @@ fn dispatch_chat_message_with_target_resolution(
         workspace,
         dispatch,
         &dispatch_plan.payload,
+        target_member.runtime.kind.clone(),
         terminal_state,
         event_sink,
         status_sink,
@@ -329,11 +333,13 @@ pub fn resume_member_dispatch_queue(
         });
     };
     let payload = dispatch_payload_for_sources(&app_data_dir, &dispatch)?;
+    let target_runtime_kind = member.runtime.kind.clone();
     let result = run_dispatch_payload(
         app_data_dir.clone(),
         workspace,
         dispatch,
         &payload,
+        target_runtime_kind,
         terminal_state,
         event_sink,
         status_sink,
@@ -515,6 +521,7 @@ fn run_dispatch_payload(
     workspace: &OpenedWorkspace,
     dispatch: DispatchRequestProfile,
     body: &str,
+    target_runtime_kind: MemberRuntimeKind,
     terminal_state: &TerminalRuntimeState,
     event_sink: TerminalEventSink,
     status_sink: TerminalStatusSink,
@@ -540,6 +547,15 @@ fn run_dispatch_payload(
             });
         }
     };
+
+    if session_created && should_wait_for_initial_dispatch_readiness(&target_runtime_kind) {
+        let _ = terminal_state.wait_for_session_output_quiet(
+            &workspace.metadata.project_id,
+            &session.terminal_session_id,
+            Duration::from_millis(INITIAL_AI_DISPATCH_READY_TIMEOUT_MS),
+            Duration::from_millis(INITIAL_AI_DISPATCH_READY_QUIET_MS),
+        );
+    }
 
     if let Err(error) =
         terminal_state.ensure_tab_for_session(app_data_dir.clone(), &session, session.title.clone())
@@ -576,6 +592,13 @@ fn run_dispatch_payload(
         terminal_session: Some(session),
         session_created,
     })
+}
+
+fn should_wait_for_initial_dispatch_readiness(runtime_kind: &MemberRuntimeKind) -> bool {
+    matches!(
+        runtime_kind,
+        MemberRuntimeKind::BuiltInAiCli | MemberRuntimeKind::CustomCli
+    )
 }
 
 #[cfg(test)]
@@ -770,7 +793,7 @@ mod tests {
         assert_eq!(terminal_state.session_count(), 1);
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:Review this patch\n"]
+            ["input:Review this patch\r"]
         );
         assert_eq!(
             launcher.launches.lock().expect("launches")[0].command,
@@ -850,7 +873,7 @@ mod tests {
         assert_eq!(result.dispatches[0].dispatch.member_id, member.member_id);
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:Inspect this context\n"]
+            ["input:Inspect this context\r"]
         );
     }
 
@@ -975,7 +998,7 @@ mod tests {
         );
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:@Codex 帮我查下今天北京的天气\n"]
+            ["input:@Codex 帮我查下今天北京的天气\r"]
         );
     }
 
@@ -1232,7 +1255,7 @@ mod tests {
         );
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:@Reviewer please act now\n"]
+            ["input:@Reviewer please act now\r"]
         );
     }
 
@@ -1408,7 +1431,7 @@ mod tests {
         );
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:Run once\n"]
+            ["input:Run once\r"]
         );
         assert_eq!(
             dispatches_for_message(
@@ -1506,7 +1529,7 @@ mod tests {
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
             [format!(
-                "input:[sourceMessageId:{}]\nFirst related instruction\n\n[sourceMessageId:{}]\nSecond related instruction\n",
+                "input:[sourceMessageId:{}]\nFirst related instruction\n\n[sourceMessageId:{}]\nSecond related instruction\r",
                 first_message.message_id, second_message.message_id
             )]
         );
@@ -1623,7 +1646,7 @@ mod tests {
         );
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:Second target instruction\n"]
+            ["input:Second target instruction\r"]
         );
     }
 
@@ -1702,7 +1725,7 @@ mod tests {
             .contains("Private Reviewer"));
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:No mention needed in private chat\n"]
+            ["input:No mention needed in private chat\r"]
         );
     }
 
@@ -2055,7 +2078,7 @@ mod tests {
         assert_eq!(launcher.launches.lock().expect("launches").len(), 1);
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:First queued task\n"]
+            ["input:First queued task\r"]
         );
     }
 
@@ -2262,7 +2285,7 @@ mod tests {
         assert_eq!(launcher.launches.lock().expect("launches").len(), 1);
         assert_eq!(
             launcher.operations.lock().expect("operations").as_slice(),
-            ["input:First task\n", "input:Second task\n"]
+            ["input:First task\r", "input:Second task\r"]
         );
     }
 
